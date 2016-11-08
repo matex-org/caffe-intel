@@ -38,10 +38,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include <gflags/gflags.h>
+
+#include "caffe/mpi.hpp"
 #include "caffe/sgd_solvers.hpp"
 #include "caffe/util/hdf5.hpp"
 #include "caffe/util/io.hpp"
 #include "caffe/util/upgrade_proto.hpp"
+
+DECLARE_string(par);
+DECLARE_bool(scale_on_apply);
 
 namespace caffe {
 
@@ -194,6 +200,12 @@ void SGDSolver<Dtype>::Regularize(int param_id) {
   Dtype weight_decay = this->param_.weight_decay();
   string regularization_type = this->param_.regularization_type();
   Dtype local_decay = weight_decay * net_params_weight_decay[param_id];
+#ifdef USE_MPI
+  if (!FLAGS_par.empty() && FLAGS_scale_on_apply) {
+    LOG_FIRST_N(INFO, 1) << "upscaling decay during Regularize to offset later";
+    local_decay *= caffe::mpi::comm_size();
+  }
+#endif
   switch (Caffe::mode()) {
   case Caffe::CPU: {
     if (local_decay) {
@@ -273,6 +285,12 @@ void SGDSolver<Dtype>::ComputeUpdateValue(int param_id, Dtype rate) {
   const vector<float>& net_params_lr = this->net_->params_lr();
   Dtype momentum = this->param_.momentum();
   Dtype local_rate = rate * net_params_lr[param_id];
+#ifdef USE_MPI
+  if (!FLAGS_par.empty() && FLAGS_scale_on_apply) {
+    LOG_FIRST_N(INFO, 1) << "scaling gradients during ComputeUpdateValue";
+    local_rate /= caffe::mpi::comm_size();
+  }
+#endif
   // Compute the update to history, then copy it to the parameter diff.
   switch (Caffe::mode()) {
   case Caffe::CPU: {

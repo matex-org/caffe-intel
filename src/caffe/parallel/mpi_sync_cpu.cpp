@@ -1,6 +1,7 @@
 #ifndef CPU_ONLY
 #include <cuda_runtime.h>
 #endif
+#include <gflags/gflags.h>
 #include <glog/logging.h>
 #include <stdio.h>
 
@@ -12,6 +13,15 @@
 #include "caffe/caffe.hpp"
 #include "caffe/mpi.hpp"
 #include "caffe/parallel/mpi_sync_cpu.hpp"
+
+DEFINE_string(par, "",
+    "Optional; select parallelization strategy, e.g., MPISyncCPU");
+DEFINE_int32(buffer_depth, 2,
+    "Optional; parallel mode, the number of buffers used by "
+    "communication code.");
+DEFINE_bool(scale_on_apply, true,
+    "Optional; parallel mode, whether scaling gradients occurs during "
+    "the ApplyUpdate phase as part of regular operations.");
 
 namespace caffe {
 
@@ -50,7 +60,9 @@ void MPISyncCPU<Dtype>::on_gradients_ready() {
 #ifdef USE_MPI
   // Sum gradients
   caffe::mpi::allreduce(diff_, size_, MPI_SUM, comm_);
-  //caffe_scal(size_, Dtype(1.0 / comm_size_), diff_);
+  if (!FLAGS_scale_on_apply) {
+    caffe_scal(size_, Dtype(1.0 / comm_size_), diff_);
+  }
 #else
   NO_MPI;
 #endif

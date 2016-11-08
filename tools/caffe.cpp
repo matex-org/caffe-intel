@@ -80,12 +80,9 @@ using caffe::vector;
 using std::ostringstream;
 
 #ifdef USE_MPI
-DEFINE_string(par, "",
-    "Optional; select parallelization strategy, e.g., "
-    "MPISyncCPU");
-DEFINE_int32(buffer_depth, 2,
-    "Optional; MPI mode, "
-    "The number of buffers used by communication code.");
+DECLARE_string(par);
+DECLARE_int32(buffer_depth);
+DECLARE_bool(scale_on_apply);
 #endif
 DEFINE_string(gpu, "",
     "Optional; run in GPU mode on given device IDs separated by ','."
