@@ -373,20 +373,25 @@ void PnetCDFAllDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
   double trans_time = 0;
   CPUTimer timer;
   CHECK(batch->data_.count());
+
+#ifndef _OPENMP
   CHECK(this->transformed_data_.count());
+#endif
 
   vector<int> top_shape = get_datum_shape();
   size_t datum_size = get_datum_size();
-  Datum datum;
-  datum.set_channels(top_shape[1]);
-  datum.set_height(top_shape[2]);
-  datum.set_width(top_shape[3]);
+  Datum masterDatum;
+  masterDatum.set_channels(top_shape[1]);
+  masterDatum.set_height(top_shape[2]);
+  masterDatum.set_width(top_shape[3]);
 
   // Reshape according to the first datum of each batch
   // on single input batches allows for inputs of varying dimension.
   const int batch_size = this->layer_param_.data_param().batch_size();
   top_shape = infer_blob_shape();
+#ifndef _OPENMP
   this->transformed_data_.Reshape(top_shape);
+#endif
   // Reshape batch according to the batch_size.
   top_shape[0] = batch_size;
   batch->data_.Reshape(top_shape);
@@ -398,24 +403,44 @@ void PnetCDFAllDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
   if (this->output_labels_) {
     top_label = batch->label_.mutable_cpu_data();
   }
+  //size_t row = current_row;
+#ifdef _OPENMP
+  #pragma omp parallel if (batch_size > 1)
+  #pragma omp single nowait
+#endif
   for (int item_id = 0; item_id < batch_size; ++item_id) {
     timer.Start();
     // get a datum
-    size_t row = next_row();
+    size_t row = (current_row_+item_id) % this->max_row_;
     size_t pnetcdf_offset = row * datum_size;
-    datum.set_data(this->data_.get() + pnetcdf_offset, datum_size);
     read_time += timer.MicroSeconds();
     timer.Start();
     // Apply data transformations (mirror, scale, crop...)
-    int offset = batch->data_.offset(item_id);
-    this->transformed_data_.set_cpu_data(top_data + offset);
-    this->data_transformer_->Transform(datum, &(this->transformed_data_));
-    // Copy label.
-    if (this->output_labels_) {
-      top_label[item_id] = this->label_.get()[row];
+    #pragma omp task firstprivate(masterDatum, top_label, item_id)
+    {
+      Datum datum = masterDatum;
+      datum.set_data(this->data_.get() + pnetcdf_offset, datum_size);
+      
+      int offset = batch->data_.offset(item_id);
+#ifdef _OPENMP
+      Blob<Dtype> tmp_data;
+      tmp_data.Reshape(top_shape);
+      tmp_data.set_cpu_data(top_data + offset);
+      this->data_transformer_->Transform(datum, &tmp_data);
+#else
+      this->transformed_data_.set_cpu_data(top_data + offset);
+      this->data_transformer_->Transform(datum, &(this->transformed_data_));
+#endif
+      // Copy label.
+      if (this->output_labels_) {
+        top_label[item_id] = this->label_.get()[row];
+      }
     }
     trans_time += timer.MicroSeconds();
   }
+  
+  current_row_+=batch_size;
+
   timer.Stop();
   batch_timer.Stop();
   DLOG(INFO) << "Prefetch batch: " << batch_timer.MilliSeconds() << " ms.";
@@ -426,10 +451,10 @@ void PnetCDFAllDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
 template<typename Dtype>
 size_t PnetCDFAllDataLayer<Dtype>::next_row() {
   size_t row;
-  row_mutex_->lock();
+  //row_mutex_->lock();
   row = current_row_++;
   current_row_ = current_row_ % this->max_row_;
-  row_mutex_->unlock();
+  //row_mutex_->unlock();
   return row;
 }
 
