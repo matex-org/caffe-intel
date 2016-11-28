@@ -259,6 +259,8 @@ void Solver<Dtype>::Step(int iters) {
   iteration_timer_.Start();
   float lapse_total = 0;
 
+  net_->SetSolver(this);
+
   while (iter_ < stop_iter) {
     if (param_.test_interval() && iter_ % param_.test_interval() == 0
         && (iter_ > 0 || param_.test_initialization())

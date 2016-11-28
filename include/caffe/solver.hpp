@@ -117,9 +117,12 @@ class Solver {
    protected:
     virtual void on_start() = 0;
     virtual void on_gradients_ready() = 0;
+    virtual void on_gradients_ready(int param_id) {}
 
     template <typename T>
     friend class Solver;
+    template <typename T>
+    friend class Net;
   };
   const vector<Callback*>& callbacks() const { return callbacks_; }
   void add_callback(Callback* value) {
