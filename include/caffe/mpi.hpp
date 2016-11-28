@@ -5,6 +5,8 @@
 #include <mpi.h>
 #endif
 
+#include <vector>
+
 #define NO_MPI LOG(FATAL) << "Cannot use MPI unless USE_MPI is enabled during make."
 
 namespace caffe {
@@ -48,6 +50,20 @@ void allreduce(float* buffer, int count,
         MPI_Op op=MPI_SUM, MPI_Comm comm=MPI_COMM_NULL);
 void allreduce(double* buffer, int count,
         MPI_Op op=MPI_SUM, MPI_Comm comm=MPI_COMM_NULL);
+
+void iallreduce_copy(MPI_Request *request, const float* sendbuf,
+        float* recvbuf, int count,
+        MPI_Op op=MPI_SUM, MPI_Comm comm=MPI_COMM_NULL);
+void iallreduce_copy(MPI_Request *request, const double* sendbuf,
+        double* recvbuf, int count,
+        MPI_Op op=MPI_SUM, MPI_Comm comm=MPI_COMM_NULL);
+
+void iallreduce(MPI_Request *request, float* buffer, int count,
+        MPI_Op op=MPI_SUM, MPI_Comm comm=MPI_COMM_NULL);
+void iallreduce(MPI_Request *request, double* buffer, int count,
+        MPI_Op op=MPI_SUM, MPI_Comm comm=MPI_COMM_NULL);
+
+void waitall(std::vector<MPI_Request>& requests);
 
 void bcast(float* buffer, int count, int root=0, MPI_Comm comm=MPI_COMM_NULL);
 void bcast(double* buffer, int count, int root=0, MPI_Comm comm=MPI_COMM_NULL);

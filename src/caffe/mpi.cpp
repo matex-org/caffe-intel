@@ -242,6 +242,30 @@ void allreduce_copy(const double* sendbuf, double* recvbuf, int count,
   }
 }
 
+void iallreduce_copy(MPI_Request *request, const float* sendbuf,
+    float* recvbuf, int count, MPI_Op op, MPI_Comm comm) {
+  if (MPI_COMM_NULL == comm) {
+    comm = get_comm_default();
+  }
+
+  if (MPI_SUCCESS != MPI_Iallreduce((void*)sendbuf, recvbuf, count,
+              MPI_FLOAT, op, comm, request)) {
+    throw std::runtime_error("MPI_Iallreduce failed (iallreduce_copy float)");
+  }
+}
+
+void iallreduce_copy(MPI_Request *request, const double* sendbuf,
+    double* recvbuf, int count, MPI_Op op, MPI_Comm comm) {
+  if (MPI_COMM_NULL == comm) {
+    comm = get_comm_default();
+  }
+
+  if (MPI_SUCCESS != MPI_Iallreduce((void*)sendbuf, recvbuf, count,
+              MPI_DOUBLE, op, comm, request)) {
+    throw std::runtime_error("MPI_Iallreduce failed (iallreduce_copy double)");
+  }
+}
+
 void allreduce(float& buffer, MPI_Op op, MPI_Comm comm) {
   if (MPI_COMM_NULL == comm) {
     comm = get_comm_default();
@@ -283,6 +307,34 @@ void allreduce(double* buffer, int count, MPI_Op op, MPI_Comm comm) {
   if (MPI_SUCCESS != MPI_Allreduce(MPI_IN_PLACE, buffer, count,
               MPI_DOUBLE, op, comm)) {
     throw std::runtime_error("MPI_Allreduce failed (allreduce double)");
+  }
+}
+
+void iallreduce(MPI_Request *request, float* buffer, int count, MPI_Op op, MPI_Comm comm) {
+  if (MPI_COMM_NULL == comm) {
+    comm = get_comm_default();
+  }
+
+  if (MPI_SUCCESS != MPI_Iallreduce(MPI_IN_PLACE, buffer, count,
+              MPI_FLOAT, op, comm, request)) {
+    throw std::runtime_error("MPI_Iallreduce failed (iallreduce float)");
+  }
+}
+
+void iallreduce(MPI_Request *request, double* buffer, int count, MPI_Op op, MPI_Comm comm) {
+  if (MPI_COMM_NULL == comm) {
+    comm = get_comm_default();
+  }
+
+  if (MPI_SUCCESS != MPI_Iallreduce(MPI_IN_PLACE, buffer, count,
+              MPI_DOUBLE, op, comm, request)) {
+    throw std::runtime_error("MPI_Iallreduce failed (iallreduce double)");
+  }
+}
+
+void waitall(std::vector<MPI_Request>& requests) {
+  if (MPI_SUCCESS != MPI_Waitall(requests.size(), &requests[0], MPI_STATUS_IGNORE)) {
+    throw std::runtime_error("MPI_Waitall failed (waitall vector<MPI_Request>)");
   }
 }
 
