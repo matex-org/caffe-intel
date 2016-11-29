@@ -53,10 +53,10 @@ namespace bp = boost::python;
 #include "caffe/caffe.hpp"
 #include "caffe/internode/mpiutil.hpp"
 #include "caffe/multinode/multinode.hpp"
+#include "caffe/parallel/mpi_async_params_cpu.hpp"
 #if 0
 #include "caffe/parallel/mpi_async_cpu.hpp"
 #include "caffe/parallel/mpi_async_layers_cpu.hpp"
-#include "caffe/parallel/mpi_async_params_cpu.hpp"
 #include "caffe/parallel/mpi_async_params_cpu2.hpp"
 #include "caffe/parallel/mpi_async_params_lazy_cpu.hpp"
 #include "caffe/parallel/mpi_async_lazy_cpu.hpp"
@@ -328,6 +328,9 @@ int train() {
     if (FLAGS_par == "MPISyncCPU") {
       caffe::MPISyncCPU<float> sync(solver);
       sync.Run();
+    } else if (FLAGS_par == "MPIAsyncParamsCPU") {
+      caffe::MPIAsyncParamsCPU<float> sync(solver, FLAGS_comm_threads);
+      sync.Run();
 #if 0
     } else if (FLAGS_par == "MPISyncParamsCPU") {
       caffe::MPISyncParamsCPU<float> sync(solver);
@@ -337,9 +340,6 @@ int train() {
       sync.Run();
     } else if (FLAGS_par == "MPIAsyncCPU") {
       caffe::MPIAsyncCPU<float> sync(solver, FLAGS_buffer_depth, FLAGS_comm_threads);
-      sync.Run();
-    } else if (FLAGS_par == "MPIAsyncParamsCPU") {
-      caffe::MPIAsyncParamsCPU<float> sync(solver, FLAGS_comm_threads);
       sync.Run();
     } else if (FLAGS_par == "MPIAsyncParamsCPU2") {
       caffe::MPIAsyncParamsCPU2<float> sync(solver, FLAGS_comm_threads);
