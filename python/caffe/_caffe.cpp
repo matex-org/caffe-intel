@@ -418,22 +418,34 @@ BOOST_PYTHON_MODULE(_caffe) {
 
   bp::class_<SGDSolver<Dtype>, bp::bases<Solver<Dtype> >,
     shared_ptr<SGDSolver<Dtype> >, boost::noncopyable>(
-        "SGDSolver", bp::init<string>());
+        "SGDSolver", bp::init<string>())
+    .add_property("history", bp::make_function(&SGDSolver<Dtype>::history,
+        bp::return_internal_reference<>()));
   bp::class_<NesterovSolver<Dtype>, bp::bases<Solver<Dtype> >,
     shared_ptr<NesterovSolver<Dtype> >, boost::noncopyable>(
-        "NesterovSolver", bp::init<string>());
+        "NesterovSolver", bp::init<string>())    
+	.add_property("history", bp::make_function(&NesterovSolver<Dtype>::history,
+        bp::return_internal_reference<>()));
   bp::class_<AdaGradSolver<Dtype>, bp::bases<Solver<Dtype> >,
     shared_ptr<AdaGradSolver<Dtype> >, boost::noncopyable>(
-        "AdaGradSolver", bp::init<string>());
+        "AdaGradSolver", bp::init<string>())    
+	.add_property("history", bp::make_function(&AdaGradSolver<Dtype>::history,
+        bp::return_internal_reference<>()));
   bp::class_<RMSPropSolver<Dtype>, bp::bases<Solver<Dtype> >,
     shared_ptr<RMSPropSolver<Dtype> >, boost::noncopyable>(
-        "RMSPropSolver", bp::init<string>());
+        "RMSPropSolver", bp::init<string>())
+	.add_property("history", bp::make_function(&RMSPropSolver<Dtype>::history,
+        bp::return_internal_reference<>()));
   bp::class_<AdaDeltaSolver<Dtype>, bp::bases<Solver<Dtype> >,
     shared_ptr<AdaDeltaSolver<Dtype> >, boost::noncopyable>(
-        "AdaDeltaSolver", bp::init<string>());
+        "AdaDeltaSolver", bp::init<string>())
+	.add_property("history", bp::make_function(&AdaDeltaSolver<Dtype>::history,
+        bp::return_internal_reference<>()));
   bp::class_<AdamSolver<Dtype>, bp::bases<Solver<Dtype> >,
     shared_ptr<AdamSolver<Dtype> >, boost::noncopyable>(
-        "AdamSolver", bp::init<string>());
+        "AdamSolver", bp::init<string>())
+	.add_property("history", bp::make_function(&AdamSolver<Dtype>::history,
+        bp::return_internal_reference<>()));
 
   bp::def("get_solver", &GetSolverFromFile,
       bp::return_value_policy<bp::manage_new_object>());
