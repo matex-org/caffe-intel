@@ -418,34 +418,22 @@ BOOST_PYTHON_MODULE(_caffe) {
 
   bp::class_<SGDSolver<Dtype>, bp::bases<Solver<Dtype> >,
     shared_ptr<SGDSolver<Dtype> >, boost::noncopyable>(
-        "SGDSolver", bp::init<string>())
-    .add_property("history", bp::make_function(&SGDSolver<Dtype>::history,
-        bp::return_internal_reference<>()));
+        "SGDSolver", bp::init<string>());
   bp::class_<NesterovSolver<Dtype>, bp::bases<Solver<Dtype> >,
     shared_ptr<NesterovSolver<Dtype> >, boost::noncopyable>(
-        "NesterovSolver", bp::init<string>())    
-	.add_property("history", bp::make_function(&NesterovSolver<Dtype>::history,
-        bp::return_internal_reference<>()));
+        "NesterovSolver", bp::init<string>());
   bp::class_<AdaGradSolver<Dtype>, bp::bases<Solver<Dtype> >,
     shared_ptr<AdaGradSolver<Dtype> >, boost::noncopyable>(
-        "AdaGradSolver", bp::init<string>())    
-	.add_property("history", bp::make_function(&AdaGradSolver<Dtype>::history,
-        bp::return_internal_reference<>()));
+        "AdaGradSolver", bp::init<string>());
   bp::class_<RMSPropSolver<Dtype>, bp::bases<Solver<Dtype> >,
     shared_ptr<RMSPropSolver<Dtype> >, boost::noncopyable>(
-        "RMSPropSolver", bp::init<string>())
-	.add_property("history", bp::make_function(&RMSPropSolver<Dtype>::history,
-        bp::return_internal_reference<>()));
+        "RMSPropSolver", bp::init<string>());
   bp::class_<AdaDeltaSolver<Dtype>, bp::bases<Solver<Dtype> >,
     shared_ptr<AdaDeltaSolver<Dtype> >, boost::noncopyable>(
-        "AdaDeltaSolver", bp::init<string>())
-	.add_property("history", bp::make_function(&AdaDeltaSolver<Dtype>::history,
-        bp::return_internal_reference<>()));
+        "AdaDeltaSolver", bp::init<string>());
   bp::class_<AdamSolver<Dtype>, bp::bases<Solver<Dtype> >,
     shared_ptr<AdamSolver<Dtype> >, boost::noncopyable>(
-        "AdamSolver", bp::init<string>())
-	.add_property("history", bp::make_function(&AdamSolver<Dtype>::history,
-        bp::return_internal_reference<>()));
+        "AdamSolver", bp::init<string>());
 
   bp::def("get_solver", &GetSolverFromFile,
       bp::return_value_policy<bp::manage_new_object>());
