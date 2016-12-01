@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "caffe/layers/mkl_layers.hpp"
 #include "caffe/util/math_functions.hpp"
+#include "caffe/util/performance.hpp"
 
 namespace caffe {
 
@@ -91,7 +92,7 @@ void MKLEltwiseLayer<Dtype>::Init(const vector<Blob<Dtype>*>& bottom,
                                              false);
   }
 
-  fwd_top_data->create_user_layout(dim_src, sizes_src, strides_src,false);
+  fwd_top_data->create_user_layout(dim_src, sizes_src, strides_src, false);
 
   dnnDelete<Dtype>(sumPrimitive);
 }
@@ -112,13 +113,12 @@ void MKLEltwiseLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
     EltwiseParameter_EltwiseOp_SUM)
       << "MKLEltwise Layer only process summation.";
 
-  Init(bottom,top);
+  Init(bottom, top);
 }
 
 template <typename Dtype>
 void MKLEltwiseLayer<Dtype>::Reshape(const vector<Blob<Dtype>*>& bottom,
       const vector<Blob<Dtype>*>& top) {
-
   for (int i = 1; i < bottom.size(); ++i) {
     CHECK(bottom[i]->shape() == bottom[0]->shape());
   }
@@ -137,7 +137,7 @@ void MKLEltwiseLayer<Dtype>::Reshape(const vector<Blob<Dtype>*>& bottom,
     return;
   }
 
-  Init(bottom,top);
+  Init(bottom, top);
 }
 
 template <typename Dtype>
@@ -217,7 +217,11 @@ void MKLEltwiseLayer<Dtype>::Forward_cpu(
         reinterpret_cast<void*>(const_cast<Dtype*>(top[0]->mutable_cpu_data()));
     }
 
-    e = dnnExecute<Dtype>(sumPrimitive, eltwise_res);
+    { // local scope needed since the macro below contains variable declaration
+      PERFORMANCE_MEASUREMENT_BEGIN();
+      e = dnnExecute<Dtype>(sumPrimitive, eltwise_res);
+      PERFORMANCE_MEASUREMENT_END_STATIC("FW_mkl_eltwise");
+    }
     CHECK_EQ(e, E_SUCCESS);
 
     break;

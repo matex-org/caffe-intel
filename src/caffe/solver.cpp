@@ -45,6 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "caffe/util/format.hpp"
 #include "caffe/util/hdf5.hpp"
 #include "caffe/util/io.hpp"
+#include "caffe/util/performance.hpp"
 #include "caffe/util/upgrade_proto.hpp"
 
 namespace caffe {
@@ -136,6 +137,8 @@ void Solver<Dtype>::InitTrainNet() {
         << "Creating training net from net file: " << param_.net();
     ReadNetParamsFromTextFileOrDie(param_.net(), &net_param);
   }
+  if (param_.engine() != "")
+    net_param.set_engine(param_.engine());
   // Set the correct NetState.  We start with the solver defaults (lowest
   // precedence); then, merge in any NetState specified by the net_param itself;
   // finally, merge in any NetState specified by the train_state (highest
@@ -222,6 +225,10 @@ void Solver<Dtype>::InitTestNets() {
       net_state.MergeFrom(param_.test_state(i));
     }
     net_params[i].mutable_state()->CopyFrom(net_state);
+
+    if (param_.engine() != "")
+      net_params[i].set_engine(param_.engine());
+
     LOG(INFO)
         << "Creating test net (#" << i << ") specified by " << sources[i];
     if (Caffe::root_solver()) {
@@ -354,6 +361,8 @@ void Solver<Dtype>::Solve(const char* resume_file) {
   LOG(INFO) << "Solving " << net_->name();
   LOG(INFO) << "Learning Rate Policy: " << param_.lr_policy();
 
+  PERFORMANCE_INIT_MONITOR();
+
   // Initialize to false every time we start solving.
   requested_early_exit_ = false;
 
@@ -397,7 +406,7 @@ void Solver<Dtype>::Solve(const char* resume_file) {
 #endif
   }
 
-#ifndef USE_MPI // in multinode last test must be done after weights update
+#ifndef USE_MPI  // in multinode last test must be done after weights update
   if (param_.test_interval() && iter_ % param_.test_interval() == 0)
     TestAll();
 #endif
