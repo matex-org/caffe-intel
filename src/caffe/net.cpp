@@ -53,9 +53,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "caffe/util/hdf5.hpp"
 #include "caffe/util/insert_splits.hpp"
 #include "caffe/util/math_functions.hpp"
+#include "caffe/util/performance.hpp"
 #include "caffe/util/upgrade_proto.hpp"
 
 #include "caffe/test/test_caffe_main.hpp"
+
+PERFORMANCE_CREATE_MONITOR();
 
 namespace caffe {
 
@@ -68,7 +71,7 @@ Net<Dtype>::Net(const NetParameter& param, const Net* root_net)
 template <typename Dtype>
 Net<Dtype>::Net(const string& param_file, Phase phase,
     const int level, const vector<string>* stages,
-    const Net* root_net)
+    const Net* root_net, std::string engine)
     : root_net_(root_net) {
   NetParameter param;
   ReadNetParamsFromTextFileOrDie(param_file, &param);
@@ -80,6 +83,8 @@ Net<Dtype>::Net(const string& param_file, Phase phase,
     }
   }
   param.mutable_state()->set_level(level);
+  if (engine != "")
+    param.set_engine(engine);
   Init(param);
 }
 
@@ -108,6 +113,17 @@ void Net<Dtype>::Init(const NetParameter& in_param) {
   // the current NetState.
   NetParameter filtered_param;
   FilterNet(in_param, &filtered_param);
+
+  // Backward compatibility for obsolete compile-time flags
+#ifdef USE_MKL2017_AS_DEFAULT_ENGINE
+  if (filtered_param.engine() == "")
+    filtered_param.set_engine("MKL2017");
+#endif
+#ifdef USE_MKLDNN_AS_DEFAULT_ENGINE
+  if (filtered_param.engine() == "")
+    filtered_param.set_engine("MKLDNN");
+#endif
+
   // Create a copy of filtered_param with splits added where necessary.
   NetParameter param_with_splits;
   InsertSplits(filtered_param, &param_with_splits);
@@ -143,6 +159,8 @@ void Net<Dtype>::Init(const NetParameter& in_param) {
     }
     // Setup layer.
     const LayerParameter& layer_param = param.layer(layer_id);
+    if (param.engine() != "")
+      param.mutable_layer(layer_id)->set_engine(param.engine());
     if (layer_param.propagate_down_size() > 0) {
       CHECK_EQ(layer_param.propagate_down_size(),
           layer_param.bottom_size())
@@ -391,7 +409,6 @@ void Net<Dtype>::CompilationRuleOne(const NetParameter& param,
   for (int i = 0; i < param.layer_size(); ++i) {
     LayerParameter* layer_param =
           (const_cast<NetParameter&>(param)).mutable_layer(i);
-    const string& layer_name = layer_param->name();
     bool layer_included = true;
 
     // Optimization rule 1:
@@ -404,10 +421,9 @@ void Net<Dtype>::CompilationRuleOne(const NetParameter& param,
     if ((layer_param->type().compare("BatchNorm") == 0) &&
        ((layer_param->batch_norm_param().engine() ==
          BatchNormParameter_Engine_MKL2017)
-#if defined(USE_MKL2017_AS_DEFAULT_ENGINE)
-       || (layer_param->batch_norm_param().engine() ==
-           BatchNormParameter_Engine_DEFAULT)
-#endif
+       || ((layer_param->batch_norm_param().engine() ==
+           BatchNormParameter_Engine_DEFAULT) &&
+            param.engine().compare("MKL2017") == 0)
        )) {
       const LayerParameter& consumer_layer_param =
             GetBlobConsumer(layer_param->top(0), param, i+1);
@@ -702,14 +718,21 @@ void Net<Dtype>::AppendParam(const NetParameter& param, const int layer_id,
   }
 }
 
+
+
 template <typename Dtype>
 Dtype Net<Dtype>::ForwardFromTo(int start, int end) {
   CHECK_GE(start, 0);
   CHECK_LT(end, layers_.size());
   Dtype loss = 0;
   for (int i = start; i <= end; ++i) {
+    PERFORMANCE_MEASUREMENT_BEGIN();
+
     // LOG(ERROR) << "Forwarding " << layer_names_[i];
     Dtype layer_loss = layers_[i]->Forward(bottom_vecs_[i], top_vecs_[i]);
+
+    PERFORMANCE_MEASUREMENT_END((std::string("FW_") + layer_names_[i]).c_str());
+
     loss += layer_loss;
     if (debug_info_) { ForwardDebugInfo(i); }
   }
@@ -754,8 +777,13 @@ void Net<Dtype>::BackwardFromTo(int start, int end) {
   CHECK_LT(start, layers_.size());
   for (int i = start; i >= end; --i) {
     if (layer_need_backward_[i]) {
+      PERFORMANCE_MEASUREMENT_BEGIN();
+
       layers_[i]->Backward(
           top_vecs_[i], bottom_need_backward_[i], bottom_vecs_[i]);
+
+      PERFORMANCE_MEASUREMENT_END((std::string("BW_")+layer_names_[i]).c_str());
+
       if (debug_info_) { BackwardDebugInfo(i); }
     }
   }

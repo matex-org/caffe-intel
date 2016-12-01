@@ -53,6 +53,7 @@ namespace bp = boost::python;
 #include "caffe/caffe.hpp"
 #include "caffe/internode/mpiutil.hpp"
 #include "caffe/multinode/multinode.hpp"
+#include "caffe/training_utils.hpp"
 #include "caffe/util/signal_handler.h"
 
 using caffe::Blob;
@@ -103,6 +104,8 @@ DEFINE_int32(comm_threads, 1,
     " The number of threads used by communication code.");
 DEFINE_bool(forward_only, false,
     "Optional; Execute only forward pass");
+DEFINE_string(engine, "",
+    "Optional; Engine sequence in format: engine:subengine_1,subengine_2,...");
 
 // A simple registry for caffe commands.
 typedef int (*BrewFunction)();
@@ -169,13 +172,6 @@ caffe::Phase get_phase_from_flags(caffe::Phase default_value) {
   return caffe::TRAIN;  // Avoid warning
 }
 
-// Parse stages from flags
-vector<string> get_stages_from_flags() {
-  vector<string> stages;
-  boost::split(stages, FLAGS_stage, boost::is_any_of(","));
-  return stages;
-}
-
 // caffe commands to call by
 //     caffe <command> <args>
 //
@@ -231,15 +227,26 @@ int train() {
   CHECK(!FLAGS_snapshot.size() || !FLAGS_weights.size())
       << "Give a snapshot to resume training or weights to finetune "
       "but not both.";
-  vector<string> stages = get_stages_from_flags();
 
   caffe::SolverParameter solver_param;
-  caffe::ReadSolverParamsFromTextFileOrDie(FLAGS_solver, &solver_param);
-
-  solver_param.mutable_train_state()->set_level(FLAGS_level);
-  for (int i = 0; i < stages.size(); i++) {
-    solver_param.mutable_train_state()->add_stage(stages[i]);
+  if (!caffe::ReadProtoFromTextFile(FLAGS_solver, &solver_param)) {
+    caffe::MultiPhaseSolverParameter multi_solver_params;
+    CHECK(caffe::ReadProtoFromTextFile(FLAGS_solver, &multi_solver_params))
+      << "Failed to parse SolverParameter file: "  <<  FLAGS_solver;
+    return multiphase_train(
+      &multi_solver_params,
+      FLAGS_solver,
+      FLAGS_engine,
+      FLAGS_level,
+      FLAGS_stage);
   }
+
+  use_flags(
+    &solver_param,
+    FLAGS_solver,
+    FLAGS_engine,
+    FLAGS_level,
+    FLAGS_stage);
 
   // If the gpus flag is not provided, allow the mode and device to be set
   // in the solver prototxt.
@@ -351,7 +358,7 @@ RegisterBrewFunction(data_server);
 int test() {
   CHECK_GT(FLAGS_model.size(), 0) << "Need a model definition to score.";
   CHECK_GT(FLAGS_weights.size(), 0) << "Need model weights to score.";
-  vector<string> stages = get_stages_from_flags();
+  vector<string> stages = get_stages_from_flags(FLAGS_stage);
 
   // Set device id and mode
   vector<int> gpus;
@@ -370,7 +377,8 @@ int test() {
     Caffe::set_mode(Caffe::CPU);
   }
   // Instantiate the caffe net.
-  Net<float> caffe_net(FLAGS_model, caffe::TEST, FLAGS_level, &stages);
+  Net<float> caffe_net(FLAGS_model, caffe::TEST, FLAGS_level, &stages, NULL,
+                       FLAGS_engine);
   caffe_net.CopyTrainedLayersFrom(FLAGS_weights);
   LOG(INFO) << "Running for " << FLAGS_iterations << " iterations.";
 
@@ -424,7 +432,7 @@ RegisterBrewFunction(test);
 int time() {
   CHECK_GT(FLAGS_model.size(), 0) << "Need a model definition to time.";
   caffe::Phase phase = get_phase_from_flags(caffe::TRAIN);
-  vector<string> stages = get_stages_from_flags();
+  vector<string> stages = get_stages_from_flags(FLAGS_stage);
 
   // Set device id and mode
   vector<int> gpus;
@@ -438,7 +446,8 @@ int time() {
     Caffe::set_mode(Caffe::CPU);
   }
   // Instantiate the caffe net.
-  Net<float> caffe_net(FLAGS_model, phase, FLAGS_level, &stages);
+  Net<float> caffe_net(FLAGS_model, phase, FLAGS_level, &stages, NULL,
+                       FLAGS_engine);
 
   // Do a clean forward and backward pass, so that memory allocation are done
   // and future iterations will be more stable.
