@@ -33,6 +33,16 @@ int node_size(MPI_Comm comm=MPI_COMM_NULL);
 template <typename Dtype>
 MPI_Datatype datatype();
 
+void send(const float* buf, int count, int dest, int tag,
+    MPI_Comm comm=MPI_COMM_NULL);
+void send(const double* buf, int count, int dest, int tag,
+    MPI_Comm comm=MPI_COMM_NULL);
+
+MPI_Status recv(float* buf, int count, int source, int tag,
+    MPI_Comm comm=MPI_COMM_NULL);
+MPI_Status recv(double* buf, int count, int source, int tag,
+    MPI_Comm comm=MPI_COMM_NULL);
+
 void allreduce_copy(const float& sendbuf, float& recvbuf,
         MPI_Op op=MPI_SUM, MPI_Comm comm=MPI_COMM_NULL);
 void allreduce_copy(const double& sendbuf, double& recvbuf,

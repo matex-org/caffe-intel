@@ -194,6 +194,56 @@ MPI_Datatype datatype<double>() {
   return MPI_DOUBLE;
 }
 
+void send(const float* buf, int count, int dest, int tag, MPI_Comm comm) {
+  if (MPI_COMM_NULL == comm) {
+    comm = get_comm_default();
+  }
+
+  if (MPI_SUCCESS != MPI_Send((void*)buf, count, MPI_FLOAT, dest, tag, comm)) {
+    throw std::runtime_error("MPI_Send failed (float)");
+  }
+}
+
+void send(const double* buf, int count, int dest, int tag, MPI_Comm comm) {
+  if (MPI_COMM_NULL == comm) {
+    comm = get_comm_default();
+  }
+
+  if (MPI_SUCCESS != MPI_Send((void*)buf, count, MPI_DOUBLE, dest, tag, comm)) {
+    throw std::runtime_error("MPI_Send failed (double)");
+  }
+}
+
+MPI_Status recv(float* buf, int count, int source, int tag, MPI_Comm comm) {
+  MPI_Status status;
+
+  if (MPI_COMM_NULL == comm) {
+    comm = get_comm_default();
+  }
+
+  if (MPI_SUCCESS != MPI_Recv((void*)buf, count, MPI_FLOAT, source, tag,
+        comm, &status)) {
+    throw std::runtime_error("MPI_Send failed (float)");
+  }
+
+  return status;
+}
+
+MPI_Status recv(double* buf, int count, int source, int tag, MPI_Comm comm) {
+  MPI_Status status;
+
+  if (MPI_COMM_NULL == comm) {
+    comm = get_comm_default();
+  }
+
+  if (MPI_SUCCESS != MPI_Recv((void*)buf, count, MPI_DOUBLE, source, tag,
+        comm, &status)) {
+    throw std::runtime_error("MPI_Send failed (double)");
+  }
+
+  return status;
+}
+
 void allreduce_copy(const float& sendbuf, float& recvbuf, MPI_Op op,
     MPI_Comm comm) {
   if (MPI_COMM_NULL == comm) {
