@@ -86,6 +86,21 @@ MPI_Comm comm_dup(MPI_Comm comm) {
   return newcomm;
 }
 
+MPI_Comm comm_split(int color, int key, MPI_Comm comm) {
+  MPI_Comm newcomm;
+
+  if (MPI_COMM_NULL == comm) {
+    comm = get_comm_default();
+  }
+
+  if (MPI_SUCCESS != MPI_Comm_split(comm, color, key, &newcomm)) {
+    throw std::runtime_error("MPI_Comm_split failed");
+    return MPI_COMM_NULL;
+  }
+
+  return newcomm;
+}
+
 void comm_free(MPI_Comm comm) {
   if (MPI_SUCCESS != MPI_Comm_free(&comm)) {
     throw std::runtime_error("MPI_Comm_free failed");
@@ -214,6 +229,26 @@ void send(const double* buf, int count, int dest, int tag, MPI_Comm comm) {
   }
 }
 
+void send(const float& buf, int dest, int tag, MPI_Comm comm) {
+  if (MPI_COMM_NULL == comm) {
+    comm = get_comm_default();
+  }
+
+  if (MPI_SUCCESS != MPI_Send((void*)&buf, 1, MPI_FLOAT, dest, tag, comm)) {
+    throw std::runtime_error("MPI_Send failed (1 float)");
+  }
+}
+
+void send(const double& buf, int dest, int tag, MPI_Comm comm) {
+  if (MPI_COMM_NULL == comm) {
+    comm = get_comm_default();
+  }
+
+  if (MPI_SUCCESS != MPI_Send((void*)&buf, 1, MPI_DOUBLE, dest, tag, comm)) {
+    throw std::runtime_error("MPI_Send failed (1 double)");
+  }
+}
+
 MPI_Status recv(float* buf, int count, int source, int tag, MPI_Comm comm) {
   MPI_Status status;
 
@@ -239,6 +274,36 @@ MPI_Status recv(double* buf, int count, int source, int tag, MPI_Comm comm) {
   if (MPI_SUCCESS != MPI_Recv((void*)buf, count, MPI_DOUBLE, source, tag,
         comm, &status)) {
     throw std::runtime_error("MPI_Send failed (double)");
+  }
+
+  return status;
+}
+
+MPI_Status recv(float& buf, int source, int tag, MPI_Comm comm) {
+  MPI_Status status;
+
+  if (MPI_COMM_NULL == comm) {
+    comm = get_comm_default();
+  }
+
+  if (MPI_SUCCESS != MPI_Recv((void*)&buf, 1, MPI_FLOAT, source, tag,
+        comm, &status)) {
+    throw std::runtime_error("MPI_Send failed (1 float)");
+  }
+
+  return status;
+}
+
+MPI_Status recv(double& buf, int source, int tag, MPI_Comm comm) {
+  MPI_Status status;
+
+  if (MPI_COMM_NULL == comm) {
+    comm = get_comm_default();
+  }
+
+  if (MPI_SUCCESS != MPI_Recv((void*)&buf, 1, MPI_DOUBLE, source, tag,
+        comm, &status)) {
+    throw std::runtime_error("MPI_Send failed (1 double)");
   }
 
   return status;

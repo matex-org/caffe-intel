@@ -296,8 +296,13 @@ int train() {
         GetRequestedAction(FLAGS_sigint_effect),
         GetRequestedAction(FLAGS_sighup_effect));
 
-  shared_ptr<caffe::Solver<float> >
-      solver(caffe::SolverRegistry<float>::CreateSolver(solver_param));
+  shared_ptr<caffe::Solver<float> > solver;
+  if (FLAGS_par == "MPIServerCPU") {
+    solver.reset(new caffe::SGDSolverServer<float>(solver_param));
+  }
+  else {
+    solver.reset(caffe::SolverRegistry<float>::CreateSolver(solver_param));
+  }
 
   solver->SetActionFunction(signal_handler.GetActionFunction());
 
@@ -330,8 +335,7 @@ int train() {
       sync.Run();
     } else if (FLAGS_par == "MPIServerCPU") {
       FLAGS_scale_on_apply = false;
-      caffe::MPIServerCPU<float> sync(solver);
-      sync.Run();
+      solver->Solve();
 #if 0
     } else if (FLAGS_par == "MPISyncParamsCPU") {
       caffe::MPISyncParamsCPU<float> sync(solver);

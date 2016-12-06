@@ -64,6 +64,9 @@ namespace caffe {
     };
   }
 
+template <typename Dtype>
+class SGDSolverServer;
+
 /**
  * @brief Type of a function that returns a Solver Action enumeration.
  */
@@ -94,7 +97,7 @@ class Solver {
   // in a non-zero iter number to resume training for a pre-trained net.
   virtual void Solve(const char* resume_file = NULL);
   inline void Solve(const string resume_file) { Solve(resume_file.c_str()); }
-  void Step(int iters);
+  virtual void Step(int iters);
 
   virtual Dtype ForwardBackward();
 
@@ -119,6 +122,8 @@ class Solver {
     virtual void on_gradients_ready() = 0;
     virtual void on_gradients_ready(int param_id) {}
 
+    template <typename T>
+    friend class SGDSolverServer;
     template <typename T>
     friend class Solver;
     template <typename T>

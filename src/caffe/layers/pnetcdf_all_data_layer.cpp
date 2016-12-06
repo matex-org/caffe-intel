@@ -27,9 +27,24 @@ PnetCDFAllDataLayer<Dtype>::PnetCDFAllDataLayer(const LayerParameter& param)
     label_(),
     row_mutex_(),
     comm_(),
-    comm_rank_(),
-    comm_size_() {
-  comm_ = caffe::mpi::comm_dup();
+    comm_rank_(0),
+    comm_size_(0),
+    is_server_(false) {
+  if (param.data_param().backend() == DataParameter_DB_SERVER) {
+    LOG(INFO) << "SERVER mode specified in pnetcdf reader";
+    // initial rank only for now
+    comm_rank_ = caffe::mpi::comm_rank();
+    if (0 == comm_rank_) {
+      is_server_ = true;
+      LOG(INFO) << "0 rank is splitting";
+      comm_ = caffe::mpi::comm_split(0, comm_rank_);
+    } else {
+      LOG(INFO) << "non-0 rank is splitting";
+      comm_ = caffe::mpi::comm_split(1, comm_rank_);
+    }
+  } else {
+    comm_ = caffe::mpi::comm_dup();
+  }
   comm_rank_ = caffe::mpi::comm_rank(comm_);
   comm_size_ = caffe::mpi::comm_size(comm_);
 }
@@ -165,7 +180,6 @@ void PnetCDFAllDataLayer<Dtype>::load_pnetcdf_file_data(const string& filename) 
     prodcount = prod(count);
 
     if (NC_BYTE == vartype) {
-      this->data_ = shared_ptr<signed char>(new signed char[prodcount]);
       datum_shape_.resize(4);
       datum_shape_[0] = 1;
       datum_shape_[1] = count[1];
@@ -175,6 +189,12 @@ void PnetCDFAllDataLayer<Dtype>::load_pnetcdf_file_data(const string& filename) 
       DLOG(INFO) << "datum_shape_[1] " << datum_shape_[1];
       DLOG(INFO) << "datum_shape_[2] " << datum_shape_[2];
       DLOG(INFO) << "datum_shape_[3] " << datum_shape_[3];
+      // skip if we're rank 0 in server mode
+      if (is_server_) {
+        LOG(INFO) << "I'm a server";
+        continue;
+      }
+      this->data_ = shared_ptr<signed char>(new signed char[prodcount]);
       if (prodcount < chunksize) {
         LOG(INFO) << "reading PnetCDF data whole " << count[0];
         LOG(INFO) << "offset={"<<offset[0]<<","<<offset[1]<<","<<offset[2]<<","<<offset[3]<<"}";
@@ -231,6 +251,11 @@ void PnetCDFAllDataLayer<Dtype>::load_pnetcdf_file_data(const string& filename) 
       max_row_ = count[0];
       this->label_ = shared_ptr<int>(new int[max_row_]);
       LOG(INFO) << "PnetCDF max_row_ = " << max_row_;
+      // skip if we're rank 0 in server mode
+      if (is_server_) {
+        LOG(INFO) << "I'm a server";
+        continue;
+      }
       if (prodcount < chunksize) {
         LOG(INFO) << "reading PnetCDF label whole " << count[0];
 #if STRIDED
@@ -313,7 +338,6 @@ size_t PnetCDFAllDataLayer<Dtype>::get_datum_size() {
 
 template <typename Dtype>
 vector<int> PnetCDFAllDataLayer<Dtype>::get_datum_shape() {
-  CHECK(this->data_);
   CHECK(this->datum_shape_.size());
   return this->datum_shape_;
 }
@@ -367,6 +391,11 @@ void PnetCDFAllDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bott
 // This function is called on prefetch thread
 template<typename Dtype>
 void PnetCDFAllDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
+  // skip if we're rank 0 in server mode
+  if (is_server_) {
+    return;
+  }
+
   CPUTimer batch_timer;
   batch_timer.Start();
   double read_time = 0;
