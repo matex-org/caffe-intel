@@ -43,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "caffe/common.hpp"
 #include "caffe/data_reader.hpp"
 #include "caffe/layers/data_layer.hpp"
+#include "caffe/layers/pnetcdf_all_data_layer.hpp"
 #include "caffe/proto/caffe.pb.h"
 
 namespace caffe {
