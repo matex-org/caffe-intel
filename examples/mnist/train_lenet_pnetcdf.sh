@@ -37,4 +37,4 @@
 #
 set -e
 
-./build/tools/caffe train --solver=examples/mnist/lenet_solver_pnetcdf.prototxt $@
+./build/tools/caffe train --solver=examples/mnist/lenet_solver_pnetcdf.prototxt --par MPISyncCPU $@
