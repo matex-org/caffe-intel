@@ -75,6 +75,7 @@ template <typename Dtype>
 Solver<Dtype>::Solver(const SolverParameter& param, const Solver* root_solver)
     : net_(), callbacks_(), root_solver_(root_solver),
       requested_early_exit_(false),
+      scale_on_apply_(1.0),
       forward_backward_(boost::bind(&Solver<Dtype>::ForwardBackward, this)) {
   Init(param);
   Caffe::set_iter_size(param_.iter_size());
@@ -84,6 +85,7 @@ template <typename Dtype>
 Solver<Dtype>::Solver(const string& param_file, const Solver* root_solver)
     : net_(), callbacks_(), root_solver_(root_solver),
       requested_early_exit_(false),
+      scale_on_apply_(1.0),
       forward_backward_(boost::bind(&Solver<Dtype>::ForwardBackward, this)) {
   SolverParameter param;
   ReadSolverParamsFromTextFileOrDie(param_file, &param);

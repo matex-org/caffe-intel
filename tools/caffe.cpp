@@ -53,6 +53,7 @@ namespace bp = boost::python;
 #include "caffe/caffe.hpp"
 #include "caffe/internode/mpiutil.hpp"
 #include "caffe/multinode/multinode.hpp"
+#include "caffe/parallel/mpi_sync_cpu.hpp"
 #include "caffe/training_utils.hpp"
 #include "caffe/util/signal_handler.h"
 
@@ -111,6 +112,8 @@ DEFINE_bool(forward_only, false,
     "Optional; Execute only forward pass");
 DEFINE_string(engine, "",
     "Optional; Engine sequence in format: engine:subengine_1,subengine_2,...");
+DEFINE_string(par, "",
+    "Optional; parallelization strategy, e.g., MPISyncCPU");
 
 // A simple registry for caffe commands.
 typedef int (*BrewFunction)();
@@ -310,10 +313,11 @@ int train() {
     LOG(INFO) << "Configuring multinode setup";
 
 #ifdef USE_MLSL
-      if (FLAGS_param_server != "mlsl") {
+      if (FLAGS_param_server != "mlsl")
 #else
-      if (FLAGS_param_server != "mpi") {
+      if (FLAGS_param_server != "mpi")
 #endif /* USE_MLSL */
+      {
 
         LOG(ERROR) << "currently unsupported";
         return 1;
@@ -333,6 +337,15 @@ int train() {
       }
 #endif /* USE_MLSL */
 
+  } else if (FLAGS_par != "") {
+    if (FLAGS_par == "MPISyncCPU") {
+      caffe::MPISyncCPU<float> sync(solver);
+      sync.Run();
+    }
+    else {
+      LOG(ERROR) << "unrecognized -par value: " << FLAGS_par;
+      return 1;
+    }
   } else if (gpus.size() > 1) {
     caffe::P2PSync<float> sync(solver, NULL, solver->param());
     sync.Run(gpus);

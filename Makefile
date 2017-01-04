@@ -255,6 +255,7 @@ LIBRARIES += glog gflags protobuf boost_system boost_filesystem m hdf5_hl hdf5
 # handle IO dependencies
 USE_LEVELDB ?= 1
 USE_LMDB ?= 1
+USE_PNETCDF ?= 1
 USE_OPENCV ?= 1
 
 ifeq ($(USE_LEVELDB), 1)
@@ -262,6 +263,9 @@ ifeq ($(USE_LEVELDB), 1)
 endif
 ifeq ($(USE_LMDB), 1)
 	LIBRARIES += lmdb
+endif
+ifeq ($(USE_PNETCDF), 1)
+	LIBRARIES += pnetcdf
 endif
 ifeq ($(USE_OPENCV), 1)
 	LIBRARIES += opencv_core opencv_highgui opencv_imgproc 
@@ -456,6 +460,9 @@ ifeq ($(USE_LMDB), 1)
 ifeq ($(ALLOW_LMDB_NOLOCK), 1)
 	COMMON_FLAGS += -DALLOW_LMDB_NOLOCK
 endif
+endif
+ifeq ($(USE_PNETCDF), 1)
+	COMMON_FLAGS += -DUSE_PNETCDF
 endif
 
 # CPU-only configuration
