@@ -45,6 +45,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "caffe/solver_factory.hpp"
 #include "caffe/util/benchmark.hpp"
 
+#ifdef ADAPTIVE_BATCH
+#include <type_traits>
+#include <boost/random/mersenne_twister.hpp>
+#include <boost/random/uniform_int_distribution.hpp>
+#endif
+
 namespace caffe {
 
 /**
@@ -63,6 +69,53 @@ namespace caffe {
       SNAPSHOT = 2  // Take a snapshot, and keep training.
     };
   }
+
+#if 0
+template <typename Dtype>
+class SGDSolverServer;
+#endif 
+
+#ifdef ADAPTIVE_BATCH
+namespace AdaptiveBatchOption {  // Should be friend class to Solver Class. 
+  struct Random {}; // Random value between 1 and max_iter size.
+  struct RatioCToC {}; // Ratio of communication to computation.
+  struct LossHeuristics {};
+}
+
+template <typename Option>
+struct NewIterSize {
+  // Random Itersize. Input max value; min value is 1. 
+  template<typename U = Option, 
+    typename = typename std::enable_if<std::is_same<
+                        U, AdaptiveBatchOption::Random>::value, U>::type>
+  static int get(int upperLimit) {
+    // int random = 0;
+    boost::random::mt19937 rSeed;
+    boost::random::uniform_int_distribution<> dist(1, upperLimit);
+    return dist(rSeed);
+  }
+
+  // Ratio Communication/Computation. 
+  // Data-History approach has Mininum 2 communication if computation is 1.
+  template<typename U = Option, 
+    typename = typename std::enable_if<std::is_same<
+                        U, AdaptiveBatchOption::RatioCToC>::value, U>::type>
+  static int get(int ratioCToC, int threshold) {
+    int new_itersize = 0; 
+    //if()
+    return new_itersize;
+  }
+
+  template<typename U = Option, 
+    typename = typename std::enable_if<std::is_same<
+                        U, AdaptiveBatchOption::LossHeuristics>::value, U>::type>
+  static int get(std::vector<int> lossInfo) {
+    int loss_info = 0;
+    return random;
+  }
+};
+#endif
+  
 
 /**
  * @brief Type of a function that returns a Solver Action enumeration.
@@ -96,7 +149,13 @@ class Solver {
   inline void Solve(const string resume_file) { Solve(resume_file.c_str()); }
   void Step(int iters);
 
+#ifdef ADAPTIVE_BATCH
+  virtual void AssignItersize(std::size_t itersize);
+  virtual Dtype ForwardBackward(int iter_size);
+#else
   virtual Dtype ForwardBackward();
+#endif
+
 
   // The Restore method simply dispatches to one of the
   // RestoreSolverStateFrom___ protected methods. You should implement these
@@ -115,11 +174,17 @@ class Solver {
   // Invoked at specific points during an iteration
   class Callback {
    protected:
+#ifdef ADAPTIVE_BATCH
+    virtual void on_start(int i) {}
+#else
     virtual void on_start() = 0;
+#endif
     virtual void on_gradients_ready() = 0;
 
     template <typename T>
     friend class Solver;
+    //# template <typename T>
+    //# friend class Net;
   };
   const vector<Callback*>& callbacks() const { return callbacks_; }
   void add_callback(Callback* value) {
@@ -127,9 +192,17 @@ class Solver {
   }
 
   typedef boost::function<Dtype()> ForwardBackwardFunc;
+#ifdef ADAPTIVE_BATCH
+  typedef boost::function<Dtype(int)> ForwardBackwardFuncArg;
+  void set_forward_backward(ForwardBackwardFuncArg func) {
+    forward_backward_ = func;
+  }
+#else
+  // typedef boost::function<Dtype()> ForwardBackwardFunc;
   void set_forward_backward(ForwardBackwardFunc func) {
     forward_backward_ = func;
   }
+#endif
 
   void CheckSnapshotWritePermissions();
   /**
@@ -144,8 +217,16 @@ class Solver {
   void Snapshot();
 
   // Make and apply the update value for the current iteration.
+#ifdef ADAPTIVE_BATCH
+  virtual void ApplyUpdate() {}//= 0;
+  virtual void ApplyUpdate(int param_id) = 0;
+// #ifdef ADAPTIVE_BATCH
+  virtual void ApplyUpdate(bool batch_h_update) = 0;
+#else
   virtual void ApplyUpdate() = 0;
   virtual void ApplyUpdate(int param_id) = 0;
+#endif
+
 
   void TestAll();
 
@@ -169,6 +250,10 @@ class Solver {
   vector<Callback*> callbacks_;
   vector<Dtype> losses_;
   Dtype smoothed_loss_;
+#ifdef ADAPTIVE_BATCH
+  int newitersize_;
+#endif 
+
 
   // The root solver that holds root nets (actually containing shared layers)
   // in data parallelism
@@ -185,7 +270,11 @@ class Solver {
   Timer iteration_timer_;
   float iterations_last_;
 
+#ifdef ADAPTIVE_BATCH
+  ForwardBackwardFuncArg forward_backward_;
+#else
   ForwardBackwardFunc forward_backward_;
+#endif 
 
   DISABLE_COPY_AND_ASSIGN(Solver);
 };

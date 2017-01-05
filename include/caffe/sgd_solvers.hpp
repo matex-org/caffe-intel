@@ -43,7 +43,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "caffe/solver.hpp"
 
+#ifdef ADAPTIVE_BATCH
+    #include <memory>
+    #include "caffe/mpi.hpp"
+    #include "caffe/parallel/cpu_params.hpp"
+#endif
+
 namespace caffe {
+
+#ifdef ADAPTIVE_BATCH
+    /// Buffer size necessary to store given blobs
+template<typename Dtype>
+static size_t total_size_buf(const vector<Blob<Dtype>*>& params) {
+  size_t size = 0;
+  for (int i = 0; i < params.size(); ++i)
+    size += params[i]->count();
+  // Size have at least one byte, otherwise cudaMalloc fails if net has no
+  // learnable parameters.
+  return (size > 0) ? size : 1;
+}
+#endif
 
 /**
  * @brief Optimizes the parameters of a Net using
@@ -53,9 +72,50 @@ template <typename Dtype>
 class SGDSolver : public Solver<Dtype> {
  public:
   explicit SGDSolver(const SolverParameter& param)
-      : Solver<Dtype>(param) { PreSolve(); }
+      : Solver<Dtype>(param) 
+#ifdef ADAPTIVE_BATCH
+      , comm_()
+    {
+    //ifdef USE_MPI?
+        comm_ = caffe::mpi::comm_dup();
+        comm_size_ = caffe::mpi::comm_size(comm_);
+        comm_rank_ = caffe::mpi::comm_rank(comm_);
+        historySize_ = total_size_buf<Dtype>(this->net_->learnable_params());
+        historyBuffer_ = new Dtype[historySize_];
+
+        const vector<Blob<Dtype>*>& params = this->net_->learnable_params();
+#else
+    {
+#endif
+        PreSolve();
+    }
+
   explicit SGDSolver(const string& param_file)
-      : Solver<Dtype>(param_file) { PreSolve(); }
+      : Solver<Dtype>(param_file) 
+#ifdef ADAPTIVE_BATCH
+      , comm_()
+    {
+    //ifdef USE_MPI?
+        comm_ = caffe::mpi::comm_dup();
+        comm_size_ = caffe::mpi::comm_size(comm_);
+        comm_rank_ = caffe::mpi::comm_rank(comm_);
+        historySize_ = total_size_buf<Dtype>(this->net_->learnable_params());
+        historyBuffer_ = new Dtype[historySize_];
+
+        const vector<Blob<Dtype>*>& params = this->net_->learnable_params();
+#else
+    {
+#endif
+        PreSolve();
+    }
+    
+#ifdef ADAPTIVE_BATCH
+  ~SGDSolver()
+  {
+    delete [] historyBuffer_;
+  }
+#endif
+
   virtual inline const char* type() const { return "SGD"; }
 
   const vector<shared_ptr<Blob<Dtype> > >& history() { return history_; }
@@ -63,7 +123,12 @@ class SGDSolver : public Solver<Dtype> {
  protected:
   void PreSolve();
   Dtype GetLearningRate();
+#ifdef ADAPTIVE_BATCH
+  virtual void ApplyUpdate(bool batch_allreduce);
+  virtual void AdaptiveBatchAllReduce();
+#else
   virtual void ApplyUpdate();
+#endif
   virtual void ApplyUpdate(int param_id);
   virtual void Normalize(int param_id);
   virtual void Regularize(int param_id);
@@ -81,6 +146,15 @@ class SGDSolver : public Solver<Dtype> {
   vector<shared_ptr<Blob<Dtype> > > history_, update_, temp_;
 
   DISABLE_COPY_AND_ASSIGN(SGDSolver);
+#ifdef ADAPTIVE_BATCH
+ #ifdef USE_MPI
+    MPI_Comm comm_;
+    int comm_size_;
+    int comm_rank_;
+ #endif
+    Dtype* historyBuffer_;
+    std::size_t historySize_;
+#endif
 };
 
 template <typename Dtype>

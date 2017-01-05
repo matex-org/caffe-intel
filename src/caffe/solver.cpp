@@ -10,7 +10,6 @@ Copyright (c) 2014, 2015, the respective contributors
 All rights reserved.
 For the list of contributors go to https://github.com/BVLC/caffe/blob/master/CONTRIBUTORS.md
 
-
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
 
@@ -67,7 +66,11 @@ template <typename Dtype>
 Solver<Dtype>::Solver(const SolverParameter& param, const Solver* root_solver)
     : net_(), callbacks_(), root_solver_(root_solver),
       requested_early_exit_(false), iteration_timer_(), iterations_last_(),
-      forward_backward_(boost::bind(&Solver<Dtype>::ForwardBackward, this)) {
+#ifdef ADAPTIVE_BATCH
+      forward_backward_(boost::bind(&Solver<Dtype>::ForwardBackward, this, _1) )  {
+#else
+      forward_backward_(boost::bind(&Solver<Dtype>::ForwardBackward, this) )  {
+#endif
   Init(param);
   Caffe::set_iter_size(param_.iter_size());
 }
@@ -76,7 +79,11 @@ template <typename Dtype>
 Solver<Dtype>::Solver(const string& param_file, const Solver* root_solver)
     : net_(), callbacks_(), root_solver_(root_solver),
       requested_early_exit_(false), iteration_timer_(), iterations_last_(),
-      forward_backward_(boost::bind(&Solver<Dtype>::ForwardBackward, this)) {
+#ifdef ADAPTIVE_BATCH
+      forward_backward_(boost::bind(&Solver<Dtype>::ForwardBackward, this, _1) )  {
+#else
+      forward_backward_(boost::bind(&Solver<Dtype>::ForwardBackward, this) )  {
+#endif
   SolverParameter param;
   ReadSolverParamsFromTextFileOrDie(param_file, &param);
   Init(param);
@@ -234,6 +241,31 @@ void Solver<Dtype>::InitTestNets() {
   }
 }
 
+#ifdef ADAPTIVE_BATCH
+template <typename Dtype>
+void Solver<Dtype>::AssignItersize(std::size_t itersize) {
+    Caffe::set_iter_size(itersize);
+    newitersize_ = itersize;
+}
+
+template <typename Dtype>
+Dtype Solver<Dtype>::ForwardBackward(int iter_size) {
+  // zero-init the params
+  net_->ClearParamDiffs();
+
+  Dtype loss = Dtype();
+  vector<Blob<Dtype>*> bottom_vec;
+
+  AssignItersize(iter_size);
+
+  // accumulate the loss and gradient
+  for (int i = 0; i < iter_size; ++i) {
+    loss += net_->ForwardBackward();
+  }
+  return loss / iter_size;
+}
+
+#else
 template <typename Dtype>
 Dtype Solver<Dtype>::ForwardBackward() {
   // zero-init the params
@@ -248,6 +280,7 @@ Dtype Solver<Dtype>::ForwardBackward() {
   }
   return loss / param_.iter_size();
 }
+#endif
 
 template <typename Dtype>
 void Solver<Dtype>::Step(int iters) {
@@ -258,6 +291,14 @@ void Solver<Dtype>::Step(int iters) {
   smoothed_loss_ = 0;
   iteration_timer_.Start();
   float lapse_total = 0;
+
+  //net_->SetSolver(this); // Additional. //#
+
+#ifdef ADAPTIVE_BATCH
+  int new_iter_size = param_.iter_size(); // 4
+  int batch_apply_iter = 1; // 4;// param_.iter_size();
+  bool batch_h_update = false;
+#endif
 
   while (iter_ < stop_iter) {
     if (param_.test_interval() && iter_ % param_.test_interval() == 0
@@ -271,11 +312,20 @@ void Solver<Dtype>::Step(int iters) {
     }
 
     for (int i = 0; i < callbacks_.size(); ++i) {
+#ifdef ADAPTIVE_BATCH
+      if((iter_ % batch_apply_iter) == 0)
+        callbacks_[i]->on_start(iter_);
+#else
       callbacks_[i]->on_start();
+#endif
     }
     const bool display = param_.display() && iter_ % param_.display() == 0;
     net_->set_debug_info(display && param_.debug_info());
+#ifdef ADAPTIVE_BATCH
+    Dtype loss = forward_backward_(new_iter_size);
+#else
     Dtype loss = forward_backward_();
+#endif
 
     // average the loss across iterations for smoothed reporting
     UpdateSmoothedLoss(loss, start_iter, average_loss);
@@ -318,12 +368,31 @@ void Solver<Dtype>::Step(int iters) {
         }
       }
     }
-    for (int i = 0; i < callbacks_.size(); ++i) {
-      callbacks_[i]->on_gradients_ready();
-    }
+#ifdef ADAPTIVE_BATCH
     if (!param().disabled_update()) {
-      ApplyUpdate();
+      if((iter_ > 0)
+        && ((iter_ % batch_apply_iter) == 0)) {
+          batch_h_update = true; // false: force no AllReduce(history)
+        DLOG(INFO) << "ApplyUpdate(History) called. ";
+
+      }
+      else { batch_h_update = false; }
+      ApplyUpdate(batch_h_update);
     }
+#else
+    for (int i = 0; i < callbacks_.size(); ++i) {
+       callbacks_[i]->on_gradients_ready();
+     }
+
+    if (!param().disabled_update()) {
+        ApplyUpdate();
+        #if 0
+        DLOG(INFO) << "ApplyUpdate(History) called. ";
+        batch_h_update = false; // true;
+        ApplyUpdate(batch_h_update);
+        #endif
+     }
+#endif
 
     // Increment the internal iter_ counter -- its value should always indicate
     // the number of times the weights have been updated.

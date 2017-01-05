@@ -27,7 +27,11 @@ class MPISyncCPU : public CPUParams<Dtype>, public Solver<Dtype>::Callback {
   void Step(int iters);
 
  protected:
+#ifdef ADAPTIVE_BATCH
+  void on_start(int iter);
+#else
   void on_start();
+#endif  
   void on_gradients_ready();
 
 #ifdef USE_MPI
