@@ -41,8 +41,29 @@ MPISyncCPU<Dtype>::~MPISyncCPU() {
 }
 
 template<typename Dtype>
+#ifdef ADAPTIVE_BATCH
+void MPISyncCPU<Dtype>::on_start(int iter) {
+#else
 void MPISyncCPU<Dtype>::on_start() {
-  DLOG(INFO) << "on_start()";
+#endif    
+DLOG(INFO) << "on_start()";
+#ifdef ADAPTIVE_BATCH
+ #ifdef USE_MPI
+  // Sum data_
+  //std::cout << "Here--------on_start()size_:" << size_ << std::endl;
+  //std::cout << "Here--------on_start() comm_size_:" << comm_size_ << std::endl;
+
+  if(iter == 0) {
+    caffe::mpi::bcast(data_, size_, 0, comm_);
+  } else {
+    caffe::mpi::allreduce(data_, size_, MPI_SUM, comm_);
+    // std::cout << "Here ---- caffe_scal(data)called" << std::endl;
+    caffe_scal(size_, Dtype(1.0 / comm_size_), data_);
+  }
+ #else
+  NO_MPI;
+ #endif
+#endif
 }
 
 template<typename Dtype>

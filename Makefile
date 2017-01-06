@@ -465,6 +465,11 @@ ifeq ($(USE_PNETCDF), 1)
 	COMMON_FLAGS += -DUSE_PNETCDF
 endif
 
+# Adaptive Batch support
+ifeq ($(ADAPTIVE_BATCH), 1)
+	COMMON_FLAGS += -DADAPTIVE_BATCH
+endif
+
 # CPU-only configuration
 ifeq ($(CPU_ONLY), 1)
 	OBJS := $(PROTO_OBJS) $(CXX_OBJS)

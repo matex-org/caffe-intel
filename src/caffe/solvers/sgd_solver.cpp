@@ -138,7 +138,12 @@ void SGDSolver<Dtype>::ClipGradients() {
 }
 
 template <typename Dtype>
+#ifdef ADAPTIVE_BATCH
+void SGDSolver<Dtype>::ApplyUpdate(bool batch_h_update) {
+  // LOG(INFO) << "ApplyUpdate with boolean \n";
+#else
 void SGDSolver<Dtype>::ApplyUpdate() {
+#endif  
   CHECK(Caffe::root_solver());
   Dtype rate = GetLearningRate();
   if (this->param_.display() && this->iter_ % this->param_.display() == 0) {
@@ -149,6 +154,10 @@ void SGDSolver<Dtype>::ApplyUpdate() {
        ++param_id) {
     ApplyUpdate(param_id);
   }
+#ifdef ADAPTIVE_BATCH
+  if(batch_h_update) {
+    AdaptiveBatchAllReduce(); }
+#endif
 }
 
 template <typename Dtype>
@@ -183,6 +192,44 @@ void SGDSolver<Dtype>::ApplyUpdate(int param_id) {
 
 #endif /* !DISTR_WEIGHT_UPDATE */
 }
+
+#ifdef ADAPTIVE_BATCH
+template <typename Dtype>
+void SGDSolver<Dtype>::AdaptiveBatchAllReduce() {
+  CHECK(Caffe::root_solver());
+
+#ifdef USE_MPI
+  DLOG(INFO) << "AdaptiveBatchAllReduce(), rank:"  << comm_rank_;
+  // All reduce data and history;
+  // std::cout << "Here--- History_.Size(): " << history_.size() << " , My Rank: " << comm_rank_ << std::endl;
+#if 0
+  for (int i = 0 ; i < history_.size(); ++i) {
+    caffe::mpi::allreduce(history_[i]->mutable_cpu_data(), history_[i]->count(), MPI_SUM, comm_);
+    caffe_scal(history_[i]->count(), Dtype(1.0 / comm_size_), history_[i]->mutable_cpu_data());
+  }
+#endif
+  std::size_t buf_count = 0;
+  for (int i = 0 ; i < history_.size(); ++i) {
+    memcpy(&historyBuffer_[buf_count], history_[i]->mutable_cpu_data(), history_[i]->count() * sizeof(Dtype));
+      buf_count += history_[i]->count();
+  }
+
+  // std::cout << "Here--- History_.Size(): " << history_.size() << " , My Rank: " << comm_rank_ << std::endl;
+
+  CHECK(buf_count == historySize_);
+  caffe::mpi::allreduce(historyBuffer_, buf_count, MPI_SUM, comm_);
+  caffe_scal(buf_count, Dtype(1.0 / comm_size_), historyBuffer_);
+
+  buf_count = 0;
+  for (int i = 0 ; i < history_.size(); ++i) {
+    memcpy(history_[i]->mutable_cpu_data(), &historyBuffer_[buf_count], history_[i]->count() * sizeof(Dtype));
+    buf_count += history_[i]->count();
+  }
+#else
+  NO_MPI;
+#endif
+}
+#endif
 
 template <typename Dtype>
 void SGDSolver<Dtype>::Normalize(int param_id) {
