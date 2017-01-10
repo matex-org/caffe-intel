@@ -10,7 +10,6 @@ Copyright (c) 2014, 2015, the respective contributors
 All rights reserved.
 For the list of contributors go to https://github.com/BVLC/caffe/blob/master/CONTRIBUTORS.md
 
-
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
 
@@ -143,7 +142,7 @@ void SGDSolver<Dtype>::ApplyUpdate(bool batch_h_update) {
   // LOG(INFO) << "ApplyUpdate with boolean \n";
 #else
 void SGDSolver<Dtype>::ApplyUpdate() {
-#endif  
+#endif
   CHECK(Caffe::root_solver());
   Dtype rate = GetLearningRate();
   if (this->param_.display() && this->iter_ % this->param_.display() == 0) {
@@ -165,7 +164,7 @@ void SGDSolver<Dtype>::ApplyUpdate(int param_id) {
   CHECK(Caffe::root_solver());
   Dtype rate = GetLearningRate();
 
-  LOG_PARAM_BLOB(this->net_->learnable_params()[param_id], diff, param_id, "ApplyUpdate: raw delwt:");
+  //# LOG_PARAM_BLOB(this->net_->learnable_params()[param_id], diff, param_id, "ApplyUpdate: raw delwt:");
 
   // If Learning rate for this learnable params is zero then skip
   // updating params
@@ -174,21 +173,21 @@ void SGDSolver<Dtype>::ApplyUpdate(int param_id) {
   }
 
   Normalize(param_id);
-  LOG_PARAM_BLOB(this->net_->learnable_params()[param_id], diff, param_id, "ApplyUpdate: delwt after Normalize:");
+  //# LOG_PARAM_BLOB(this->net_->learnable_params()[param_id], diff, param_id, "ApplyUpdate: delwt after Normalize:");
 
   Regularize(param_id);
-  LOG_PARAM_BLOB(this->net_->learnable_params()[param_id], diff, param_id, "ApplyUpdate: delwt after Regularize:");
+  //# LOG_PARAM_BLOB(this->net_->learnable_params()[param_id], diff, param_id, "ApplyUpdate: delwt after Regularize:");
 
   ComputeUpdateValue(param_id, rate);
-  LOG_PARAM_BLOB(this->net_->learnable_params()[param_id], diff, param_id, "ApplyUpdate: wtinc:");
+  //# LOG_PARAM_BLOB(this->net_->learnable_params()[param_id], diff, param_id, "ApplyUpdate: wtinc:");
 
 #ifndef DISTR_WEIGHT_UPDATE
 
-  LOG_PARAM_BLOB(this->net_->learnable_params()[param_id], data, param_id, "ApplyUpdate: weight before update:");
+  //# LOG_PARAM_BLOB(this->net_->learnable_params()[param_id], data, param_id, "ApplyUpdate: weight before update:");
 
   this->net_->learnable_params()[param_id]->Update();
 
-  LOG_PARAM_BLOB(this->net_->learnable_params()[param_id], data, param_id, "ApplyUpdate: weight after update:");
+  //# LOG_PARAM_BLOB(this->net_->learnable_params()[param_id], data, param_id, "ApplyUpdate: weight after update:");
 
 #endif /* !DISTR_WEIGHT_UPDATE */
 }

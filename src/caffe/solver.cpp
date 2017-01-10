@@ -10,7 +10,6 @@ Copyright (c) 2014, 2015, the respective contributors
 All rights reserved.
 For the list of contributors go to https://github.com/BVLC/caffe/blob/master/CONTRIBUTORS.md
 
-
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
 
@@ -80,7 +79,7 @@ Solver<Dtype>::Solver(const SolverParameter& param, const Solver* root_solver)
       forward_backward_(boost::bind(&Solver<Dtype>::ForwardBackward, this, _1) )  {
 #else
       forward_backward_(boost::bind(&Solver<Dtype>::ForwardBackward, this) )  {
-#endif    
+#endif
   Init(param);
   Caffe::set_iter_size(param_.iter_size());
 }
@@ -94,7 +93,7 @@ Solver<Dtype>::Solver(const string& param_file, const Solver* root_solver)
       forward_backward_(boost::bind(&Solver<Dtype>::ForwardBackward, this, _1) )  {
 #else
       forward_backward_(boost::bind(&Solver<Dtype>::ForwardBackward, this) )  {
-#endif   
+#endif
   SolverParameter param;
   ReadSolverParamsFromTextFileOrDie(param_file, &param);
   Init(param);
@@ -314,8 +313,10 @@ void Solver<Dtype>::Step(int iters) {
 
 #ifdef ADAPTIVE_BATCH
   int new_iter_size = param_.iter_size(); // 4
-  int batch_apply_iter = 1; //4;// param_.iter_size();
+  int batch_apply_iter = 4;// param_.iter_size();
   bool batch_h_update = false;
+#else
+  int batch_ongradients_iter = 4; //1;
 #endif
 
   while (iter_ < stop_iter) {
@@ -338,7 +339,7 @@ void Solver<Dtype>::Step(int iters) {
         callbacks_[i]->on_start(iter_);
 #else
       callbacks_[i]->on_start();
-#endif    
+#endif
     }
     const bool display = param_.display() && iter_ % param_.display() == 0;
     net_->set_debug_info(display && param_.debug_info());
@@ -408,9 +409,12 @@ void Solver<Dtype>::Step(int iters) {
       ApplyUpdate(batch_h_update);
     }
 #else
-    for (int i = 0; i < callbacks_.size(); ++i) {
-       callbacks_[i]->on_gradients_ready();
-     }
+    if((iter_ > 0)
+        && ((iter_ % batch_ongradients_iter) == 0)) {
+      for (int i = 0; i < callbacks_.size(); ++i) {
+        callbacks_[i]->on_gradients_ready();
+      }
+    }
 
     if (!param().disabled_update()) {
         ApplyUpdate();
@@ -428,7 +432,7 @@ void Solver<Dtype>::Step(int iters) {
     if (MLSL::GetNodeId() == 0)
         LOG(INFO) << "iter " << iter_ << ", forward_backward_update_time: " << iter_time << " ms";
 #endif
-    
+
     // Increment the internal iter_ counter -- its value should always indicate
     // the number of times the weights have been updated.
     ++iter_;
