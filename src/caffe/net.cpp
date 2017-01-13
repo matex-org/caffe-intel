@@ -413,6 +413,12 @@ void Net<Dtype>::Init(const NetParameter& in_param) {
   ShareWeights();
   debug_info_ = param.debug_info();
 
+  // invert param_layer_indices_ to give map of
+  // (level_id, local param_id) -> global param_id
+  for (int i = 0; i < param_layer_indices_.size(); ++i) {
+    layer_index_params_[param_layer_indices_[i]] = i;
+  }
+
 #ifdef USE_MLSL
 
   if (caffe::TRAIN == param.state().phase()) { // TODO: create ComputeOps only for train net
@@ -1055,6 +1061,15 @@ void Net<Dtype>::BackwardFromTo(int start, int end) {
       PERFORMANCE_MEASUREMENT_END((std::string("BW_")+layer_names_[i]).c_str());
 
       if (debug_info_) { BackwardDebugInfo(i); }
+      if (solver_) {
+        //for (int j = 0; j < layers_[i]->blobs().size(); ++j) {
+        for (int j = layers_[i]->blobs().size()-1; j >= 0; --j) {
+          int param_id = layer_index_params_[make_pair(i, j)];
+          for (int k = 0; k < solver_->callbacks().size(); ++k) {
+            solver_->callbacks()[k]->on_gradients_ready(param_id);
+          }
+        }
+      }
     }
   }
 }

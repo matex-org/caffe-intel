@@ -1,5 +1,5 @@
-#ifndef CAFFE_PARALLEL_MPI_SYNC_CPU_HPP_
-#define CAFFE_PARALLEL_MPI_SYNC_CPU_HPP_
+#ifndef CAFFE_PARALLEL_MPI_SYNC_PARAMS_CPU_HPP_
+#define CAFFE_PARALLEL_MPI_SYNC_PARAMS_CPU_HPP_
 
 #include <boost/date_time/posix_time/posix_time.hpp>
 
@@ -14,10 +14,10 @@ namespace caffe {
 
 // Synchronous data parallelism using Allreduce between remote CPUs.
 template<typename Dtype>
-class MPISyncCPU : public CPUParams<Dtype>, public Solver<Dtype>::Callback {
+class MPISyncParamsCPU : public CPUParams<Dtype>, public Solver<Dtype>::Callback {
  public:
-  explicit MPISyncCPU(shared_ptr<Solver<Dtype> > root_solver);
-  virtual ~MPISyncCPU();
+  explicit MPISyncParamsCPU(shared_ptr<Solver<Dtype> > root_solver);
+  virtual ~MPISyncParamsCPU();
 
   inline const shared_ptr<Solver<Dtype> >& solver() const {
     return solver_;
@@ -29,13 +29,16 @@ class MPISyncCPU : public CPUParams<Dtype>, public Solver<Dtype>::Callback {
  protected:
   void on_start();
   void on_gradients_ready();
+  void on_apply(int param_id);
 
 #ifdef USE_MPI
   MPI_Comm comm_;
 #endif
   int comm_size_;
   shared_ptr<Solver<Dtype> > solver_;
+  const vector<Blob<Dtype>*>& params_;
   Timer timer_;
+  double time_;
 
   using Params<Dtype>::size_;
   using Params<Dtype>::data_;

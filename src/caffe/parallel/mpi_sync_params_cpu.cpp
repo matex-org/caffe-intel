@@ -11,19 +11,22 @@
 #include "boost/thread.hpp"
 #include "caffe/caffe.hpp"
 #include "caffe/mpi.hpp"
-#include "caffe/parallel/mpi_sync_cpu.hpp"
+#include "caffe/parallel/mpi_sync_params_cpu.hpp"
 
 namespace caffe {
 
 template<typename Dtype>
-MPISyncCPU<Dtype>::MPISyncCPU(shared_ptr<Solver<Dtype> > root_solver)
+MPISyncParamsCPU<Dtype>::MPISyncParamsCPU(shared_ptr<Solver<Dtype> > root_solver)
     : CPUParams<Dtype>(root_solver),
 #ifdef USE_MPI
       comm_(),
 #endif
       comm_size_(),
+      solver_(),
+      params_(root_solver->net()->learnable_params()),
       timer_(),
-      solver_() {
+      time_(0.0)
+{
 #ifdef USE_MPI
   comm_ = caffe::mpi::comm_dup();
   comm_size_ = caffe::mpi::comm_size(comm_);
@@ -38,30 +41,37 @@ MPISyncCPU<Dtype>::MPISyncCPU(shared_ptr<Solver<Dtype> > root_solver)
 }
 
 template<typename Dtype>
-MPISyncCPU<Dtype>::~MPISyncCPU() {
+MPISyncParamsCPU<Dtype>::~MPISyncParamsCPU() {
 }
 
 template<typename Dtype>
-void MPISyncCPU<Dtype>::on_start() {
+void MPISyncParamsCPU<Dtype>::on_start() {
   DLOG(INFO) << "on_start()";
+  LOG(INFO) << "time comm " << time_;
+  time_ = 0.0;
 }
 
 template<typename Dtype>
-void MPISyncCPU<Dtype>::on_gradients_ready() {
+void MPISyncParamsCPU<Dtype>::on_gradients_ready() {
   DLOG(INFO) << "on_gradients_ready()";
+}
+
+template<typename Dtype>
+void MPISyncParamsCPU<Dtype>::on_apply(int param_id) {
 #ifdef USE_MPI
+  Blob<Dtype> *blob = params_[param_id];
+  Dtype *param_diff = blob->mutable_cpu_diff();
   // Sum gradients
   timer_.Start();
-  caffe::mpi::allreduce(diff_, size_, MPI_SUM, comm_);
-  double time_comm_ = timer_.MilliSeconds();
-  LOG(INFO) << "time comm " << time_comm_;
+  caffe::mpi::allreduce(param_diff, blob->count(), MPI_SUM, comm_);
+  time_ += timer_.MilliSeconds();
 #else
   NO_MPI;
 #endif
 }
 
 template<typename Dtype>
-void MPISyncCPU<Dtype>::Run() {
+void MPISyncParamsCPU<Dtype>::Run() {
   LOG(INFO)<< "Starting Optimization";
 
   // Run root solver on current thread
@@ -69,14 +79,14 @@ void MPISyncCPU<Dtype>::Run() {
 }
 
 template<typename Dtype>
-void MPISyncCPU<Dtype>::Step(int iters) {
+void MPISyncParamsCPU<Dtype>::Step(int iters) {
   //LOG(INFO)<< "Stepping Optimization";
 
   // Run root solver on current thread
   solver_->Step(iters);
 }
 
-INSTANTIATE_CLASS(MPISyncCPU);
+INSTANTIATE_CLASS(MPISyncParamsCPU);
 
 }  // namespace caffe
 

@@ -54,6 +54,8 @@ namespace bp = boost::python;
 #include "caffe/internode/mpiutil.hpp"
 #include "caffe/multinode/multinode.hpp"
 #include "caffe/parallel/mpi_sync_cpu.hpp"
+#include "caffe/parallel/mpi_sync_params_cpu.hpp"
+#include "caffe/parallel/mpi_async_params_cpu.hpp"
 #include "caffe/training_utils.hpp"
 #include "caffe/util/signal_handler.h"
 
@@ -340,6 +342,14 @@ int train() {
   } else if (FLAGS_par != "") {
     if (FLAGS_par == "MPISyncCPU") {
       caffe::MPISyncCPU<float> sync(solver);
+      sync.Run();
+    }
+    else if (FLAGS_par == "MPISyncParamsCPU") {
+      caffe::MPISyncParamsCPU<float> sync(solver);
+      sync.Run();
+    }
+    else if (FLAGS_par == "MPIAsyncParamsCPU") {
+      caffe::MPIAsyncParamsCPU<float> sync(solver, FLAGS_comm_threads);
       sync.Run();
     }
     else {
@@ -788,6 +798,13 @@ int main(int argc, char** argv) {
   // Run tool or show usage.
   caffe::GlobalInit(&argc, &argv);
   if (argc == 2) {
+    if (FLAGS_par != "") {
+      // only log info from master
+      if (caffe::mpi::comm_rank() > 0) {
+        FLAGS_minloglevel = 2;
+      }
+      LOG(INFO) << "MPI is initialized, disabling logging from other ranks";
+    }
 #ifdef WITH_PYTHON_LAYER
     try {
 #endif

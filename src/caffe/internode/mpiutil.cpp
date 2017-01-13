@@ -143,9 +143,15 @@ void mpi_init(int argc, char** argv) {
   int rank = 0, size = 0, namelen = 0;
   char name[MPI_MAX_PROCESSOR_NAME];
 
+  //int requested = MPI_THREAD_SINGLE;
+  //int requested = MPI_THREAD_FUNNELED;
+  int requested = MPI_THREAD_MULTIPLE;
   int provided = 0;
-  MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &provided);
-  assert(provided == MPI_THREAD_FUNNELED);
+  MPI_Init_thread(&argc, &argv, requested, &provided);
+  if (requested != provided) {
+      LOG(ERROR) << "requested (" << requested << ") != provided (" << provided << ")";
+      throw std::runtime_error("MPI_Init_thread requested != provided");
+  }
   MPI_Comm_size(MPI_COMM_WORLD, &size);
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   MPI_Get_processor_name(name, &namelen);

@@ -43,7 +43,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "caffe/net.hpp"
 #include "caffe/solver_factory.hpp"
-
 #include "caffe/util/benchmark.hpp"
 
 namespace caffe {
@@ -121,9 +120,15 @@ class Solver {
    protected:
     virtual void on_start() = 0;
     virtual void on_gradients_ready() = 0;
+    virtual void on_gradients_ready(int param_id) {}
+    virtual void on_apply(int param_id) {}
 
     template <typename T>
+    friend class SGDSolver;
+    template <typename T>
     friend class Solver;
+    template <typename T>
+    friend class Net;
   };
   const vector<Callback*>& callbacks() const { return callbacks_; }
   void add_callback(Callback* value) {
@@ -204,6 +209,10 @@ class Solver {
 
   // Scale gradients during apply
   float scale_on_apply_;
+
+  // Timing information
+  Timer iteration_timer_;
+  float iterations_last_;
 
   ForwardBackwardFunc forward_backward_;
 
