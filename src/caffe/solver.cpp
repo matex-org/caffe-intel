@@ -303,7 +303,7 @@ Dtype Solver<Dtype>::ForwardBackward() {
 }
 #endif
 
-template <typename Dtype>
+template <typename Dtype> 
 void Solver<Dtype>::Step(int iters) {
   const int start_iter = iter_;
   const int stop_iter = iter_ + iters;
@@ -315,12 +315,14 @@ void Solver<Dtype>::Step(int iters) {
   int new_iter_size = param_.iter_size(); // 4
   int batch_apply_iter = 4;// param_.iter_size();
   bool batch_h_update = false;
+  Dtype lastLoss = 0;
  #ifdef USE_MPI
   int rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
  #endif
 #else
   int batch_ongradients_iter = 1;
+  // std::size_t lossesHistorySize = 20;
 #endif
 
   while (iter_ < stop_iter) {
@@ -354,6 +356,23 @@ void Solver<Dtype>::Step(int iters) {
 
 #ifdef ADAPTIVE_BATCH
     Dtype loss = forward_backward_(new_iter_size);
+    if(deltaLosses_.size() < 20) {
+      deltaLosses_.push(loss - lastLoss);
+      if(deltaLosses_.size() > 1)
+      {
+        if(deltaLosses_.front() - deltaLosses_.back() > 0) {
+          batch_apply_iter += 1; }
+        else {
+          if (batch_apply_iter > 1) {
+            batch_apply_iter -= 1;
+          }
+        }
+      }
+    }
+    else {
+      deltaLosses_.pop();
+      deltaLosses_.push(loss);
+    }
 #else
     Dtype loss = forward_backward_();
 #endif
@@ -447,7 +466,9 @@ void Solver<Dtype>::Step(int iters) {
     // Increment the internal iter_ counter -- its value should always indicate
     // the number of times the weights have been updated.
     ++iter_;
-
+#ifdef ADAPTIVE_BATCH
+    lastLoss = loss;
+#endif
     SolverAction::Enum request = GetRequestedAction();
 
     // Save a snapshot if needed.

@@ -256,6 +256,8 @@ void Net<Dtype>::Init(const NetParameter& in_param) {
         else if (!layer_param.type().compare("WindowData"))
             batch_size = layer_param.window_data_param().batch_size();
 
+        DLOG(INFO) << "----------Batch_Size: " << batch_size;
+
         if (caffe::TRAIN == param.state().phase()) {
             LOG(WARNING) << "SetMinibatchSize " << batch_size;
             SetMinibatchSize(batch_size * GetNumNodes());

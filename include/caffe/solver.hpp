@@ -47,6 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "caffe/util/benchmark.hpp"
 
 #ifdef ADAPTIVE_BATCH
+#include <queue>
 #include <type_traits>
 #include <boost/random/mersenne_twister.hpp>
 #include <boost/random/uniform_int_distribution.hpp>
@@ -263,7 +264,7 @@ class Solver {
   Dtype smoothed_loss_;
 #ifdef ADAPTIVE_BATCH
   int newitersize_;
-  // std::queue<int> lossesHistory_;
+  std::queue<Dtype> deltaLosses_;
 #endif 
 
   // The root solver that holds root nets (actually containing shared layers)
