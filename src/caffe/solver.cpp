@@ -54,6 +54,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <mpi.h>
 #endif /* USE_MLSL */
 
+#ifdef ADAPTIVE_BATCH
+#include <cstdlib>
+#include <mpi.h>
+#endif
+
 namespace caffe {
 
 template<typename Dtype>
@@ -312,14 +317,46 @@ void Solver<Dtype>::Step(int iters) {
   smoothed_loss_ = 0;
 
 #ifdef ADAPTIVE_BATCH
-  int new_iter_size = param_.iter_size(); // 4
-  int batch_apply_iter = 4;// param_.iter_size();
-  bool batch_h_update = false;
-  Dtype lastLoss = 0;
  #ifdef USE_MPI
   int rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
  #endif
+  int new_iter_size = param_.iter_size(); // 4
+  bool batch_h_update = false;
+  Dtype lastLoss = 0;
+  int randomThres;
+  float lossThres;
+  float CToCThres;  // ratio of communication to computation < 1.
+  float currentCToC = 1;
+  // Choose the Hieuristic type: random, ratioCTC,etc.
+  // For AllReduce batches. 
+  std::string hieuristic_OptType(std::getenv("ADAPTIVEB_OPTION"));
+  
+  std::string hieuristic_RandomThres(std::getenv("RANDOMTHRES"));
+  std::string hieuristic_LossThres(std::getenv("LOSSTHRES"));
+  std::string hieuristic_CToCThres(std::getenv("CTOCTHRES"));
+
+  typedef AdaptiveBatchOption::Random batchOptionRan;
+  typedef AdaptiveBatchOption::LossRate batchOptionLR;
+  typedef AdaptiveBatchOption::RatioCToC batchOptionRatioCToC;
+
+
+  if(hieuristic_OptType == "RANDOM") {
+    randomThres = 
+      hieuristic_RandomThres.empty() ? 1 : atoi(hieuristic_RandomThres.c_str());
+    // batch_apply_iter = NewBatchSize<batchOptionT>::get(16);
+  } 
+  else if (hieuristic_OptType == "LOSSRATE") {
+    lossThres =
+      hieuristic_LossThres.empty() ? 1 : atof(hieuristic_LossThres.c_str()); 
+  } 
+  else if (hieuristic_OptType == "RATIOCTOC") {
+    CToCThres = 
+      hieuristic_CToCThres.empty() ? 1 : atof(hieuristic_CToCThres.c_str());    
+  }
+  
+  int batch_apply_iter = 1; // starting default value
+  
 #else
   int batch_ongradients_iter = 1;
   // std::size_t lossesHistorySize = 20;
@@ -339,6 +376,23 @@ void Solver<Dtype>::Step(int iters) {
       }
     }
 
+#ifdef ADAPTIVE_BATCH
+  if(hieuristic_OptType == "RANDOM") {
+    batch_apply_iter = NewBatchSize<batchOptionRan>::get(randomThres);
+  } 
+  else if (hieuristic_OptType == "LOSSRATE") {
+    int last_batchApplyIter = batch_apply_iter;
+    batch_apply_iter = NewBatchSize<batchOptionLR>::get(deltaLosses_
+    , lossThres, last_batchApplyIter);
+  }
+  else if(hieuristic_OptType == "RATIOCTOC") {
+    //TODO: Need to rethink
+    batch_apply_iter = 
+      NewBatchSize<batchOptionRatioCToC>::get(CToCThres, currentCToC);
+  }
+  
+#endif
+
     for (int i = 0; i < callbacks_.size(); ++i) {
 #ifdef ADAPTIVE_BATCH
       if((iter_ % batch_apply_iter) == 0)
@@ -357,21 +411,11 @@ void Solver<Dtype>::Step(int iters) {
 #ifdef ADAPTIVE_BATCH
     Dtype loss = forward_backward_(new_iter_size);
     if(deltaLosses_.size() < 20) {
-      deltaLosses_.push(loss - lastLoss);
-      if(deltaLosses_.size() > 1)
-      {
-        if(deltaLosses_.front() - deltaLosses_.back() > 0) {
-          batch_apply_iter += 1; }
-        else {
-          if (batch_apply_iter > 1) {
-            batch_apply_iter -= 1;
-          }
-        }
-      }
+      deltaLosses_.push(loss - lastLoss);  
     }
     else {
       deltaLosses_.pop();
-      deltaLosses_.push(loss);
+      deltaLosses_.push(loss - lastLoss);
     }
 #else
     Dtype loss = forward_backward_();

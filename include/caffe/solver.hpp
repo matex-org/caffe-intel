@@ -77,11 +77,11 @@ namespace caffe {
 namespace AdaptiveBatchOption {  // Should be friend class to Solver Class. 
   struct Random {}; // Random value between 1 and max_iter size.
   struct RatioCToC {}; // Ratio of communication to computation.
-  struct LossHeuristics {};
+  struct LossRate {}; // Rate of change of Loss > threshhold, increase batch size. 
 }
 
 template <typename Option>
-struct NewIterSize {
+struct NewBatchSize {
   // Random Itersize. Input max value; min value is 1. 
   template<typename U = Option, 
     typename = typename std::enable_if<std::is_same<
@@ -98,18 +98,34 @@ struct NewIterSize {
   template<typename U = Option, 
     typename = typename std::enable_if<std::is_same<
                         U, AdaptiveBatchOption::RatioCToC>::value, U>::type>
-  static int get(int ratioCToC, int threshold) {
-    int new_itersize = 0; 
+  static int get(float CToCThres, float currentCToC) {
+    int new_batchsize = 0; 
     //if()
-    return new_itersize;
+    return new_batchsize;
   }
 
   template<typename U = Option, 
     typename = typename std::enable_if<std::is_same<
-                        U, AdaptiveBatchOption::LossHeuristics>::value, U>::type>
-  static int get(std::vector<int> lossInfo) {
-    int loss_info = 0;
-    return random;
+                        U, AdaptiveBatchOption::LossRate>::value, U>::type,
+    typename Dtype>
+  static int get(std::queue<Dtype> deltaLosses, float lossThresh, int& batchApplyIter) {
+    if(deltaLosses.size() > 1)
+    {
+      if(((deltaLosses.front() 
+            - deltaLosses.back())/deltaLosses.size()) > lossThresh) {
+        return (batchApplyIter + 1); // fixed increment size;  
+      }
+      else {
+        if(batchApplyIter > 1) {
+          return (batchApplyIter - 1);
+        }
+      }
+    }
+    else {
+      return 1; 
+    }
+
+    return batchApplyIter;
   }
 };
 #endif
