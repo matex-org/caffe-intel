@@ -57,7 +57,7 @@ void MPISyncParamsCPU<Dtype>::on_gradients_ready() {
 }
 
 template<typename Dtype>
-void MPISyncParamsCPU<Dtype>::on_apply(int param_id) {
+int MPISyncParamsCPU<Dtype>::on_apply(int param_id) {
 #ifdef USE_MPI
   Blob<Dtype> *blob = params_[param_id];
   Dtype *param_diff = blob->mutable_cpu_diff();
@@ -68,6 +68,7 @@ void MPISyncParamsCPU<Dtype>::on_apply(int param_id) {
 #else
   NO_MPI;
 #endif
+  return param_id;
 }
 
 template<typename Dtype>

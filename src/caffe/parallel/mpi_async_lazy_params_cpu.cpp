@@ -11,22 +11,22 @@
 #include "boost/thread.hpp"
 #include "caffe/caffe.hpp"
 #include "caffe/mpi.hpp"
-#include "caffe/parallel/mpi_async_params_cpu.hpp"
+#include "caffe/parallel/mpi_async_lazy_params_cpu.hpp"
 #include "caffe/util/benchmark.hpp"
 
 namespace caffe {
 
 template<typename Dtype>
-class MPIAsyncParamsCPU<Dtype>::Reducer : public InternalThread {
+class MPIAsyncLazyParamsCPU<Dtype>::Reducer : public InternalThread {
   public:
-    MPIAsyncParamsCPU<Dtype> *sync_;
+    MPIAsyncLazyParamsCPU<Dtype> *sync_;
     int tid_;
     Timer timer_queue_;
     double time_in_queue_;
     Timer timer_comm_;
     double time_in_comm_;
 
-    Reducer(MPIAsyncParamsCPU<Dtype> *sync, int tid)
+    Reducer(MPIAsyncLazyParamsCPU<Dtype> *sync, int tid)
         : sync_(sync), tid_(tid),
         timer_queue_(), time_in_queue_(0.0),
         timer_comm_(), time_in_comm_(0.0)
@@ -73,7 +73,7 @@ class MPIAsyncParamsCPU<Dtype>::Reducer : public InternalThread {
           NO_MPI;
 #endif        
           timer_queue_.Start();
-          sync_->param_all_[param_id]->push(tid_);
+          sync_->param_all_.push(param_id);
           time_in_queue_ += timer_queue_.MilliSeconds();
         }
       } catch (boost::thread_interrupted&) {
@@ -93,7 +93,7 @@ static void get_pointers(const vector<Blob<Dtype>*>& blobs,
 }
 
 template<typename Dtype>
-MPIAsyncParamsCPU<Dtype>::MPIAsyncParamsCPU(
+MPIAsyncLazyParamsCPU<Dtype>::MPIAsyncLazyParamsCPU(
     shared_ptr<Solver<Dtype> > root_solver,
     int comm_threads)
   : CPUParams<Dtype>(root_solver),
@@ -123,12 +123,6 @@ MPIAsyncParamsCPU<Dtype>::MPIAsyncParamsCPU(
   caffe_set(size_, Dtype(0), diff_all_);
   param_diffs_.resize(params_.size());
   get_pointers(params_, diff_all_, param_diffs_);
-
-  // create queue, one per param
-  param_all_.resize(params_.size());
-  for (int i = 0; i < params_.size(); ++i) {
-    param_all_[i] = new BlockingQueue<int>;
-  }
   
   // Start the gradient allreduce threads
   reducers.resize(comm_threads);
@@ -144,19 +138,16 @@ MPIAsyncParamsCPU<Dtype>::MPIAsyncParamsCPU(
 }
 
 template<typename Dtype>
-MPIAsyncParamsCPU<Dtype>::~MPIAsyncParamsCPU() {
+MPIAsyncLazyParamsCPU<Dtype>::~MPIAsyncLazyParamsCPU() {
   for (int i = 0; i < reducers.size(); ++i) {
     reducers[i]->StopInternalThread();
     delete reducers[i];
   }
   delete [] diff_all_;
-  for (int i = 0; i < params_.size(); ++i) {
-    delete param_all_[i];
-  }
 }
 
 template<typename Dtype>
-void MPIAsyncParamsCPU<Dtype>::on_start() {
+void MPIAsyncLazyParamsCPU<Dtype>::on_start() {
   DLOG(INFO) << "on_start()";
   for (int i=0; i<reducers.size(); ++i) {
     LOG(INFO) << "reducer[" << i << "] time queue " << reducers[i]->time_in_queue_ << " time comm " << reducers[i]->time_in_comm_;
@@ -166,29 +157,29 @@ void MPIAsyncParamsCPU<Dtype>::on_start() {
 }
 
 template<typename Dtype>
-void MPIAsyncParamsCPU<Dtype>::on_gradients_ready() {
+void MPIAsyncLazyParamsCPU<Dtype>::on_gradients_ready() {
   DLOG(INFO) << "on_gradients_ready()";
 }
 
 template<typename Dtype>
-void MPIAsyncParamsCPU<Dtype>::on_gradients_ready(int param_id) {
+void MPIAsyncLazyParamsCPU<Dtype>::on_gradients_ready(int param_id) {
   DLOG(INFO) << "on_gradients_ready(param_id)";
   param_solo_.push(param_id);
 }
 
 template<typename Dtype>
-int MPIAsyncParamsCPU<Dtype>::on_apply(int param_id) {
+int MPIAsyncLazyParamsCPU<Dtype>::on_apply(int param_id) {
   DLOG(INFO) << "on_apply(param_id)";
-  int who_did_the_work = param_all_[param_id]->pop("waiting in apply");
-  Blob<Dtype> *blob = params_[param_id];
+  int _param_id = param_all_.pop("waiting in apply");
+  Blob<Dtype> *blob = params_[_param_id];
   Dtype *swap = blob->mutable_cpu_diff();
-  blob->diff()->set_cpu_data(param_diffs_[param_id]);
-  param_diffs_[param_id] = swap;
-  return param_id;
+  blob->diff()->set_cpu_data(param_diffs_[_param_id]);
+  param_diffs_[_param_id] = swap;
+  return _param_id;
 }
 
 template<typename Dtype>
-void MPIAsyncParamsCPU<Dtype>::Run() {
+void MPIAsyncLazyParamsCPU<Dtype>::Run() {
   LOG(INFO)<< "Starting Optimization";
 
   // Run root solver on current thread
@@ -196,14 +187,14 @@ void MPIAsyncParamsCPU<Dtype>::Run() {
 }
 
 template<typename Dtype>
-void MPIAsyncParamsCPU<Dtype>::Step(int iters) {
+void MPIAsyncLazyParamsCPU<Dtype>::Step(int iters) {
   //LOG(INFO)<< "Stepping Optimization";
 
   // Run root solver on current thread
   solver_->Step(iters);
 }
 
-INSTANTIATE_CLASS(MPIAsyncParamsCPU);
+INSTANTIATE_CLASS(MPIAsyncLazyParamsCPU);
 
 }  // namespace caffe
 

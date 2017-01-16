@@ -35,7 +35,7 @@ class MPIAsyncParamsCPU : public CPUParams<Dtype>, public Solver<Dtype>::Callbac
   void on_start();
   void on_gradients_ready();
   void on_gradients_ready(int param_id);
-  void on_apply(int param_id);
+  int on_apply(int param_id);
 
   int comm_size_;
   shared_ptr<Solver<Dtype> > solver_;

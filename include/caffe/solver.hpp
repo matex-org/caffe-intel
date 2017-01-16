@@ -121,7 +121,7 @@ class Solver {
     virtual void on_start() = 0;
     virtual void on_gradients_ready() = 0;
     virtual void on_gradients_ready(int param_id) {}
-    virtual void on_apply(int param_id) {}
+    virtual int on_apply(int param_id) { return param_id; }
 
     template <typename T>
     friend class SGDSolver;

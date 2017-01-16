@@ -1,5 +1,5 @@
-#ifndef CAFFE_PARALLEL_MPI_SYNC_PARAMS_CPU_HPP_
-#define CAFFE_PARALLEL_MPI_SYNC_PARAMS_CPU_HPP_
+#ifndef CAFFE_PARALLEL_MPI_ASYNC_LAZY_PARAMS_CPU_HPP_
+#define CAFFE_PARALLEL_MPI_ASYNC_LAZY_PARAMS_CPU_HPP_
 
 #include <boost/date_time/posix_time/posix_time.hpp>
 
@@ -12,12 +12,13 @@
 
 namespace caffe {
 
-// Synchronous data parallelism using Allreduce between remote CPUs.
+// Asynchronous data parallelism using Allreduce between remote CPUs.
 template<typename Dtype>
-class MPISyncParamsCPU : public CPUParams<Dtype>, public Solver<Dtype>::Callback {
+class MPIAsyncLazyParamsCPU : public CPUParams<Dtype>, public Solver<Dtype>::Callback {
  public:
-  explicit MPISyncParamsCPU(shared_ptr<Solver<Dtype> > root_solver);
-  virtual ~MPISyncParamsCPU();
+  explicit MPIAsyncLazyParamsCPU(shared_ptr<Solver<Dtype> > root_solver,
+          int comm_threads);
+  virtual ~MPIAsyncLazyParamsCPU();
 
   inline const shared_ptr<Solver<Dtype> >& solver() const {
     return solver_;
@@ -26,19 +27,27 @@ class MPISyncParamsCPU : public CPUParams<Dtype>, public Solver<Dtype>::Callback
   void Run();
   void Step(int iters);
 
+  friend class Reducer;
+
  protected:
+  class Reducer;
+
   void on_start();
   void on_gradients_ready();
+  void on_gradients_ready(int param_id);
   int on_apply(int param_id);
 
-#ifdef USE_MPI
-  MPI_Comm comm_;
-#endif
   int comm_size_;
   shared_ptr<Solver<Dtype> > solver_;
   const vector<Blob<Dtype>*>& params_;
-  Timer timer_;
-  double time_;
+  BlockingQueue<int> param_solo_;
+  BlockingQueue<int> param_all_;
+#ifdef USE_MPI
+  vector<MPI_Comm> comms_;
+#endif
+  vector<Reducer*> reducers;
+  Dtype *diff_all_;
+  vector<Dtype*> param_diffs_;
 
   using Params<Dtype>::size_;
   using Params<Dtype>::data_;
@@ -48,3 +57,4 @@ class MPISyncParamsCPU : public CPUParams<Dtype>, public Solver<Dtype>::Callback
 }  // namespace caffe
 
 #endif
+
