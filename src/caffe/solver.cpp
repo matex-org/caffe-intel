@@ -315,8 +315,12 @@ void Solver<Dtype>::Step(int iters) {
   int new_iter_size = param_.iter_size(); // 4
   int batch_apply_iter = 4;// param_.iter_size();
   bool batch_h_update = false;
+ #ifdef USE_MPI
+  int rank;
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+ #endif
 #else
-  int batch_ongradients_iter = 4; //1;
+  int batch_ongradients_iter = 1;
 #endif
 
   while (iter_ < stop_iter) {
@@ -409,12 +413,12 @@ void Solver<Dtype>::Step(int iters) {
       ApplyUpdate(batch_h_update);
     }
 #else
-    if((iter_ > 0)
-        && ((iter_ % batch_ongradients_iter) == 0)) {
+    // if((iter_ > 0)
+    //     && ((iter_ % batch_ongradients_iter) == 0)) {
       for (int i = 0; i < callbacks_.size(); ++i) {
         callbacks_[i]->on_gradients_ready();
       }
-    }
+    // }
 
     if (!param().disabled_update()) {
         ApplyUpdate();
@@ -431,6 +435,13 @@ void Solver<Dtype>::Step(int iters) {
 #ifdef CAFFE_PER_LAYER_TIMINGS
     if (MLSL::GetNodeId() == 0)
         LOG(INFO) << "iter " << iter_ << ", forward_backward_update_time: " << iter_time << " ms";
+#endif
+
+#ifdef ADAPTIVE_BATCH
+  #ifdef USE_MPI
+    if(rank == 0)
+      LOG(INFO) << "iter " << iter_ << ", forward_backward_update_time: " << iter_time << " ms";
+  #endif
 #endif
 
     // Increment the internal iter_ counter -- its value should always indicate
