@@ -49,8 +49,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifdef ADAPTIVE_BATCH
 #include <queue>
 #include <type_traits>
-#include <boost/random/mersenne_twister.hpp>
-#include <boost/random/uniform_int_distribution.hpp>
+#include <random>
 #endif
 
 namespace caffe {
@@ -86,11 +85,14 @@ struct NewBatchSize {
   template<typename U = Option, 
     typename = typename std::enable_if<std::is_same<
                         U, AdaptiveBatchOption::Random>::value, U>::type>
-  static int get(int upperLimit) {
-    // int random = 0;
-    boost::random::mt19937 rSeed;
-    boost::random::uniform_int_distribution<> dist(1, upperLimit);
-    return dist(rSeed);
+  static int get(int upperLimit, std::mt19937& gen) {
+    int random = 0;
+    std::uniform_int_distribution<int> dist(1, upperLimit);
+
+    random = dist(gen);// dist(rSeed);
+    DLOG(INFO) << "RANDOM_UPPER_LIMIT" << upperLimit;
+    DLOG(INFO) << "RANDOM_NUMBER GENERATED" << random; 
+    return random;
   }
 
   // Ratio Communication/Computation. 

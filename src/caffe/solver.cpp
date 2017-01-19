@@ -322,37 +322,39 @@ void Solver<Dtype>::Step(int iters) {
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
  #endif
   int new_iter_size = param_.iter_size(); // 4
+  std::size_t batch_iter_count = 0;
   bool batch_h_update = false;
   Dtype lastLoss = 0;
+  int temp = 0;
   int randomThres;
   float lossThres;
   float CToCThres;  // ratio of communication to computation < 1.
   float currentCToC = 1;
+  std::mt19937 gen;
   // Choose the Hieuristic type: random, ratioCTC,etc.
   // For AllReduce batches. 
+  
   std::string hieuristic_OptType(std::getenv("ADAPTIVEB_OPTION"));
   
-  std::string hieuristic_RandomThres(std::getenv("RANDOMTHRES"));
-  std::string hieuristic_LossThres(std::getenv("LOSSTHRES"));
-  std::string hieuristic_CToCThres(std::getenv("CTOCTHRES"));
+  char const* hieuristic_RandomThres = std::getenv("RANDOMTHRES");
+  char const* hieuristic_LossThres = std::getenv("LOSSTHRES");
+  char const* hieuristic_CToCThres = std::getenv("CTOCTHRES");
 
   typedef AdaptiveBatchOption::Random batchOptionRan;
   typedef AdaptiveBatchOption::LossRate batchOptionLR;
   typedef AdaptiveBatchOption::RatioCToC batchOptionRatioCToC;
 
-
   if(hieuristic_OptType == "RANDOM") {
     randomThres = 
-      hieuristic_RandomThres.empty() ? 1 : atoi(hieuristic_RandomThres.c_str());
-    // batch_apply_iter = NewBatchSize<batchOptionT>::get(16);
+      (hieuristic_RandomThres !=NULL) ? atoi(hieuristic_RandomThres) : 1;
   } 
   else if (hieuristic_OptType == "LOSSRATE") {
     lossThres =
-      hieuristic_LossThres.empty() ? 1 : atof(hieuristic_LossThres.c_str()); 
+      (hieuristic_LossThres != NULL) ? atof(hieuristic_LossThres) : 1; 
   } 
   else if (hieuristic_OptType == "RATIOCTOC") {
     CToCThres = 
-      hieuristic_CToCThres.empty() ? 1 : atof(hieuristic_CToCThres.c_str());    
+      (hieuristic_CToCThres != NULL) ? atof(hieuristic_CToCThres) : 1;    
   }
   
   int batch_apply_iter = 1; // starting default value
@@ -377,18 +379,28 @@ void Solver<Dtype>::Step(int iters) {
     }
 
 #ifdef ADAPTIVE_BATCH
-  if(hieuristic_OptType == "RANDOM") {
-    batch_apply_iter = NewBatchSize<batchOptionRan>::get(randomThres);
-  } 
-  else if (hieuristic_OptType == "LOSSRATE") {
-    int last_batchApplyIter = batch_apply_iter;
-    batch_apply_iter = NewBatchSize<batchOptionLR>::get(deltaLosses_
-    , lossThres, last_batchApplyIter);
-  }
-  else if(hieuristic_OptType == "RATIOCTOC") {
-    //TODO: Need to rethink
-    batch_apply_iter = 
-      NewBatchSize<batchOptionRatioCToC>::get(CToCThres, currentCToC);
+  if(batch_iter_count < 1) {
+    if(hieuristic_OptType == "RANDOM") {
+      batch_apply_iter = NewBatchSize<batchOptionRan>::get(randomThres,gen);
+      DLOG(INFO) << "BATCHAPPLYITER value:" << batch_apply_iter;
+      temp  = stop_iter - iter_;
+      if(temp < randomThres)
+        batch_apply_iter = (temp%2) == 0? temp/2 : 1;
+    } 
+    else if (hieuristic_OptType == "LOSSRATE") {
+      int last_batchApplyIter = batch_apply_iter;
+      batch_apply_iter = NewBatchSize<batchOptionLR>::get(deltaLosses_
+      , lossThres, last_batchApplyIter);
+    }
+    else if(hieuristic_OptType == "RATIOCTOC") {
+      //TODO: Need to revisit
+      batch_apply_iter = 
+        NewBatchSize<batchOptionRatioCToC>::get(CToCThres, currentCToC);
+    }
+    batch_iter_count = batch_apply_iter;
+  #ifdef USE_MPI
+    MPI_Bcast(&batch_apply_iter, 1, MPI_INT, 0, MPI_COMM_WORLD);
+  #endif
   }
   
 #endif
@@ -511,6 +523,7 @@ void Solver<Dtype>::Step(int iters) {
     // the number of times the weights have been updated.
     ++iter_;
 #ifdef ADAPTIVE_BATCH
+    --batch_iter_count;
     lastLoss = loss;
 #endif
     SolverAction::Enum request = GetRequestedAction();
