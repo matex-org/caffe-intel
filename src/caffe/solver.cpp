@@ -57,6 +57,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifdef ADAPTIVE_BATCH
 #include <cstdlib>
 #include <mpi.h>
+#include <math.h> // temp 
 #endif
 
 namespace caffe {
@@ -330,11 +331,20 @@ void Solver<Dtype>::Step(int iters) {
   float lossThres;
   float CToCThres;  // ratio of communication to computation < 1.
   float currentCToC = 1;
-  std::mt19937 gen;
+  std::mt19937 gen; // seed for random no. generator. 
   // Choose the Hieuristic type: random, ratioCTC,etc.
-  // For AllReduce batches. 
+  // For AllReduce batches.
+  std::vector<int> tempBatchSizes;
+  std::vector<int>::iterator itrB;
+  for( int i = 0; i< 3; ++i) {
+    tempBatchSizes.push_back(pow(4.0, i));
+    DLOG(INFO) << "tempBatchSizes ----- : "<< tempBatchSizes[i] << "\n";
+    DLOG(INFO) << "Power ----- : "<< int(pow(4.0, i)) << "\n";
+  }
+  itrB = tempBatchSizes.begin(); 
   
   std::string hieuristic_OptType(std::getenv("ADAPTIVEB_OPTION"));
+  DLOG(INFO) << "LOSSRATE_Hieuristic-----\n"; 
   
   char const* hieuristic_RandomThres = std::getenv("RANDOMTHRES");
   char const* hieuristic_LossThres = std::getenv("LOSSTHRES");
@@ -350,7 +360,8 @@ void Solver<Dtype>::Step(int iters) {
   } 
   else if (hieuristic_OptType == "LOSSRATE") {
     lossThres =
-      (hieuristic_LossThres != NULL) ? atof(hieuristic_LossThres) : 1; 
+      (hieuristic_LossThres != NULL) ? atof(hieuristic_LossThres) : 1;
+    DLOG(INFO) << "LossThres-------: " << lossThres << "\n";
   } 
   else if (hieuristic_OptType == "RATIOCTOC") {
     CToCThres = 
@@ -389,8 +400,13 @@ void Solver<Dtype>::Step(int iters) {
     } 
     else if (hieuristic_OptType == "LOSSRATE") {
       int last_batchApplyIter = batch_apply_iter;
-      batch_apply_iter = NewBatchSize<batchOptionLR>::get(deltaLosses_
-      , lossThres, last_batchApplyIter);
+      DLOG(INFO) << "lastBatchApplyIter : ------------" << last_batchApplyIter;
+      batch_apply_iter = *itrB;
+      // batch_apply_iter = NewBatchSize<batchOptionLR>::get(deltaLosses_
+      //, lossThres, last_batchApplyIter);
+      ++itrB;
+      if(itrB == tempBatchSizes.end())
+        itrB = tempBatchSizes.begin();
     }
     else if(hieuristic_OptType == "RATIOCTOC") {
       //TODO: Need to revisit
