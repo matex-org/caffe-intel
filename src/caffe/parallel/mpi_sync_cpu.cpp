@@ -45,7 +45,7 @@ template<typename Dtype>
 void MPISyncCPU<Dtype>::on_start(int iter) {
 #else
 void MPISyncCPU<Dtype>::on_start() {
-#endif    
+#endif
 DLOG(INFO) << "on_start()";
 #ifdef ADAPTIVE_BATCH
  #ifdef USE_MPI
@@ -72,6 +72,8 @@ void MPISyncCPU<Dtype>::on_gradients_ready() {
 #ifdef USE_MPI
   // Sum gradients
   caffe::mpi::allreduce(diff_, size_, MPI_SUM, comm_);
+  caffe_scal(size_, Dtype(1.0 / comm_size_), diff_);
+
 #else
   NO_MPI;
 #endif
@@ -96,4 +98,3 @@ void MPISyncCPU<Dtype>::Step(int iters) {
 INSTANTIATE_CLASS(MPISyncCPU);
 
 }  // namespace caffe
-

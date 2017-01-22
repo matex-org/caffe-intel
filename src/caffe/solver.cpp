@@ -57,7 +57,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifdef ADAPTIVE_BATCH
 #include <cstdlib>
 #include <mpi.h>
-#include <math.h> // temp 
+#include <math.h> // temp
 #endif
 
 namespace caffe {
@@ -309,7 +309,7 @@ Dtype Solver<Dtype>::ForwardBackward() {
 }
 #endif
 
-template <typename Dtype> 
+template <typename Dtype>
 void Solver<Dtype>::Step(int iters) {
   const int start_iter = iter_;
   const int stop_iter = iter_ + iters;
@@ -331,7 +331,7 @@ void Solver<Dtype>::Step(int iters) {
   float lossThres;
   float CToCThres;  // ratio of communication to computation < 1.
   float currentCToC = 1;
-  std::mt19937 gen; // seed for random no. generator. 
+  std::mt19937 gen; // seed for random no. generator.
   // Choose the Hieuristic type: random, ratioCTC,etc.
   // For AllReduce batches.
   std::vector<int> tempBatchSizes;
@@ -341,11 +341,11 @@ void Solver<Dtype>::Step(int iters) {
     DLOG(INFO) << "tempBatchSizes ----- : "<< tempBatchSizes[i] << "\n";
     DLOG(INFO) << "Power ----- : "<< int(pow(4.0, i)) << "\n";
   }
-  itrB = tempBatchSizes.begin(); 
-  
+  itrB = tempBatchSizes.begin();
+
   std::string hieuristic_OptType(std::getenv("ADAPTIVEB_OPTION"));
-  DLOG(INFO) << "LOSSRATE_Hieuristic-----\n"; 
-  
+  DLOG(INFO) << "LOSSRATE_Hieuristic-----\n";
+
   char const* hieuristic_RandomThres = std::getenv("RANDOMTHRES");
   char const* hieuristic_LossThres = std::getenv("LOSSTHRES");
   char const* hieuristic_CToCThres = std::getenv("CTOCTHRES");
@@ -355,21 +355,21 @@ void Solver<Dtype>::Step(int iters) {
   typedef AdaptiveBatchOption::RatioCToC batchOptionRatioCToC;
 
   if(hieuristic_OptType == "RANDOM") {
-    randomThres = 
+    randomThres =
       (hieuristic_RandomThres !=NULL) ? atoi(hieuristic_RandomThres) : 1;
-  } 
+  }
   else if (hieuristic_OptType == "LOSSRATE") {
     lossThres =
       (hieuristic_LossThres != NULL) ? atof(hieuristic_LossThres) : 1;
     DLOG(INFO) << "LossThres-------: " << lossThres << "\n";
-  } 
-  else if (hieuristic_OptType == "RATIOCTOC") {
-    CToCThres = 
-      (hieuristic_CToCThres != NULL) ? atof(hieuristic_CToCThres) : 1;    
   }
-  
+  else if (hieuristic_OptType == "RATIOCTOC") {
+    CToCThres =
+      (hieuristic_CToCThres != NULL) ? atof(hieuristic_CToCThres) : 1;
+  }
+
   int batch_apply_iter = 1; // starting default value
-  
+
 #else
   int batch_ongradients_iter = 1;
   // std::size_t lossesHistorySize = 20;
@@ -397,20 +397,21 @@ void Solver<Dtype>::Step(int iters) {
       temp  = stop_iter - iter_;
       if(temp < randomThres)
         batch_apply_iter = (temp%2) == 0? temp/2 : 1;
-    } 
+    }
     else if (hieuristic_OptType == "LOSSRATE") {
       int last_batchApplyIter = batch_apply_iter;
       DLOG(INFO) << "lastBatchApplyIter : ------------" << last_batchApplyIter;
-      batch_apply_iter = *itrB;
-      // batch_apply_iter = NewBatchSize<batchOptionLR>::get(deltaLosses_
-      //, lossThres, last_batchApplyIter);
-      ++itrB;
-      if(itrB == tempBatchSizes.end())
-        itrB = tempBatchSizes.begin();
+      //batch_apply_iter = *itrB;
+        // batch_apply_iter = NewBatchSize<batchOptionLR>::get(deltaLosses_
+        //, lossThres, last_batchApplyIter);
+      //++itrB;
+      //if(itrB == tempBatchSizes.end())
+      //  itrB = tempBatchSizes.begin();
+      batch_apply_iter = 1;
     }
     else if(hieuristic_OptType == "RATIOCTOC") {
       //TODO: Need to revisit
-      batch_apply_iter = 
+      batch_apply_iter =
         NewBatchSize<batchOptionRatioCToC>::get(CToCThres, currentCToC);
     }
     batch_iter_count = batch_apply_iter;
@@ -418,7 +419,7 @@ void Solver<Dtype>::Step(int iters) {
     MPI_Bcast(&batch_apply_iter, 1, MPI_INT, 0, MPI_COMM_WORLD);
   #endif
   }
-  
+
 #endif
 
     for (int i = 0; i < callbacks_.size(); ++i) {
@@ -439,7 +440,7 @@ void Solver<Dtype>::Step(int iters) {
 #ifdef ADAPTIVE_BATCH
     Dtype loss = forward_backward_(new_iter_size);
     if(deltaLosses_.size() < 20) {
-      deltaLosses_.push(loss - lastLoss);  
+      deltaLosses_.push(loss - lastLoss);
     }
     else {
       deltaLosses_.pop();
