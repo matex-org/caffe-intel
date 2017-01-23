@@ -1,0 +1,5 @@
+
+edited src/caffe/caffe.proto line 276 to set "seed" value for random number generators.
+
+SolverState::mutable_history is &history_;
+

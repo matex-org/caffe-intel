@@ -115,6 +115,11 @@ DEFINE_string(engine, "",
 DEFINE_string(par, "",
     "Optional; parallelization strategy, e.g., MPISyncCPU");
 
+// TEW
+DEFINE_uint64(rgroup_bits, 0,
+"Number of bits of node ID (MPI rank) for separating the nodes into different reduction sub-groups.  (0==AllReduce with a single group of all nodes as before, 1==two groups at a time, 2=four groups at a time, etc.)");
+
+
 // A simple registry for caffe commands.
 typedef int (*BrewFunction)();
 typedef std::map<caffe::string, BrewFunction> BrewMap;

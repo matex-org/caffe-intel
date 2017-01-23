@@ -357,6 +357,8 @@ void sgd_update_gpu(int N, Dtype* g, Dtype* h, Dtype momentum,
     Dtype local_rate);
 #endif
 
+ 
+ 
 template <typename Dtype>
 void SGDSolver<Dtype>::ComputeUpdateValue(int param_id, Dtype rate) {
   const vector<Blob<Dtype>*>& net_params = this->net_->learnable_params();
@@ -364,6 +366,7 @@ void SGDSolver<Dtype>::ComputeUpdateValue(int param_id, Dtype rate) {
   Dtype momentum = this->param_.momentum();
   Dtype local_rate = rate * net_params_lr[param_id];
   local_rate *= scale_on_apply();
+  
   // Compute the update to history, then copy it to the parameter diff.
   switch (Caffe::mode()) {
   case Caffe::CPU: {
@@ -382,6 +385,9 @@ void SGDSolver<Dtype>::ComputeUpdateValue(int param_id, Dtype rate) {
 //                 net_params[param_id]->mutable_prv_diff() + net_params[param_id]->owned_offset());
 
 //#else /* DISTR_WEIGHT_UPDATE */
+
+       // count, local rate (learning rate * scale_on_apply), previous Diff values, (momentum),
+      //  history_[param_id]->mutable_cpu_data.  History is both read-from and updated.
 
       caffe_cpu_axpby(net_params[param_id]->count(), local_rate,
                       net_params[param_id]->prv_diff(), momentum,

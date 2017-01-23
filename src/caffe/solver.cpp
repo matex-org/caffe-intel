@@ -55,6 +55,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <mpi.h>
 #endif /* USE_MLSL */
 
+
+#ifdef USE_MPI
+#include <mpi.h>
+#endif
+
 namespace caffe {
 
 template<typename Dtype>
@@ -292,9 +297,11 @@ void Solver<Dtype>::Step(int iters) {
       }
     }
 
+    // on_start callbacks
     for (int i = 0; i < callbacks_.size(); ++i) {
       callbacks_[i]->on_start();
     }
+
     const bool display = param_.display() && iter_ % param_.display() == 0;
     net_->set_debug_info(display && param_.debug_info());
 
@@ -310,9 +317,23 @@ void Solver<Dtype>::Step(int iters) {
     UpdateSmoothedLoss(loss, start_iter, average_loss);
     if (display) {
 #ifdef USE_MPI
+
+     int num_ranks=0;
+     MPI_Comm_size(MPI_COMM_WORLD, &num_ranks);
+     const Dtype scale_factor = 1.0 / static_cast<Dtype>(num_ranks);
+
+    // average the loss value across nodes before updating each local "smoothed loss" value
+    Dtype global_smoothed_loss = 0;
+    MPI_Allreduce(&smoothed_loss_, &global_smoothed_loss, 1, 
+                 ((sizeof(Dtype) >> 3) ? MPI_DOUBLE : MPI_FLOAT), 
+                  MPI_SUM, MPI_COMM_WORLD );
+    smoothed_loss_ = global_smoothed_loss * scale_factor;
+
+
       LOG_IF(INFO, Caffe::root_solver())
              << caffe::internode::mpi_get_current_proc_rank_as_string()
-             << " Iteration " << iter_ << ", loss = " << smoothed_loss_;
+             << " Iteration " << iter_ << " of " 
+             << stop_iter << ", smoothed_loss_ = " << smoothed_loss_;
 #else
       LOG_IF(INFO, Caffe::root_solver()) << "Iteration " << iter_
           << ", loss = " << smoothed_loss_;
@@ -347,11 +368,16 @@ void Solver<Dtype>::Step(int iters) {
 
     iter_timer.Start();
 
+    // on_gradients_ready() callback
     for (int i = 0; i < callbacks_.size(); ++i) {
       callbacks_[i]->on_gradients_ready();
     }
     if (!param().disabled_update()) {
       ApplyUpdate();
+    }
+    // on_post_apply() callback
+    for (int i = 0; i < callbacks_.size(); ++i) {
+      callbacks_[i]->on_post_apply();
     }
 
     iter_time += iter_timer.MilliSeconds();

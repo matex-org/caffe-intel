@@ -116,11 +116,15 @@ class Solver {
   float scale_on_apply() { return scale_on_apply_; }
   void set_scale_on_apply(float value) { scale_on_apply_ = value; }
 
+
+  shared_ptr<Net<Dtype> > net_;
+
   // Invoked at specific points during an iteration
   class Callback {
    protected:
     virtual void on_start() = 0;
     virtual void on_gradients_ready() = 0;
+    virtual void on_post_apply() = 0;
 
     template <typename T>
     friend class Solver;
@@ -185,7 +189,7 @@ class Solver {
   SolverParameter param_;
   int iter_;
   int current_step_;
-  shared_ptr<Net<Dtype> > net_;
+
   vector<shared_ptr<Net<Dtype> > > test_nets_;
   vector<Callback*> callbacks_;
   vector<Dtype> losses_;

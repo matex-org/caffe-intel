@@ -375,6 +375,7 @@ void P2PSync<Dtype>::on_gradients_ready() {
 #endif
 }
 
+
 template<typename Dtype>
 void P2PSync<Dtype>::Prepare(const vector<int>& gpus,
             vector<shared_ptr<P2PSync<Dtype> > >* syncs) {

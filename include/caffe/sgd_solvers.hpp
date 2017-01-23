@@ -58,9 +58,13 @@ class SGDSolver : public Solver<Dtype> {
       : Solver<Dtype>(param_file) { PreSolve(); }
   virtual inline const char* type() const { return "SGD"; }
 
-  const vector<shared_ptr<Blob<Dtype> > >& history() { return history_; }
+  const vector<shared_ptr<Blob<Dtype>>>& history() { return history_; }
 
   using Solver<Dtype>::scale_on_apply;
+  using Solver<Dtype>::callbacks_;
+
+  // TEW - expose history for momentum sharing
+  vector<shared_ptr<Blob<Dtype>>> history_;
 
  protected:
   void PreSolve();
@@ -76,11 +80,14 @@ class SGDSolver : public Solver<Dtype> {
   virtual void SnapshotSolverStateToHDF5(const string& model_filename);
   virtual void RestoreSolverStateFromHDF5(const string& state_file);
   virtual void RestoreSolverStateFromBinaryProto(const string& state_file);
+
+  // ** additional state **
   // history maintains the historical momentum data.
   // update maintains update related data and is not needed in snapshots.
   // temp maintains other information that might be needed in computation
   //   of gradients/updates and is not needed in snapshots
-  vector<shared_ptr<Blob<Dtype> > > history_, update_, temp_;
+
+  vector<shared_ptr<Blob<Dtype>>>  update_, temp_;
 
   DISABLE_COPY_AND_ASSIGN(SGDSolver);
 };

@@ -641,6 +641,9 @@ class SynchronousNode<Dtype>::Impl : public MultiSolver<Dtype>::Callback {
     CDLOG(INFO) << "finished iteration " << solver->root_solver()->iter();
   }
 
+  void on_post_apply() {
+    CDLOG(INFO) << "finished applying updates for iteration " << solver->root_solver()->iter();
+  }
   void on_backward_start(int layer_id) {
     CDLOG(INFO) << "calculating gradients of layer " << layer_id;
     sync.keychain->lock(layer_id);
