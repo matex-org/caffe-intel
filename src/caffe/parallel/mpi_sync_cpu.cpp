@@ -198,7 +198,7 @@ MPISyncCPU<Dtype>::~MPISyncCPU() {
        std::cerr << "Error - subcomm size not 2" << std::endl;
        exit(1);
      }
-
+/*
      if ((comm_rank_ == 0) || (comm_rank_== 8) || (comm_rank_== 4)) {
        std::clog << "[" << comm_rank_ << "] on_start(), stage "
                  << current_stage_
@@ -217,94 +217,12 @@ MPISyncCPU<Dtype>::~MPISyncCPU() {
        std::clog << ",  size=" << size_;
        std::clog << std::endl;
      }
-
+*/
 
      std::vector<int> buddies(peerlist_[current_stage_]);
      mpi_avg_2((Dtype *)data_, (Dtype *)&mergebuffer2_[0], size_,
                buddies[0], buddies[1], (current_stage_ + (0x1<<6)));
 /*
-     if (buddies[0] == comm_rank_) {
-       // I am root
-       error = MPI_Ssend((Dtype *)data_, size_,
-                             ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
-                             buddies[1],
-                             current_stage_,
-                             comm_);
-       if (error != MPI_SUCCESS) {
-         std::clog << "Error doing MPI_Ssend in on_start" << std::endl;
-
-       }
-       MPI_Status status;
-       error = MPI_Recv((Dtype *)&mergebuffer2_[0], size_,
-                         ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
-                         buddies[1],
-                         current_stage_,
-                         comm_, &status);
-       if (error != MPI_SUCCESS) {
-         std::clog << "Error doing MPI_Recv in on_start" << std::endl;
-       }
-
-     } else {
-       // I am remote
-       MPI_Status status;
-       error = MPI_Recv((Dtype *)&mergebuffer2_[0], size_,
-                        ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
-                        buddies[0],
-                        current_stage_,
-                        comm_, &status);
-       if (error != MPI_SUCCESS) {
-         std::clog << "Error doing MPI_Recv in on_start" << std::endl;
-       }
-
-       error = MPI_Ssend((Dtype *)data_, size_,
-                         ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
-                         buddies[0],
-                         current_stage_,
-                         comm_);
-       if (error != MPI_SUCCESS) {
-         std::clog << "Error doing MPI_Ssend in on_start" << std::endl;
-       }
-     }
-
-     for (size_t i=0; i<size_; i++) {
-       ((Dtype *)(&mergebuffer2_[0]))[i] += ((Dtype *)data_)[i];
-     }
-/*
-     error = MPI_Allreduce((Dtype *)data_, (Dtype *)(&mergebuffer2_[0]),
-                           size_,
-                           ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
-                           MPI_SUM, subcomm_[current_stage_]);
-     if (error != MPI_SUCCESS) {
-       std::clog << "Error doing MPI_Allreduce in on_start" << std::endl;
-
-     }
-*/
-/*
-     if ((comm_rank_ == 0) || (comm_rank_== 8) || (comm_rank_== 4)) {
-       //std::clog << "[" << comm_rank_ << "] scalefactor: " << scalefactor << std::endl;
-       std::clog << "[" << comm_rank_ << "]     summed data: ";
-       for (int i=0; i<10; i++) {
-         std::clog << ((Dtype *)&mergebuffer2_[0])[i] << " ";
-       }
-       std::clog << std::endl;
-     }
-
-     caffe_scal<Dtype>(size_, scalefactor, (Dtype *)&mergebuffer2_[0]);
-
-
-     if ((comm_rank_ == 0) || (comm_rank_== 8) || (comm_rank_== 4)) {
-     //  std::clog << "[" << comm_rank_ << "] scalefactor: " << scalefactor << std::endl;
-       std::clog << "[" << comm_rank_ << "]   averaged data: ";
-       for (int i=0; i<10; i++) {
-         std::clog << ((Dtype *)&mergebuffer2_[0])[i] << " ";
-       }
-       std::clog << std::endl;
-     }
-
-     for (size_t i=0; i<size_; i++) {
-       ((Dtype *)data_)[i] = ((Dtype *)(&mergebuffer2_[0]))[i];
-     }
-*/
      if ((comm_rank_ == 0) || (comm_rank_== 8) || (comm_rank_== 4)) {
        std::clog << "[" << comm_rank_ << "] post-merge data: ";
        for (int i=0; i<10; i++) {
@@ -312,13 +230,13 @@ MPISyncCPU<Dtype>::~MPISyncCPU() {
        }
        std::clog << std::endl;
      }
+*/
 
 ////////////////////////////////
 
-
    // merge histories
+/*
     if ((comm_rank_ == 0) || (comm_rank_== 8) || (comm_rank_== 4)) {
-
       for (int param_id = 0;
            param_id < solver_->net_->learnable_params().size();
            ++param_id) {
@@ -330,7 +248,7 @@ MPISyncCPU<Dtype>::~MPISyncCPU() {
         std::clog << std::endl;
       }
     }
-
+*/
 
     size_t poffset=0;
     const vector<Blob < Dtype>*>&net_params = solver_->net_->learnable_params();
@@ -357,21 +275,6 @@ MPISyncCPU<Dtype>::~MPISyncCPU() {
 
 
 
-
-/*
-    {
-      MPI_Allreduce((Dtype *) &mergebuffer_[0], (Dtype *) &mergebuffer2_[0],
-                    size_,
-                    ((sizeof(Dtype) == 4) ? MPI_FLOAT : MPI_DOUBLE),
-                    MPI_SUM, subcomm_[current_stage_]);
-
-
-      caffe_scal<Dtype>(size_, scalefactor, (Dtype *) &mergebuffer2_[0]);
-    }
-*/
-
-
-
     poffset = 0;
     for (int param_id = 0;
          param_id < solver_->net_->learnable_params().size();
@@ -384,7 +287,7 @@ MPISyncCPU<Dtype>::~MPISyncCPU() {
       poffset = (poffset + pnum);
     }
 
-
+/*
     if ((comm_rank_ == 0) || (comm_rank_== 8) || (comm_rank_== 4)) {
       for (int param_id = 0;
            param_id < solver_->net_->learnable_params().size();
@@ -397,7 +300,7 @@ MPISyncCPU<Dtype>::~MPISyncCPU() {
         std::clog << std::endl;
       }
     }
-
+*/
 
      // do _not_ increment group stage counter here; wait until after on_post_apply()
    } else {
@@ -558,10 +461,7 @@ void MPISyncCPU<Dtype>::on_post_apply() {
   */
   if (FLAGS_rgroup_bits > 0) {
 
-
-
-//    std::clog << "In on_start(), size_ is " << size_ << std::endl;
-
+/*
     if ((comm_rank_ == 0) || (comm_rank_== 8) || (comm_rank_== 4)) {
       std::clog << "[" << comm_rank_ << "] post-apply  pre merge data: ";
       for (int i=0; i<10; i++) {
@@ -569,7 +469,7 @@ void MPISyncCPU<Dtype>::on_post_apply() {
       }
       std::clog << std::endl;
     }
-
+*/
 
 
     std::vector<int> buddies(peerlist_[current_stage_]);
@@ -598,6 +498,8 @@ void MPISyncCPU<Dtype>::on_post_apply() {
       data_[i] = mergebuffer_[i];
     }
 */
+
+/*
     if ((comm_rank_ == 0) || (comm_rank_== 8) || (comm_rank_== 4)) {
       std::clog << "[" << comm_rank_ << "] post-apply post-merge data: ";
       for (int i=0; i<10; i++) {
@@ -605,7 +507,7 @@ void MPISyncCPU<Dtype>::on_post_apply() {
       }
       std::clog << std::endl;
     }
-
+*/
 
     size_t poffset=0;
     const vector<Blob < Dtype>*>&net_params = solver_->net_->learnable_params();
