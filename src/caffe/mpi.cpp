@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <stdexcept>
 #include <unistd.h> // for gethostid()
+#include <vector>
 #include "caffe/mpi.hpp"
 
 namespace caffe {
@@ -286,6 +287,28 @@ void allreduce(double* buffer, int count, MPI_Op op, MPI_Comm comm) {
   }
 }
 
+void iallreduce(MPI_Request &request, float* buffer, int count, MPI_Op op, MPI_Comm comm) {
+  if (MPI_COMM_NULL == comm) {
+    comm = get_comm_default();
+  }
+
+  if (MPI_SUCCESS != MPI_Iallreduce(MPI_IN_PLACE, buffer, count,
+              MPI_FLOAT, op, comm, &request)) {
+    throw std::runtime_error("MPI_Iallreduce failed (allreduce float)");
+  }
+}
+
+void iallreduce(MPI_Request &request, double* buffer, int count, MPI_Op op, MPI_Comm comm) {
+  if (MPI_COMM_NULL == comm) {
+    comm = get_comm_default();
+  }
+
+  if (MPI_SUCCESS != MPI_Iallreduce(MPI_IN_PLACE, buffer, count,
+              MPI_DOUBLE, op, comm, &request)) {
+    throw std::runtime_error("MPI_Iallreduce failed (allreduce double)");
+  }
+}
+
 void bcast(float* buffer, int count, int root, MPI_Comm comm) {
   if (MPI_COMM_NULL == comm) {
     comm = get_comm_default();
@@ -294,6 +317,20 @@ void bcast(float* buffer, int count, int root, MPI_Comm comm) {
   if (MPI_SUCCESS != MPI_Bcast(buffer, count, MPI_FLOAT, root, comm)) {
     throw std::runtime_error("MPI_Bcast failed");
   }
+}
+
+void waitall(std::vector<MPI_Request> &requests) {
+  if (MPI_SUCCESS != MPI_Waitall(requests.size(), &requests[0], MPI_STATUSES_IGNORE)) {
+    throw std::runtime_error("MPI_Waitall failed");
+  }
+}
+
+bool test(MPI_Request &request) {
+  int flag = 0;
+  if (MPI_SUCCESS != MPI_Test(&request, &flag, MPI_STATUS_IGNORE)) {
+    throw std::runtime_error("MPI_Test failed");
+  }
+  return flag;
 }
 
 void bcast(double* buffer, int count, int root, MPI_Comm comm) {

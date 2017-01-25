@@ -55,6 +55,7 @@ namespace bp = boost::python;
 #include "caffe/multinode/multinode.hpp"
 #include "caffe/parallel/mpi_sync_cpu.hpp"
 #include "caffe/parallel/mpi_sync_params_cpu.hpp"
+#include "caffe/parallel/mpi_sync_params_nb_cpu.hpp"
 #include "caffe/parallel/mpi_async_params_cpu.hpp"
 #include "caffe/parallel/mpi_async_lazy_params_cpu.hpp"
 #include "caffe/training_utils.hpp"
@@ -345,6 +346,10 @@ int train() {
     }
     else if (FLAGS_par == "MPISyncParamsCPU") {
       caffe::MPISyncParamsCPU<float> sync(solver);
+      sync.Run();
+    }
+    else if (FLAGS_par == "MPISyncParamsNBCPU") {
+      caffe::MPISyncParamsNBCPU<float> sync(solver);
       sync.Run();
     }
     else if (FLAGS_par == "MPIAsyncParamsCPU") {
