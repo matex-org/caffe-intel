@@ -111,8 +111,6 @@ DEFINE_string(listen_address, "",
 DEFINE_int32(comm_threads, 1,
     "Optional; multinode mode,"
     " The number of threads used by communication code.");
-DEFINE_bool(forward_only, false,
-    "Optional; Execute only forward pass");
 DEFINE_string(engine, "",
     "Optional; Engine sequence in format: engine:subengine_1,subengine_2,...");
 DEFINE_string(par, "",
@@ -481,54 +479,100 @@ RegisterBrewFunction(test);
 
 // Time: benchmark the execution time of a model.
 int time() {
-  CHECK_GT(FLAGS_model.size(), 0) << "Need a model definition to time.";
-  caffe::Phase phase = get_phase_from_flags(caffe::TRAIN);
-  vector<string> stages = get_stages_from_flags(FLAGS_stage);
-
-  // Set device id and mode
+  CHECK_GT(FLAGS_model.size() + FLAGS_solver.size(), 0) << "Need a model definition to time.";
   vector<int> gpus;
+#ifndef CPU_ONLY
+  // Read flags for list of GPUs
   get_gpus(&gpus);
+  while (gpus.size() > 1) {
+    // Only use one GPU
+    LOG(INFO) << "Not using GPU #" << gpus.back() << " for single-GPU function";
+    gpus.pop_back();
+  }
+  caffe::GPUMemory::Scope gpu_memory_scope(gpus);
+#endif
+
+  caffe::SolverParameter solver_param;
+  if (FLAGS_solver.size() > 0) {
+    caffe::ReadSolverParamsFromTextFileOrDie(FLAGS_solver, &solver_param);
+  }
+
+  // Set mode and device_id
   if (gpus.size() != 0) {
     LOG(INFO) << "Use GPU with device ID " << gpus[0];
+#ifndef CPU_ONLY
+    cudaDeviceProp device_prop;
+    cudaGetDeviceProperties(&device_prop, gpus[0]);
+    LOG(INFO) << "GPU " << gpus[0] << ": " << device_prop.name;
+#endif
     Caffe::SetDevice(gpus[0]);
     Caffe::set_mode(Caffe::GPU);
+    solver_param.set_device_id(gpus[0]);
   } else {
     LOG(INFO) << "Use CPU.";
     Caffe::set_mode(Caffe::CPU);
   }
-  // Instantiate the caffe net.
-  Net<float> caffe_net(FLAGS_model, phase, FLAGS_level, &stages, NULL,
-                       FLAGS_engine);
 
-  // Do a clean forward and backward pass, so that memory allocation are done
-  // and future iterations will be more stable.
-  LOG(INFO) << "Performing Forward";
-  // Note that for the speed benchmark, we will assume that the network does
-  // not take any input blobs.
-  float initial_loss;
-  caffe_net.Forward(&initial_loss);
-  LOG(INFO) << "Initial loss: " << initial_loss;
-  if (!FLAGS_forward_only) {
-    LOG(INFO) << "Performing Backward";
-    caffe_net.Backward();
+  // Instantiate the caffe net.
+  shared_ptr<Net<float> > caffe_net;
+  shared_ptr<caffe::Solver<float> > solver;
+
+  if (FLAGS_solver.size() > 0) {
+    solver.reset(caffe::SolverRegistry<float>::CreateSolver(solver_param));
+    caffe_net = solver->net();
+  }
+  else {
+    caffe_net.reset(new Net<float>(FLAGS_model, caffe::TRAIN));
   }
 
-  const vector<shared_ptr<Layer<float> > >& layers = caffe_net.layers();
-  const vector<vector<Blob<float>*> >& bottom_vecs = caffe_net.bottom_vecs();
-  const vector<vector<Blob<float>*> >& top_vecs = caffe_net.top_vecs();
+  // Do a number of clean forward and backward pass,
+  // so that memory allocation are done,
+  // and future iterations will be more stable.
+  Timer init_timer;
+  Timer forward_timer;
+  Timer backward_timer;
+  Timer apply_timer;
+  double forward_time = 0.0;
+  double backward_time = 0.0;
+  double apply_time = 0.0;
+  const int kInitIterations = 5;
+  LOG(INFO) << "Initialization for " << kInitIterations << " iterations.";
+  // Note that for the speed benchmark, we will assume that the network does
+  // not take any input blobs.
+  LOG(INFO) << "Performing initial Forward/Backward";
+  const vector<shared_ptr<Layer<float> > >& layers = caffe_net->layers();
+  const vector<vector<Blob<float>*> >& bottom_vecs = caffe_net->bottom_vecs();
+  const vector<vector<Blob<float>*> >& top_vecs = caffe_net->top_vecs();
+  const vector<Blob<float>*>& params = caffe_net->learnable_params();
   const vector<vector<bool> >& bottom_need_backward =
-      caffe_net.bottom_need_backward();
+      caffe_net->bottom_need_backward();
+  float initial_loss = 0.F;
+  init_timer.Start();
+  for (int j = 0; j < kInitIterations; ++j) {
+    for (int i = 0; i < layers.size(); ++i) {
+      initial_loss += layers[i]->Forward(bottom_vecs[i], top_vecs[i]);
+    }
+    for (int i = layers.size() - 1; i >= 0; --i) {
+      layers[i]->Backward(top_vecs[i], bottom_need_backward[i],
+                          bottom_vecs[i]);
+    }
+  }
+  double init_time = init_timer.MilliSeconds();
+  LOG(INFO) << "Initial Forward/Backward complete, loss: " << initial_loss;
+  LOG(INFO) << "Average Initialization Forward/Backward pass: " << init_time /
+      kInitIterations << " ms.";
+
   LOG(INFO) << "*** Benchmark begins ***";
   LOG(INFO) << "Testing for " << FLAGS_iterations << " iterations.";
   Timer total_timer;
   total_timer.Start();
-  Timer forward_timer;
-  Timer backward_timer;
   Timer timer;
   std::vector<double> forward_time_per_layer(layers.size(), 0.0);
   std::vector<double> backward_time_per_layer(layers.size(), 0.0);
-  double forward_time = 0.0;
-  double backward_time = 0.0;
+  std::vector<double> apply_time_per_param(params.size(), 0.0);
+  forward_time = 0.0;
+  backward_time = 0.0;
+  apply_time = 0.0;
   for (int j = 0; j < FLAGS_iterations; ++j) {
     Timer iter_timer;
     iter_timer.Start();
@@ -539,19 +583,34 @@ int time() {
       forward_time_per_layer[i] += timer.MicroSeconds();
     }
     forward_time += forward_timer.MicroSeconds();
-    if (!FLAGS_forward_only) {
-      backward_timer.Start();
-      for (int i = layers.size() - 1; i >= 0; --i) {
+    backward_timer.Start();
+    for (int i = layers.size() - 1; i >= 0; --i) {
+      timer.Start();
+      layers[i]->Backward(top_vecs[i], bottom_need_backward[i],
+                          bottom_vecs[i]);
+      backward_time_per_layer[i] += timer.MicroSeconds();
+    }
+    backward_time += backward_timer.MicroSeconds();
+    if (FLAGS_solver.size() > 0) {
+      apply_timer.Start();
+      float rate = solver->GetLearningRate();
+      solver->ClipGradients();
+      for (int i = params.size() - 1; i >= 0; --i) {
         timer.Start();
-        layers[i]->Backward(top_vecs[i], bottom_need_backward[i],
-                            bottom_vecs[i]);
-        backward_time_per_layer[i] += timer.MicroSeconds();
+        solver->Normalize(i);
+        solver->Regularize(i);
+        solver->ComputeUpdateValue(i, rate);
+        apply_time_per_param[i] += timer.MicroSeconds();
       }
-      backward_time += backward_timer.MicroSeconds();
-      LOG(INFO) << "Iteration: " << j + 1 << " forward-backward time: "
+      caffe_net->Update();
+      apply_time += apply_timer.MicroSeconds();
+    }
+    if (FLAGS_solver.size() > 0) {
+      LOG(INFO) << "Iteration: " << j + 1 << " forward-backward-apply time: "
         << iter_timer.MilliSeconds() << " ms.";
-    } else {
-      LOG(INFO) << "Iteration: " << j + 1 << " forward time: "
+    }
+    else {
+      LOG(INFO) << "Iteration: " << j + 1 << " forward-backward time: "
         << iter_timer.MilliSeconds() << " ms.";
     }
   }
@@ -561,18 +620,29 @@ int time() {
     LOG(INFO) << std::setfill(' ') << std::setw(10) << layername <<
       "\tforward: " << forward_time_per_layer[i] / 1000 /
       FLAGS_iterations << " ms.";
-    if (!FLAGS_forward_only) {
-      LOG(INFO) << std::setfill(' ') << std::setw(10) << layername  <<
-        "\tbackward: " << backward_time_per_layer[i] / 1000 /
+    LOG(INFO) << std::setfill(' ') << std::setw(10) << layername  <<
+      "\tbackward: " << backward_time_per_layer[i] / 1000 /
+      FLAGS_iterations << " ms.";
+  }
+  if (FLAGS_solver.size() > 0) {
+    for (int i = params.size() - 1; i >= 0; --i) {
+      LOG(INFO) << std::setfill(' ') << std::setw(10) << i <<
+        "\tapply: " << apply_time_per_param[i] / 1000 /
         FLAGS_iterations << " ms.";
     }
   }
   total_timer.Stop();
   LOG(INFO) << "Average Forward pass: " << forward_time / 1000 /
     FLAGS_iterations << " ms.";
-  if (!FLAGS_forward_only) {
-    LOG(INFO) << "Average Backward pass: " << backward_time / 1000 /
+  LOG(INFO) << "Average Backward pass: " << backward_time / 1000 /
+    FLAGS_iterations << " ms.";
+  if (FLAGS_solver.size() > 0) {
+    LOG(INFO) << "Average Apply pass: " << apply_time / 1000 /
       FLAGS_iterations << " ms.";
+    LOG(INFO) << "Average Forward-Backward-Apply: " << total_timer.MilliSeconds() /
+      FLAGS_iterations << " ms.";
+  }
+  else {
     LOG(INFO) << "Average Forward-Backward: " << total_timer.MilliSeconds() /
       FLAGS_iterations << " ms.";
   }

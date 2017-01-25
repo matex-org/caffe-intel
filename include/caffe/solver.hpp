@@ -175,7 +175,12 @@ class Solver {
   void PrintTimers(bool printTotal);
 #endif /* CAFFE_PER_LAYER_TIMINGS */
 
- protected:
+ public:
+  virtual Dtype GetLearningRate() = 0;
+  virtual void Normalize(int param_id) = 0;
+  virtual void Regularize(int param_id) = 0;
+  virtual void ComputeUpdateValue(int param_id, Dtype rate) = 0;
+  virtual void ClipGradients() = 0;
   string SnapshotFilename(const string extension);
   string SnapshotToBinaryProto();
   string SnapshotToHDF5();
