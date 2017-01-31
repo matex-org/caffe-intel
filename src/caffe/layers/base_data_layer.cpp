@@ -73,7 +73,9 @@ template <typename Dtype>
 BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
     const LayerParameter& param)
     : BaseDataLayer<Dtype>(param),
-      prefetch_free_(), prefetch_full_() {
+      prefetch_free_(), prefetch_full_(), cache_full_() {
+  cache_size_ = param.data_param().cache_size();
+  cache_ = new Batch<Dtype>[cache_size_];
   for (int i = 0; i < PREFETCH_COUNT; ++i) {
     prefetch_free_.push(&prefetch_[i]);
   }
@@ -87,10 +89,17 @@ void BasePrefetchingDataLayer<Dtype>::LayerSetUp(
   // calls so that the prefetch thread does not accidentally make simultaneous
   // cudaMalloc calls when the main thread is running. In some GPUs this
   // seems to cause failures if we do not so.
+  randomGen.Init();
   for (int i = 0; i < PREFETCH_COUNT; ++i) {
     prefetch_[i].data_.mutable_cpu_data();
     if (this->output_labels_) {
       prefetch_[i].label_.mutable_cpu_data();
+    }
+  }
+  for (int i = 0; i < cache_size_; ++i) {
+    cache_[i].data_.mutable_cpu_data();
+    if (this->output_labels_) {
+      cache_[i].label_.mutable_cpu_data();
     }
   }
 #ifndef CPU_ONLY
@@ -99,6 +108,12 @@ void BasePrefetchingDataLayer<Dtype>::LayerSetUp(
       prefetch_[i].data_.mutable_gpu_data();
       if (this->output_labels_) {
         prefetch_[i].label_.mutable_gpu_data();
+      }
+    }
+    for (int i = 0; i < cache_size_; ++i) {
+      cache_[i].data_.mutable_gpu_data();
+      if (this->output_labels_) {
+        cache_[i].label_.mutable_gpu_data();
       }
     }
   }
@@ -156,15 +171,63 @@ void BasePrefetchingDataLayer<Dtype>::GetBatch() {
   }
 }
 
+template<typename Dtype>
+void shuffle_cache(Batch<Dtype>* batch1, int batchPos1, Batch<Dtype>*  batch2, int batchPos2) {
+  const int datum_channels = batch1->data_.shape(1);
+  const int datum_height = batch1->data_.shape(2);
+  const int datum_width = batch1->data_.shape(3);
+  
+  Dtype * data1 = batch1->data_.mutable_cpu_data();
+  Dtype * data2 = batch2->data_.mutable_cpu_data();
+  Dtype * label1 = batch1->label_.mutable_cpu_data();
+  Dtype * label2 = batch2->label_.mutable_cpu_data();
+  int offset1 = batch1->data_.offset(batchPos1);
+  int offset2 = batch2->data_.offset(batchPos2);
+  int top_index;
+  data1+=offset1;
+  data2+=offset2;
+
+  int height = datum_height;
+  int width = datum_width;
+
+  int h_off = 0;
+  int w_off = 0;
+  std::swap(label1[batchPos1], label2[batchPos2]); 
+  for (int c = 0; c < datum_channels; ++c) {
+    for (int h = 0; h < height; ++h) {
+      for (int w = 0; w < width; ++w) {
+        top_index = (c * height + h) * width + w;
+        std::swap(data1[top_index], data2[top_index]);
+      }
+    }
+  }
+}
 
 template <typename Dtype>
 void BasePrefetchingDataLayer<Dtype>::Forward_cpu(
     const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top) {
   // Here for CPU we do transformation
-  if (Caffe::mode() == Caffe::CPU) {
+  /*if (Caffe::mode() == Caffe::CPU) {
     this->GetBatch();
+  }*/
+  
+  Batch<Dtype>* batch;
+  if(cache_full_.size() == 0)
+  {
+    LOG(INFO) << "Shuffling Cache";
+    for(int i=0; i< cache_size_; i++)
+    {
+      for(int j=0; j< cache_[i].data_.shape(0); j++)
+      {
+          shuffle_cache(&cache_[i], j, &cache_[randomGen(cache_size_)], randomGen(cache_[i].data_.shape(0)));
+      }
+      cache_full_.push(&cache_[i]);
+    }
+    LOG(INFO) << "Shuffling Cache Done";
+    //Don't forget prefetch_free_
+    //prefetch_free_.push(batch);
   }
-  Batch<Dtype>* batch = prefetch_full_.pop("Data layer prefetch queue empty");
+  batch = cache_full_.pop("Data layer cache queue empty");
   // Reshape to loaded data.
   top[0]->ReshapeLike(batch->data_);
   // Copy the data
@@ -180,8 +243,6 @@ void BasePrefetchingDataLayer<Dtype>::Forward_cpu(
   }
 
   // TODO: Consider prefetch_data_array and prefetch_label_array
-
-  prefetch_free_.push(batch);
 }
 
 #ifdef CPU_ONLY

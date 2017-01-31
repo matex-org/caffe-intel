@@ -113,9 +113,13 @@ class BasePrefetchingDataLayer :
 
   virtual void GetBatch();
 
+  GenRandNumbers randomGen;
   Batch<Dtype> prefetch_[PREFETCH_COUNT];
   BlockingQueue<Batch<Dtype>*> prefetch_free_;
   BlockingQueue<Batch<Dtype>*> prefetch_full_;
+  Batch<Dtype> * cache_;
+  int cache_size_;
+  BlockingQueue<Batch<Dtype>*> cache_full_;
 
   Blob<Dtype> transformed_data_;
 };

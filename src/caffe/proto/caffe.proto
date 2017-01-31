@@ -746,6 +746,8 @@ message DataParameter {
   optional uint32 prefetch = 10 [default = 4];
   // Whether or not DataLayer should shuffle the images at every epoch.
   optional bool shuffle = 11 [default = false];
+  
+  optional uint32 cache_size = 12 [default = 0];
 }
 
 message RemoteDataParameter {

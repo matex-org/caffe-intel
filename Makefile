@@ -404,7 +404,7 @@ ifeq ($(DEBUG), 1)
 else ifneq (,$(findstring icpc,$(CXX)))
 	COMMON_FLAGS += -DNDEBUG -O3 -xCORE-AVX2 -no-prec-div -fp-model fast=2
 else
-	COMMON_FLAGS += -DNDEBUG -O3
+	COMMON_FLAGS += -DNDEBUG -O3 -g -lopencv_imgcodecs
 endif
 
 # cuDNN acceleration configuration.
@@ -833,6 +833,23 @@ superclean: clean supercleanfiles
 $(DIST_ALIASES): $(DISTRIBUTE_DIR)
 
 $(DISTRIBUTE_DIR): all py | $(DISTRIBUTE_SUBDIRS)
+	# add proto
+	cp -r src/caffe/proto $(DISTRIBUTE_DIR)/
+	# add include
+	cp -r include $(DISTRIBUTE_DIR)/
+	mkdir -p $(DISTRIBUTE_DIR)/include/caffe/proto
+	cp $(PROTO_GEN_HEADER_SRCS) $(DISTRIBUTE_DIR)/include/caffe/proto
+	# add tool and example binaries
+	cp $(TOOL_BINS) $(DISTRIBUTE_DIR)/bin
+	cp $(EXAMPLE_BINS) $(DISTRIBUTE_DIR)/bin
+	# add libraries
+	cp $(STATIC_NAME) $(DISTRIBUTE_DIR)/lib
+	install -m 644 $(DYNAMIC_NAME) $(DISTRIBUTE_DIR)/lib
+	cd $(DISTRIBUTE_DIR)/lib; rm -f $(DYNAMIC_NAME_SHORT);   ln -s $(DYNAMIC_VERSIONED_NAME_SHORT) $(DYNAMIC_NAME_SHORT)
+	# add python - it's not the standard way, indeed...
+	cp -r python $(DISTRIBUTE_DIR)/python
+
+install: all py | $(DISTRIBUTE_SUBDIRS)
 	# add proto
 	cp -r src/caffe/proto $(DISTRIBUTE_DIR)/
 	# add include
