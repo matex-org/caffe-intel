@@ -107,7 +107,7 @@ class BasePrefetchingDataLayer :
   // Prefetches batches (asynchronously if to GPU memory)
   static const int PREFETCH_COUNT = 3;
   virtual void Pass_Value_To_Layer(Dtype value, unsigned int position) {
-    LOG(INFO) << "Base Pass";
+    //LOG(INFO) << "Base Pass";
     ignoreAccuracy=false;
     historical_accuracy.push_back(value);
   }

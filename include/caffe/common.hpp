@@ -123,6 +123,7 @@ using std::isinf;
 using std::iterator;
 using std::make_pair;
 using std::map;
+using std::multimap;
 using std::ostringstream;
 using std::pair;
 using std::set;

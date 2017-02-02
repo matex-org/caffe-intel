@@ -216,10 +216,10 @@ void BasePrefetchingDataLayer<Dtype>::Forward_cpu(
       int accuracySize = historical_accuracy.size();
       if( ignoreAccuracy || accuracySize < 2 || historical_accuracy[accuracySize-1] > historical_accuracy[accuracySize-2])
       {
-        for(int i=0; i< accuracySize; i++)
-          LOG(INFO) << "ACC" << historical_accuracy[i];
+        //for(int i=0; i< accuracySize; i++)
+        //  LOG(INFO) << "ACC" << historical_accuracy[i];
         
-        LOG(INFO) << "Shuffling Cache";
+        //LOG(INFO) << "Shuffling Cache";
         for(int i=0; i< cache_size_; i++)
         {
           for(int j=0; j< cache_[i].data_.shape(0); j++)
@@ -228,7 +228,7 @@ void BasePrefetchingDataLayer<Dtype>::Forward_cpu(
           }
           cache_full_.push(&cache_[i]);
         }
-        LOG(INFO) << "Shuffling Cache Done";
+        //LOG(INFO) << "Shuffling Cache Done";
       }
       else
       {
@@ -239,7 +239,7 @@ void BasePrefetchingDataLayer<Dtype>::Forward_cpu(
           load_batch(&cache_[i]);
           cache_full_.push(&cache_[i]);
         }
-        LOG(INFO) << "Refilling Cache Done";
+        //LOG(INFO) << "Refilling Cache Done";
       }
       //Don't forget prefetch_free_
     }
@@ -247,9 +247,9 @@ void BasePrefetchingDataLayer<Dtype>::Forward_cpu(
   }
   else
   {
-    int accuracySize = historical_accuracy.size();
-    for(int i=0; i< accuracySize; i++)
-      LOG(INFO) << "ACC" << historical_accuracy[i];
+    //int accuracySize = historical_accuracy.size();
+    //for(int i=0; i< accuracySize; i++)
+    //  LOG(INFO) << "ACC" << historical_accuracy[i];
     // Here for CPU we do transformation
     if (Caffe::mode() == Caffe::CPU) {
       this->GetBatch();

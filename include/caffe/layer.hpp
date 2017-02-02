@@ -356,7 +356,7 @@ class Layer {
   // Data coming from outside the network
   vector<Dtype> outsideData;
   virtual void Pass_Value_To_Layer(Dtype value, unsigned int position) {
-    LOG(INFO) << "Layer Pass";
+    //LOG(INFO) << "Layer Pass";
     if(outsideData.size() < position+1)
     {
       outsideData.resize(position+1);

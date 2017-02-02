@@ -157,6 +157,7 @@ void Net<Dtype>::Init(const NetParameter& in_param) {
       layers_.push_back(LayerRegistry<Dtype>::CreateLayer(layer_param));
     }
     layer_names_.push_back(layer_param.name());
+    layer_types_.push_back(layers_[layer_id]->type());
     LOG_IF(INFO, Caffe::root_solver())
         << "Creating Layer " << layer_param.name();
     bool need_backward = false;
@@ -338,6 +339,9 @@ void Net<Dtype>::Init(const NetParameter& in_param) {
   }
   for (size_t layer_id = 0; layer_id < layer_names_.size(); ++layer_id) {
     layer_names_index_[layer_names_[layer_id]] = layer_id;
+  }
+  for (size_t layer_id = 0; layer_id < layer_types_.size(); ++layer_id) {
+    layer_types_index_.insert(pair<string, int>(layer_types_[layer_id], layer_id));
   }
   ShareWeights();
   debug_info_ = param.debug_info();
@@ -1166,6 +1170,11 @@ bool Net<Dtype>::has_layer(const string& layer_name) const {
 }
 
 template <typename Dtype>
+bool Net<Dtype>::has_layer_type(const string& layer_type) const {
+  return layer_types_index_.find(layer_type) != layer_types_index_.end();
+}
+
+template <typename Dtype>
 const shared_ptr<Layer<Dtype> > Net<Dtype>::layer_by_name(
     const string& layer_name) const {
   shared_ptr<Layer<Dtype> > layer_ptr;
@@ -1174,6 +1183,19 @@ const shared_ptr<Layer<Dtype> > Net<Dtype>::layer_by_name(
   } else {
     layer_ptr.reset((Layer<Dtype>*)(NULL));
     LOG(WARNING) << "Unknown layer name " << layer_name;
+  }
+  return layer_ptr;
+}
+
+template <typename Dtype>
+const shared_ptr<Layer<Dtype> > Net<Dtype>::layer_by_type(
+    const string& layer_type) const {
+  shared_ptr<Layer<Dtype> > layer_ptr;
+  if (has_layer_type(layer_type)) {
+    layer_ptr = layers_[layer_types_index_.find(layer_type)->second];
+  } else {
+    layer_ptr.reset((Layer<Dtype>*)(NULL));
+    LOG(WARNING) << "Unknown layer type " << layer_type;
   }
   return layer_ptr;
 }
