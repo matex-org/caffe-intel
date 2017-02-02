@@ -352,6 +352,17 @@ class Layer {
     }
     param_propagate_down_[param_id] = value;
   }
+  
+  // Data coming from outside the network
+  vector<Dtype> outsideData;
+  virtual void Pass_Value_To_Layer(Dtype value, unsigned int position) {
+    LOG(INFO) << "Layer Pass";
+    if(outsideData.size() < position+1)
+    {
+      outsideData.resize(position+1);
+    }
+    outsideData[position] = value;
+  }
 
 
  protected:
@@ -367,7 +378,7 @@ class Layer {
   /** The vector that indicates whether each top blob has a non-zero weight in
    *  the objective function. */
   vector<Dtype> loss_;
-
+ 
   /** @brief Using the CPU device, compute the layer output. */
   virtual void Forward_cpu(const vector<Blob<Dtype>*>& bottom,
       const vector<Blob<Dtype>*>& top) = 0;

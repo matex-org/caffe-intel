@@ -106,6 +106,11 @@ class BasePrefetchingDataLayer :
 
   // Prefetches batches (asynchronously if to GPU memory)
   static const int PREFETCH_COUNT = 3;
+  virtual void Pass_Value_To_Layer(Dtype value, unsigned int position) {
+    LOG(INFO) << "Base Pass";
+    ignoreAccuracy=false;
+    historical_accuracy.push_back(value);
+  }
 
  protected:
   virtual void InternalThreadEntry();
@@ -119,7 +124,9 @@ class BasePrefetchingDataLayer :
   BlockingQueue<Batch<Dtype>*> prefetch_full_;
   Batch<Dtype> * cache_;
   int cache_size_;
+  vector<Dtype> historical_accuracy;
   BlockingQueue<Batch<Dtype>*> cache_full_;
+  bool ignoreAccuracy;
 
   Blob<Dtype> transformed_data_;
 };

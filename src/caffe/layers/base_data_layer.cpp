@@ -73,7 +73,7 @@ template <typename Dtype>
 BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
     const LayerParameter& param)
     : BaseDataLayer<Dtype>(param),
-      prefetch_free_(), prefetch_full_(), cache_full_() {
+      prefetch_free_(), prefetch_full_(), cache_full_(), ignoreAccuracy(false) {
   cache_size_ = param.data_param().cache_size();
   cache_ = new Batch<Dtype>[cache_size_];
   for (int i = 0; i < PREFETCH_COUNT; ++i) {
@@ -121,6 +121,8 @@ void BasePrefetchingDataLayer<Dtype>::LayerSetUp(
   DLOG(INFO) << "Initializing prefetch";
   this->data_transformer_->InitRand();
 
+  for (int i = 0; i < cache_size_; ++i)
+    load_batch(&cache_[i]);
   // Only if GPU mode on then we use background threads
   if (Caffe::mode() == Caffe::GPU) {
     StartInternalThread();
@@ -206,28 +208,54 @@ void shuffle_cache(Batch<Dtype>* batch1, int batchPos1, Batch<Dtype>*  batch2, i
 template <typename Dtype>
 void BasePrefetchingDataLayer<Dtype>::Forward_cpu(
     const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top) {
-  // Here for CPU we do transformation
-  /*if (Caffe::mode() == Caffe::CPU) {
-    this->GetBatch();
-  }*/
-  
   Batch<Dtype>* batch;
-  if(cache_full_.size() == 0)
+  if(cache_size_ > 0)
   {
-    LOG(INFO) << "Shuffling Cache";
-    for(int i=0; i< cache_size_; i++)
+    if(cache_full_.size() == 0)
     {
-      for(int j=0; j< cache_[i].data_.shape(0); j++)
+      int accuracySize = historical_accuracy.size();
+      if( ignoreAccuracy || accuracySize < 2 || historical_accuracy[accuracySize-1] > historical_accuracy[accuracySize-2])
       {
-          shuffle_cache(&cache_[i], j, &cache_[randomGen(cache_size_)], randomGen(cache_[i].data_.shape(0)));
+        for(int i=0; i< accuracySize; i++)
+          LOG(INFO) << "ACC" << historical_accuracy[i];
+        
+        LOG(INFO) << "Shuffling Cache";
+        for(int i=0; i< cache_size_; i++)
+        {
+          for(int j=0; j< cache_[i].data_.shape(0); j++)
+          {
+              shuffle_cache(&cache_[i], j, &cache_[randomGen(cache_size_)], randomGen(cache_[i].data_.shape(0)));
+          }
+          cache_full_.push(&cache_[i]);
+        }
+        LOG(INFO) << "Shuffling Cache Done";
       }
-      cache_full_.push(&cache_[i]);
+      else
+      {
+        ignoreAccuracy = true;
+        LOG(INFO) << "Refilling Cache";
+        for (int i = 0; i < cache_size_; ++i)
+        {
+          load_batch(&cache_[i]);
+          cache_full_.push(&cache_[i]);
+        }
+        LOG(INFO) << "Refilling Cache Done";
+      }
+      //Don't forget prefetch_free_
     }
-    LOG(INFO) << "Shuffling Cache Done";
-    //Don't forget prefetch_free_
-    //prefetch_free_.push(batch);
+    batch = cache_full_.pop("Data layer cache queue empty");
   }
-  batch = cache_full_.pop("Data layer cache queue empty");
+  else
+  {
+    int accuracySize = historical_accuracy.size();
+    for(int i=0; i< accuracySize; i++)
+      LOG(INFO) << "ACC" << historical_accuracy[i];
+    // Here for CPU we do transformation
+    if (Caffe::mode() == Caffe::CPU) {
+      this->GetBatch();
+    }
+    batch = prefetch_full_.pop("Prefetch cache queue empty");
+  }
   // Reshape to loaded data.
   top[0]->ReshapeLike(batch->data_);
   // Copy the data
@@ -241,6 +269,8 @@ void BasePrefetchingDataLayer<Dtype>::Forward_cpu(
     caffe_copy(batch->label_.count(), batch->label_.cpu_data(),
         top[1]->mutable_cpu_data());
   }
+  if(cache_size_==0)
+    prefetch_free_.push(batch);
 
   // TODO: Consider prefetch_data_array and prefetch_label_array
 }
