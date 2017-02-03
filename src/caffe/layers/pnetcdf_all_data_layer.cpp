@@ -13,6 +13,9 @@
 #include "caffe/data_transformer.hpp"
 #include "caffe/layers/pnetcdf_all_data_layer.hpp"
 #include "caffe/mpi.hpp"
+//#if CAFFE_FT
+//#include <mpi-ext.h>
+//#endif 
 #include "caffe/util/benchmark.hpp"
 
 namespace caffe {
@@ -29,9 +32,19 @@ PnetCDFAllDataLayer<Dtype>::PnetCDFAllDataLayer(const LayerParameter& param)
     comm_(),
     comm_rank_(),
     comm_size_() {
+  #ifdef CAFFE_FT
+  comm_ = caffe::mpi::get_working_comm();
+  // MPI_Comm_set_errhandler(comm_, MPI_ERRORS_RETURN);
+
+  std::cout << "Working Comm PNETCDFALLDATALAYER.\n";
+  #else
   comm_ = caffe::mpi::comm_dup();
+  #endif 
   comm_rank_ = caffe::mpi::comm_rank(comm_);
   comm_size_ = caffe::mpi::comm_size(comm_);
+  LOG(INFO) << "Rank PnetCDF file: " << comm_rank_ 
+      << " Size: " << comm_size_;
+
 }
 
 template <typename Dtype>
@@ -81,8 +94,48 @@ void PnetCDFAllDataLayer<Dtype>::load_pnetcdf_file_data(const string& filename) 
   MPI_Offset start;
   MPI_Offset stop;
 
+  #ifdef CAFFE_FT
+  int rc, rc2; 
+  DLOG(INFO) << "PnetCDF Before Opening File:------- ";
+  // Check if communicator is still valid.
+  //# rc = MPI_Comm_set_errhandler(comm_, MPI_ERRORS_RETURN);
+  // DLOG(INFO) << "RC code:" << rc; 
+  // caffe::mpi::error_report(rc);
+  float xallreduce = 1.0;
+  //caffe::mpi::allreduce(diff_, size_, MPI_SUM, comm_);
+  //MPI_Allreduce(MPI_IN_PLACE, buffer, count,
+  //            MPI_FLOAT, op, comm)
+  rc = MPI_Allreduce(MPI_IN_PLACE, &xallreduce, 1, MPI_FLOAT, 
+              MPI_SUM, comm_);
+  if(rc != MPI_SUCCESS)
+  {
+    caffe::mpi::fix_communicator();
+    comm_ = caffe::mpi::get_working_comm();
+    comm_rank_ = caffe::mpi::comm_rank(comm_);
+    comm_size_ = caffe::mpi::comm_size(comm_);
+    DLOG(INFO) << "Communicator Fixed: Rank: " << comm_rank_ 
+      << ", Size: " << comm_size_;
+  }
+
+  caffe::mpi::error_report(rc);
+  DLOG(INFO) << "Test AllReduce Value: " << xallreduce;            
+
+  MPI_Group group_c;
+  rc = MPIX_Comm_failure_ack(comm_);
+  rc2 = MPIX_Comm_failure_get_acked(comm_, &group_c);
+  if(rc2 != MPI_SUCCESS) {
+    DLOG(INFO) << "ERROR OCCURED BEFORE READING";
+    caffe::mpi::error_report(rc);
+  }
+
   retval = ncmpi_open(comm_, filename.c_str(),
           NC_NOWRITE, MPI_INFO_NULL, &ncid);
+  DLOG(INFO) << "PnetCDF After Opening File:------- ";
+  
+  #else
+  retval = ncmpi_open(comm_, filename.c_str(),
+          NC_NOWRITE, MPI_INFO_NULL, &ncid);
+  #endif
   errcheck(retval);
 
   retval = ncmpi_inq(ncid, &ndims, &nvars, &ngatts, &unlimdim);

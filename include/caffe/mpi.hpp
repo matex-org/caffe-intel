@@ -3,6 +3,11 @@
 
 #ifdef USE_MPI
 #include <mpi.h>
+#ifdef CAFFE_FT
+#include <glog/logging.h>
+#include <mpi-ext.h>
+#include <signal.h>
+#endif /*CAFFE_FT*/
 #endif
 
 #define NO_MPI LOG(FATAL) << "Cannot use MPI unless USE_MPI is enabled during make."
@@ -11,6 +16,10 @@ namespace caffe {
 namespace mpi {
 
 #ifdef USE_MPI
+
+#ifdef CAFFE_FT
+extern MPI_Comm wcomm, rcomm;
+#endif 
 
 extern MPI_Comm default_comm_;
 MPI_Comm get_comm_default();
@@ -51,6 +60,27 @@ void allreduce(double* buffer, int count,
 
 void bcast(float* buffer, int count, int root=0, MPI_Comm comm=MPI_COMM_NULL);
 void bcast(double* buffer, int count, int root=0, MPI_Comm comm=MPI_COMM_NULL);
+
+#ifdef CAFFE_FT
+struct FTCommunicator {
+MPI_Errhandler errh; // Error Handler;
+MPI_Comm working_comm, split_comm;
+//static void verbose_errhandler(MPI_Comm* comm, int* err, ...);
+};
+
+// for global working comm and recovery comm. 
+extern MPI_Comm wcomm, rcomm;
+// error message
+extern char err_str[MPI_MAX_ERROR_STRING];
+extern int err_strlen;
+
+int mpix_comm_replace(MPI_Comm comm, MPI_Comm* newcomm);
+MPI_Comm get_working_comm();
+int duplicate_comm(MPI_Comm* new_comm, MPI_Comm comm=MPI_COMM_NULL);
+void error_report(int err_code);
+void verbose_errhandler(MPI_Comm* comm, int* err, ...);
+void fix_communicator();
+#endif /* CAFFE_FT */
 
 #else
 

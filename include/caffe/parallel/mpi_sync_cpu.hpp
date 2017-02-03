@@ -32,6 +32,9 @@ class MPISyncCPU : public CPUParams<Dtype>, public Solver<Dtype>::Callback {
 
 #ifdef USE_MPI
   MPI_Comm comm_;
+  #ifdef CAFFE_FT
+  int error_code_;
+  #endif
 #endif
   int comm_size_;
   shared_ptr<Solver<Dtype> > solver_;

@@ -41,6 +41,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <map>
 #include <string>
 
+#ifdef CAFFE_FT
+#include "caffe/mpi.hpp"
+#include <mpi-ext.h>
+#include <signal.h>
+#endif
+
 namespace caffe {
 namespace internode {
 
@@ -49,9 +55,10 @@ std::string mpi_get_current_proc_rank_as_string();
 int mpi_get_comm_size();
 std::string mpi_get_current_proc_name();
 std::string mpi_get_error_string(int errorcode);
-
 void mpi_init(int argc, char** argv);
 void mpi_finalize();
+
+
 
 }  // namespace internode
 }  // namespace caffe

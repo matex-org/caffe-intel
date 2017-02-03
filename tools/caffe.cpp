@@ -52,6 +52,7 @@ namespace bp = boost::python;
 #include "boost/make_shared.hpp"
 #include "caffe/caffe.hpp"
 #include "caffe/internode/mpiutil.hpp"
+#include "caffe/mpi.hpp"
 #include "caffe/multinode/multinode.hpp"
 #include "caffe/parallel/mpi_sync_cpu.hpp"
 #include "caffe/training_utils.hpp"
@@ -767,7 +768,8 @@ int main(int argc, char** argv) {
 #ifdef USE_MLSL
   caffe::internode::mlsl_init(argc, argv);
 #else /* !USE_MLSL */
-  caffe::internode::mpi_init(argc, argv);
+  // caffe::internode::mpi_init(argc, argv);
+  caffe::mpi::init(&argc, &argv);
 #endif /* USE_MLSL */
 
   // Print output to stderr (while still logging).
@@ -796,7 +798,8 @@ int main(int argc, char** argv) {
 #ifdef USE_MLSL
       caffe::internode::mlsl_finalize();
 #else /* !USE_MLSL */
-      caffe::internode::mpi_finalize();
+      //caffe::internode::mpi_finalize();
+      caffe::mpi::finalize();
 #endif /* USE_MLSL */
 
       return ret;

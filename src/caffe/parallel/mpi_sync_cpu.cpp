@@ -24,7 +24,12 @@ MPISyncCPU<Dtype>::MPISyncCPU(shared_ptr<Solver<Dtype> > root_solver)
       comm_size_(),
       solver_() {
 #ifdef USE_MPI
+  #if CAFFE_FT
+  comm_ = caffe::mpi::get_working_comm();
+  std::cout << "Working Comm MPISYNCCPU.\n";
+  #else
   comm_ = caffe::mpi::comm_dup();
+  #endif
   comm_size_ = caffe::mpi::comm_size(comm_);
   solver_ = root_solver;
   this->configure(solver_.get());
