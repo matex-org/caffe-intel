@@ -208,6 +208,10 @@ class Solver {
   ForwardBackwardFunc forward_backward_;
 
   DISABLE_COPY_AND_ASSIGN(Solver);
+
+  #ifdef CAFFE_FT
+  int ft_rank, ft_size;
+  #endif 
 };
 
 /**

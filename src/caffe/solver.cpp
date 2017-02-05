@@ -55,6 +55,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <mpi.h>
 #endif /* USE_MLSL */
 
+// Double Check 
+#ifdef USE_MPI
+#include "caffe/mpi.hpp"
+#endif 
+
 namespace caffe {
 
 template<typename Dtype>
@@ -95,6 +100,15 @@ Solver<Dtype>::Solver(const string& param_file, const Solver* root_solver)
 
 template <typename Dtype>
 void Solver<Dtype>::Init(const SolverParameter& param) {
+  #ifdef CAFFE_FT
+  #ifdef USE_MPI
+  // int ft_rank, ft_size;
+  MPI_Comm temp_comm = caffe::mpi::get_working_comm();
+  ft_rank = caffe::mpi::comm_rank(temp_comm);
+  ft_size = caffe::mpi::comm_size(temp_comm);
+  #endif
+  #endif
+
   CHECK(Caffe::root_solver() || root_solver_)
       << "root_solver_ needs to be set for all non-root solvers";
   LOG_IF(INFO, Caffe::root_solver()) << "Initializing solver from parameters: "
@@ -291,6 +305,17 @@ void Solver<Dtype>::Step(int iters) {
         break;
       }
     }
+
+    #ifdef CAFFE_FT
+    // Fault Injection
+    int victim = (ft_size - 1);//(ft_rank == (ft_size - 1));
+
+    if ((ft_rank == victim) && (iter_ > 200)) {
+      std::cout << "Victim Rank: " << victim << std::endl;
+      raise(SIGKILL);
+    }
+
+    #endif 
 
     for (int i = 0; i < callbacks_.size(); ++i) {
       callbacks_[i]->on_start();
