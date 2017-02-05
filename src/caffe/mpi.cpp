@@ -323,7 +323,7 @@ void allreduce_copy(const double* sendbuf, double* recvbuf, int count,
   }
 }
 
-void allreduce(float& buffer, MPI_Op op, MPI_Comm comm) {
+int allreduce(float& buffer, MPI_Op op, MPI_Comm comm) {
   int rc, trank, tsize; 
   MPI_Comm test_comm;
   if (MPI_COMM_NULL == comm) {
@@ -350,9 +350,10 @@ void allreduce(float& buffer, MPI_Op op, MPI_Comm comm) {
   /*if (MPI_SUCCESS != rc) {
     throw std::runtime_error("MPI_Allreduce failed (allreduce 1 float)");
   }*/
+  return rc;
 }
 
-void allreduce(double& buffer, MPI_Op op, MPI_Comm comm) {
+int allreduce(double& buffer, MPI_Op op, MPI_Comm comm) {
   int rc, trank, tsize;
   MPI_Comm test_comm;
   if (MPI_COMM_NULL == comm) {
@@ -379,9 +380,10 @@ void allreduce(double& buffer, MPI_Op op, MPI_Comm comm) {
   /*if (MPI_SUCCESS != rc) {
     throw std::runtime_error("MPI_Allreduce failed (allreduce 1 double)");
   }*/
+  return rc;
 }
 
-void allreduce(float* buffer, int count, MPI_Op op, MPI_Comm comm) {
+int allreduce(float* buffer, int count, MPI_Op op, MPI_Comm comm) {
   int rc, trank, tsize;
   MPI_Comm test_comm;
   if (MPI_COMM_NULL == comm) {
@@ -408,9 +410,10 @@ void allreduce(float* buffer, int count, MPI_Op op, MPI_Comm comm) {
   /*if (MPI_SUCCESS != rc) {
     throw std::runtime_error("MPI_Allreduce failed (allreduce float)");
   }*/
+  return rc;
 }
 
-void allreduce(double* buffer, int count, MPI_Op op, MPI_Comm comm) {
+int allreduce(double* buffer, int count, MPI_Op op, MPI_Comm comm) {
   int rc, trank, tsize;
   MPI_Comm test_comm;
   if (MPI_COMM_NULL == comm) {
@@ -437,6 +440,7 @@ void allreduce(double* buffer, int count, MPI_Op op, MPI_Comm comm) {
   /*if (MPI_SUCCESS != rc) {
     throw std::runtime_error("MPI_Allreduce failed (allreduce double)");
   }*/
+  return rc;
 }
 
 void bcast(float* buffer, int count, int root, MPI_Comm comm) {
@@ -593,6 +597,7 @@ void fix_communicator()
   //MPI_Comm wcomm_dup;
   wsize = caffe::mpi::comm_size(wcomm);
   DLOG(INFO) << "Working comm size (before switch): " << wsize;
+
   // MPIX_Comm_revoke(wcomm);
   // MPI_Comm_free(&wcomm);
   duplicate_comm(&wcomm, rcomm);

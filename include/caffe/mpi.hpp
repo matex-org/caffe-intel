@@ -40,6 +40,47 @@ int node_size(MPI_Comm comm=MPI_COMM_NULL);
 template <typename Dtype>
 MPI_Datatype datatype();
 
+#ifdef CAFFE_FT
+struct FTCommunicator {
+MPI_Errhandler errh; // Error Handler;
+MPI_Comm working_comm, split_comm;
+//static void verbose_errhandler(MPI_Comm* comm, int* err, ...);
+};
+
+// for global working comm and recovery comm. 
+extern MPI_Comm wcomm, rcomm;
+// error message
+extern char err_str[MPI_MAX_ERROR_STRING];
+extern int err_strlen;
+
+int mpix_comm_replace(MPI_Comm comm, MPI_Comm* newcomm);
+MPI_Comm get_working_comm();
+int duplicate_comm(MPI_Comm* new_comm, MPI_Comm comm=MPI_COMM_NULL);
+void error_report(int err_code);
+void verbose_errhandler(MPI_Comm* comm, int* err, ...);
+void fix_communicator();
+
+void allreduce_copy(const float& sendbuf, float& recvbuf,
+        MPI_Op op=MPI_SUM, MPI_Comm comm=MPI_COMM_NULL);
+void allreduce_copy(const double& sendbuf, double& recvbuf,
+        MPI_Op op=MPI_SUM, MPI_Comm comm=MPI_COMM_NULL);
+
+int allreduce(float& recvbuf, MPI_Op op=MPI_SUM, MPI_Comm comm=MPI_COMM_NULL);
+int allreduce(double& recvbuf, MPI_Op op=MPI_SUM, MPI_Comm comm=MPI_COMM_NULL);
+
+void allreduce_copy(const float* sendbuf, float* recvbuf, int count,
+        MPI_Op op=MPI_SUM, MPI_Comm comm=MPI_COMM_NULL);
+void allreduce_copy(const double* sendbuf, double* recvbuf, int count,
+        MPI_Op op=MPI_SUM, MPI_Comm comm=MPI_COMM_NULL);
+
+int allreduce(float* buffer, int count,
+        MPI_Op op=MPI_SUM, MPI_Comm comm=MPI_COMM_NULL);
+int allreduce(double* buffer, int count,
+        MPI_Op op=MPI_SUM, MPI_Comm comm=MPI_COMM_NULL);
+
+void bcast(float* buffer, int count, int root=0, MPI_Comm comm=MPI_COMM_NULL);
+void bcast(double* buffer, int count, int root=0, MPI_Comm comm=MPI_COMM_NULL);
+#else 
 void allreduce_copy(const float& sendbuf, float& recvbuf,
         MPI_Op op=MPI_SUM, MPI_Comm comm=MPI_COMM_NULL);
 void allreduce_copy(const double& sendbuf, double& recvbuf,
@@ -60,26 +101,6 @@ void allreduce(double* buffer, int count,
 
 void bcast(float* buffer, int count, int root=0, MPI_Comm comm=MPI_COMM_NULL);
 void bcast(double* buffer, int count, int root=0, MPI_Comm comm=MPI_COMM_NULL);
-
-#ifdef CAFFE_FT
-struct FTCommunicator {
-MPI_Errhandler errh; // Error Handler;
-MPI_Comm working_comm, split_comm;
-//static void verbose_errhandler(MPI_Comm* comm, int* err, ...);
-};
-
-// for global working comm and recovery comm. 
-extern MPI_Comm wcomm, rcomm;
-// error message
-extern char err_str[MPI_MAX_ERROR_STRING];
-extern int err_strlen;
-
-int mpix_comm_replace(MPI_Comm comm, MPI_Comm* newcomm);
-MPI_Comm get_working_comm();
-int duplicate_comm(MPI_Comm* new_comm, MPI_Comm comm=MPI_COMM_NULL);
-void error_report(int err_code);
-void verbose_errhandler(MPI_Comm* comm, int* err, ...);
-void fix_communicator();
 #endif /* CAFFE_FT */
 
 #else

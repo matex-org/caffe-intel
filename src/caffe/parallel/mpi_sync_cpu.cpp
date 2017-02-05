@@ -55,7 +55,17 @@ void MPISyncCPU<Dtype>::on_gradients_ready() {
   DLOG(INFO) << "on_gradients_ready()";
 #ifdef USE_MPI
   // Sum gradients
+  #ifdef CAFFE_FT
+  int rc = caffe::mpi::allreduce(diff_, size_, MPI_SUM, comm_);
+  if(rc != MPI_SUCCESS) {
+    comm_ = caffe::mpi::get_working_comm();
+    int temp_sz = caffe::mpi::comm_size(comm_);
+    DLOG(INFO) << "Corrected Communicator Size {mpi_sync_cpu}: " << temp_sz; 
+  }
+
+  #else
   caffe::mpi::allreduce(diff_, size_, MPI_SUM, comm_);
+  #endif
 #else
   NO_MPI;
 #endif

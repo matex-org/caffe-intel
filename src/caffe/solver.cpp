@@ -310,7 +310,7 @@ void Solver<Dtype>::Step(int iters) {
     // Fault Injection
     int victim = (ft_size - 1);//(ft_rank == (ft_size - 1));
 
-    if ((ft_rank == victim) && (iter_ > 200)) {
+    if ((ft_rank == victim) && (iter_ == 201)) {
       std::cout << "Victim Rank: " << victim << std::endl;
       raise(SIGKILL);
     }
