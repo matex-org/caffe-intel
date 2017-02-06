@@ -404,7 +404,7 @@ ifeq ($(DEBUG), 1)
 else ifneq (,$(findstring icpc,$(CXX)))
 	COMMON_FLAGS += -DNDEBUG -O3 -xCORE-AVX2 -no-prec-div -fp-model fast=2
 else
-	COMMON_FLAGS += -DNDEBUG -O3 -g -lopencv_imgcodecs
+	COMMON_FLAGS += -DNDEBUG -O3 -g -lopencv_highgui
 endif
 
 # cuDNN acceleration configuration.
@@ -440,9 +440,14 @@ ifeq ($(CPU_ONLY), 1)
 	COMMON_FLAGS += -DCPU_ONLY
 endif
 
+ifeq ($(KNL), 1)
+	COMMON_FLAGS += -DKNL
+	LIBRARIES += memkind 
+endif
+
 # Python layer support
 ifeq ($(WITH_PYTHON_LAYER), 1)
-	COMMON_FLAGS += -DWITH_PYTHON_LAYER
+ COMMON_FLAGS += -DWITH_PYTHON_LAYER
 	LIBRARIES += $(PYTHON_LIBRARIES)
 endif
 

@@ -45,6 +45,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "caffe/layers/base_data_layer.hpp"
 #include "caffe/proto/caffe.pb.h"
 #include "caffe/util/blocking_queue.hpp"
+#ifdef KNL
+#include <hbwmalloc.h>
+#endif
 
 namespace caffe {
 
@@ -75,7 +78,12 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
     : BaseDataLayer<Dtype>(param),
       prefetch_free_(), prefetch_full_(), cache_full_(), ignoreAccuracy(false) {
   cache_size_ = param.data_param().cache_size();
+#ifndef KNL
   cache_ = new Batch<Dtype>[cache_size_];
+#else
+  void * ptr = hbw_malloc(sizeof(Batch<Dtype>)*cache_size_);
+  cache_ = new (ptr) Batch<Dtype>[cache_size_];
+#endif
   for (int i = 0; i < PREFETCH_COUNT; ++i) {
     prefetch_free_.push(&prefetch_[i]);
   }
