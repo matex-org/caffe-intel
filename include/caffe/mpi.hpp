@@ -24,6 +24,7 @@ int query_thread();
 void finalize();
 
 MPI_Comm comm_dup(MPI_Comm comm=MPI_COMM_NULL);
+MPI_Comm split(int color, int key, MPI_Comm comm=MPI_COMM_NULL);
 void comm_free(MPI_Comm comm);
 int comm_rank(MPI_Comm comm=MPI_COMM_NULL);
 int comm_size(MPI_Comm comm=MPI_COMM_NULL);
@@ -61,6 +62,12 @@ bool test(MPI_Request &request);
 
 void bcast(float* buffer, int count, int root=0, MPI_Comm comm=MPI_COMM_NULL);
 void bcast(double* buffer, int count, int root=0, MPI_Comm comm=MPI_COMM_NULL);
+
+void send(const float *buf, int count, int dest=0, int tag=1234, MPI_Comm comm=MPI_COMM_NULL);
+void send(const double *buf, int count, int dest=0, int tag=1234, MPI_Comm comm=MPI_COMM_NULL);
+
+void recv(float *buf, int count, int source=0, int tag=1234, MPI_Comm comm=MPI_COMM_NULL);
+void recv(double *buf, int count, int source=0, int tag=1234, MPI_Comm comm=MPI_COMM_NULL);
 
 #else
 

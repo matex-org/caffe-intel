@@ -299,8 +299,16 @@ int train() {
         GetRequestedAction(FLAGS_sigint_effect),
         GetRequestedAction(FLAGS_sighup_effect));
 
-  shared_ptr<caffe::Solver<float> >
-      solver(caffe::SolverRegistry<float>::CreateSolver(solver_param));
+  shared_ptr<caffe::Solver<float> > solver;
+  if (solver_param.type() == "SGDServer") {
+    LOG(INFO) << "SGDServer is the solver type";
+    Caffe::set_ignore_data(true);
+    solver.reset(caffe::SolverRegistry<float>::CreateSolver(solver_param));
+    Caffe::set_ignore_data(false);
+  }
+  else {
+    solver.reset(caffe::SolverRegistry<float>::CreateSolver(solver_param));
+  }
 
   solver->SetActionFunction(signal_handler.GetActionFunction());
 
@@ -878,13 +886,13 @@ int main(int argc, char** argv) {
   // Run tool or show usage.
   caffe::GlobalInit(&argc, &argv);
   if (argc == 2) {
-    if (FLAGS_par != "") {
+    //if (FLAGS_par != "") {
       // only log info from master
       if (caffe::mpi::comm_rank() > 0) {
         FLAGS_minloglevel = 2;
       }
       LOG(INFO) << "MPI is initialized, disabling logging from other ranks";
-    }
+    //}
 #ifdef WITH_PYTHON_LAYER
     try {
 #endif

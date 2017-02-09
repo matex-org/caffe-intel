@@ -87,6 +87,21 @@ MPI_Comm comm_dup(MPI_Comm comm) {
   return newcomm;
 }
 
+MPI_Comm split(int color, int key, MPI_Comm comm) {
+  MPI_Comm newcomm;
+
+  if (MPI_COMM_NULL == comm) {
+    comm = get_comm_default();
+  }
+
+  if (MPI_SUCCESS != MPI_Comm_split(comm, color, key, &newcomm)) {
+    throw std::runtime_error("MPI_Comm_split failed");
+    return MPI_COMM_NULL;
+  }
+
+  return newcomm;
+}
+
 void comm_free(MPI_Comm comm) {
   if (MPI_SUCCESS != MPI_Comm_free(&comm)) {
     throw std::runtime_error("MPI_Comm_free failed");
@@ -340,6 +355,46 @@ void bcast(double* buffer, int count, int root, MPI_Comm comm) {
 
   if (MPI_SUCCESS != MPI_Bcast(buffer, count, MPI_DOUBLE, root, comm)) {
     throw std::runtime_error("MPI_Bcast failed");
+  }
+}
+
+void send(const float* buffer, int count, int dest, int tag, MPI_Comm comm) {
+  if (MPI_COMM_NULL == comm) {
+    comm = get_comm_default();
+  }
+
+  if (MPI_SUCCESS != MPI_Send(buffer, count, MPI_FLOAT, dest, tag, comm)) {
+    throw std::runtime_error("MPI_Send failed (float)");
+  }
+}
+
+void send(const double* buffer, int count, int dest, int tag, MPI_Comm comm) {
+  if (MPI_COMM_NULL == comm) {
+    comm = get_comm_default();
+  }
+
+  if (MPI_SUCCESS != MPI_Send(buffer, count, MPI_DOUBLE, dest, tag, comm)) {
+    throw std::runtime_error("MPI_Send failed (double)");
+  }
+}
+
+void recv(float *buffer, int count, int source, int tag, MPI_Comm comm) {
+  if (MPI_COMM_NULL == comm) {
+    comm = get_comm_default();
+  }
+
+  if (MPI_SUCCESS != MPI_Recv(buffer, count, MPI_FLOAT, source, tag, comm, MPI_STATUS_IGNORE)) {
+    throw std::runtime_error("MPI_Recv failed (float)");
+  }
+}
+
+void recv(double *buffer, int count, int source, int tag, MPI_Comm comm) {
+  if (MPI_COMM_NULL == comm) {
+    comm = get_comm_default();
+  }
+
+  if (MPI_SUCCESS != MPI_Recv(buffer, count, MPI_DOUBLE, source, tag, comm, MPI_STATUS_IGNORE)) {
+    throw std::runtime_error("MPI_Recv failed (double)");
   }
 }
 

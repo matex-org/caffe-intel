@@ -43,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "boost/bind.hpp"
 #include "caffe/internode/mpiutil.hpp"
+#include "caffe/mpi.hpp"
 #include "caffe/solver.hpp"
 #include "caffe/util/format.hpp"
 #include "caffe/util/hdf5.hpp"
@@ -320,6 +321,19 @@ void Solver<Dtype>::Step(int iters) {
       lapse_total += lapse;
       float total_per_s = iter_ / lapse_total;
 #ifdef USE_MPI
+     int num_ranks=0;
+     MPI_Comm_size(MPI_COMM_WORLD, &num_ranks);
+     const Dtype scale_factor = 1.0 / static_cast<Dtype>(num_ranks);
+
+
+// adds an extra barrier sync overhead...
+    // average the loss value across nodes before updating each local "smoothed loss" value
+    Dtype global_smoothed_loss = 0;
+    MPI_Allreduce(&smoothed_loss_, &global_smoothed_loss, 1,
+                 ((sizeof(Dtype) >> 3) ? MPI_DOUBLE : MPI_FLOAT),
+                  MPI_SUM, MPI_COMM_WORLD );
+    smoothed_loss_ = global_smoothed_loss * scale_factor;
+
       LOG_IF(INFO, Caffe::root_solver())
           << caffe::internode::mpi_get_current_proc_rank_as_string()
           << " Iteration " << iter_

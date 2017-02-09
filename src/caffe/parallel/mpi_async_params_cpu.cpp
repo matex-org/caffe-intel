@@ -25,12 +25,16 @@ class MPIAsyncParamsCPU<Dtype>::Reducer : public InternalThread {
     double time_in_queue_;
     Timer timer_comm_;
     double time_in_comm_;
+    vector<double> time_per_param_;
 
     Reducer(MPIAsyncParamsCPU<Dtype> *sync, int tid)
         : sync_(sync), tid_(tid),
         timer_queue_(), time_in_queue_(0.0),
-        timer_comm_(), time_in_comm_(0.0)
-  { }
+        timer_comm_(), time_in_comm_(0.0),
+        time_per_param_()
+  { 
+    time_per_param_.resize(sync->params_.size());
+  }
 
     void InternalThreadEntry() {
       try {
@@ -58,6 +62,7 @@ class MPIAsyncParamsCPU<Dtype>::Reducer : public InternalThread {
             timer_comm_.Start();
             caffe::mpi::allreduce_copy((const Dtype*)blob->cpu_diff(),
                 sum, blob->count(), MPI_SUM, comm);
+            time_per_param_[param_id] += timer_comm_.MilliSeconds();
             time_in_comm_ += timer_comm_.MilliSeconds();
 #else
             timer_comm_.Start();
@@ -160,6 +165,11 @@ void MPIAsyncParamsCPU<Dtype>::on_start() {
   DLOG(INFO) << "on_start()";
   for (int i=0; i<reducers.size(); ++i) {
     LOG(INFO) << "reducer[" << i << "] time queue " << reducers[i]->time_in_queue_ << " time comm " << reducers[i]->time_in_comm_;
+    if (solver_->iter() > 0) {
+      for (int j=params_.size()-1; j >= 0; --j) {
+        LOG(INFO) << j << ": " << reducers[i]->time_per_param_[j]/solver_->iter();
+      }
+    }
     reducers[i]->time_in_queue_ = 0.0;
     reducers[i]->time_in_comm_ = 0.0;
   }

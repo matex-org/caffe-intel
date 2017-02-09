@@ -47,6 +47,7 @@ class PnetCDFAllDataLayer : public BasePrefetchingDataLayer<Dtype> {
   MPI_Comm comm_;
   int comm_rank_;
   int comm_size_;
+  bool ignore_;
 };
 
 }  // namespace caffe

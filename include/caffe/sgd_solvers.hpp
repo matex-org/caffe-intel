@@ -87,6 +87,31 @@ class SGDSolver : public Solver<Dtype> {
 };
 
 template <typename Dtype>
+class SGDServerSolver : public SGDSolver<Dtype> {
+ public:
+  explicit SGDServerSolver(const SolverParameter& param)
+      : SGDSolver<Dtype>(param) { Init(); }
+  explicit SGDServerSolver(const string& param_file)
+      : SGDSolver<Dtype>(param_file) { Init(); }
+  virtual inline const char* type() const { return "SGDServer"; }
+
+  virtual void ApplyUpdate();
+  using SGDSolver<Dtype>::ClipGradients;
+  using Solver<Dtype>::param;
+
+ protected:
+  void Init();
+  void Server();
+
+  vector<Blob<Dtype>*> params_;
+  size_t size_;
+  Dtype* data_;
+  Dtype* diff_;
+
+  DISABLE_COPY_AND_ASSIGN(SGDServerSolver);
+};
+
+template <typename Dtype>
 class NesterovSolver : public SGDSolver<Dtype> {
  public:
   explicit NesterovSolver(const SolverParameter& param)

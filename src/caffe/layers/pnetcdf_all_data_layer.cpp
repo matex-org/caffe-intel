@@ -28,8 +28,19 @@ PnetCDFAllDataLayer<Dtype>::PnetCDFAllDataLayer(const LayerParameter& param)
     row_mutex_(),
     comm_(),
     comm_rank_(),
-    comm_size_() {
-  comm_ = caffe::mpi::comm_dup();
+    comm_size_(),
+    ignore_(false)
+{
+  if (Caffe::ignore_data()) {
+    LOG(INFO) << "IGNORING DATA READING FOR LAST RANK";
+    int original_rank = caffe::mpi::comm_rank();
+    int original_size = caffe::mpi::comm_size();
+    ignore_ = (original_size-1 == original_rank);
+    comm_ = caffe::mpi::split(ignore_, original_rank);
+  }
+  else {
+    comm_ = caffe::mpi::comm_dup();
+  }
   comm_rank_ = caffe::mpi::comm_rank(comm_);
   comm_size_ = caffe::mpi::comm_size(comm_);
 }
@@ -165,7 +176,6 @@ void PnetCDFAllDataLayer<Dtype>::load_pnetcdf_file_data(const string& filename) 
     prodcount = prod(count);
 
     if (NC_BYTE == vartype) {
-      this->data_ = shared_ptr<signed char>(new signed char[prodcount]);
       datum_shape_.resize(4);
       datum_shape_[0] = 1;
       datum_shape_[1] = count[1];
@@ -175,6 +185,10 @@ void PnetCDFAllDataLayer<Dtype>::load_pnetcdf_file_data(const string& filename) 
       DLOG(INFO) << "datum_shape_[1] " << datum_shape_[1];
       DLOG(INFO) << "datum_shape_[2] " << datum_shape_[2];
       DLOG(INFO) << "datum_shape_[3] " << datum_shape_[3];
+      if (ignore_) {
+        continue;
+      }
+      this->data_ = shared_ptr<signed char>(new signed char[prodcount]);
       if (prodcount < chunksize) {
         LOG(INFO) << "reading PnetCDF data whole " << count[0];
         LOG(INFO) << "offset={"<<offset[0]<<","<<offset[1]<<","<<offset[2]<<","<<offset[3]<<"}";
@@ -229,8 +243,11 @@ void PnetCDFAllDataLayer<Dtype>::load_pnetcdf_file_data(const string& filename) 
     }
     else if (NC_INT == vartype && this->output_labels_) {
       max_row_ = count[0];
-      this->label_ = shared_ptr<int>(new int[max_row_]);
       LOG(INFO) << "PnetCDF max_row_ = " << max_row_;
+      if (ignore_) {
+        continue;
+      }
+      this->label_ = shared_ptr<int>(new int[max_row_]);
       if (prodcount < chunksize) {
         LOG(INFO) << "reading PnetCDF label whole " << count[0];
 #if STRIDED
@@ -288,6 +305,7 @@ void PnetCDFAllDataLayer<Dtype>::load_pnetcdf_file_data(const string& filename) 
   retval = ncmpi_close(ncid);
   errcheck(retval);
 
+  if (!ignore_)
   {
     const int batch_size = this->layer_param_.data_param().batch_size();
     Dtype label_sum = 0;
@@ -296,6 +314,10 @@ void PnetCDFAllDataLayer<Dtype>::load_pnetcdf_file_data(const string& filename) 
     }
     caffe::mpi::allreduce(label_sum);
     LOG(INFO) << "Label Sum: " << label_sum;
+  }
+  else {
+    Dtype label_sum = 0;
+    caffe::mpi::allreduce(label_sum);
   }
 #else
   NO_PNETCDF;
@@ -313,7 +335,6 @@ size_t PnetCDFAllDataLayer<Dtype>::get_datum_size() {
 
 template <typename Dtype>
 vector<int> PnetCDFAllDataLayer<Dtype>::get_datum_shape() {
-  CHECK(this->data_);
   CHECK(this->datum_shape_.size());
   return this->datum_shape_;
 }
@@ -367,6 +388,9 @@ void PnetCDFAllDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bott
 // This function is called on prefetch thread
 template<typename Dtype>
 void PnetCDFAllDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
+  if (ignore_) {
+    return;
+  }
   CPUTimer batch_timer;
   batch_timer.Start();
   double read_time = 0;

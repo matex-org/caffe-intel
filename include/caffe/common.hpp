@@ -200,6 +200,8 @@ class Caffe {
   inline static void set_solver_count(int val) { Get().solver_count_ = val; }
   inline static bool root_solver() { return Get().root_solver_; }
   inline static void set_root_solver(bool val) { Get().root_solver_ = val; }
+  inline static bool ignore_data() { return Get().ignore_data_; }
+  inline static void set_ignore_data(bool val) { Get().ignore_data_ = val; }
 
   inline static int iter_size() { return Get().iter_size_; }
   inline static void set_iter_size(int val) { Get().iter_size_ = val; }
@@ -214,6 +216,7 @@ class Caffe {
   Brew mode_;
   int solver_count_;
   bool root_solver_;
+  bool ignore_data_;
   int iter_size_;
 
  private:
