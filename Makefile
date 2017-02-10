@@ -255,7 +255,6 @@ USE_LEVELDB ?= 1
 USE_LMDB ?= 1
 USE_PNETCDF ?= 1
 USE_OPENCV ?= 1
-CAFFE_FT ?= 1
 
 ifeq ($(USE_LEVELDB), 1)
 	LIBRARIES += leveldb snappy
