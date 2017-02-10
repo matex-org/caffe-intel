@@ -322,6 +322,8 @@ void Solver<Dtype>::Step(int iters) {
      MPI_Comm_size(MPI_COMM_WORLD, &num_ranks);
      const Dtype scale_factor = 1.0 / static_cast<Dtype>(num_ranks);
 
+
+// adds an extra barrier sync overhead...
     // average the loss value across nodes before updating each local "smoothed loss" value
     Dtype global_smoothed_loss = 0;
     MPI_Allreduce(&smoothed_loss_, &global_smoothed_loss, 1, 

@@ -1,6 +1,7 @@
 module purge
 module load gcc/4.8.2
-module load mvapich2/2.1a
+#module load mvapich2/2.1a
+##module load openmpi/1.8.3
 
 module load binutils/2.24
 module load cmake/3.3.0

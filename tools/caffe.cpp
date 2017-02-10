@@ -116,8 +116,7 @@ DEFINE_string(par, "",
     "Optional; parallelization strategy, e.g., MPISyncCPU");
 
 // TEW
-DEFINE_uint64(rgroup_bits, 0,
-"Number of bits of node ID (MPI rank) for separating the nodes into different reduction sub-groups.  (0==AllReduce with a single group of all nodes as before, 1==two groups at a time, 2=four groups at a time, etc.)");
+DEFINE_uint64(rgroup_bits, 0, "Number of node ID bits into reduction sub-groups.  (0==AllReduce with a single group of all nodes as before, 1==two groups at a time, 2=four groups at a time, etc.)");
 
 
 // A simple registry for caffe commands.
@@ -344,7 +343,7 @@ int train() {
 
   } else if (FLAGS_par != "") {
     if (FLAGS_par == "MPISyncCPU") {
-      caffe::MPISyncCPU<float> sync(solver);
+      caffe::MPISyncCPU<float> sync(solver, static_cast<int>(FLAGS_rgroup_bits));
       sync.Run();
     }
     else {

@@ -43,12 +43,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <fstream>  // NOLINT(readability/streams)
 #include <iostream>  // NOLINT(readability/streams)
 #include <string>
-
+#include <gflags/gflags.h>
 #include "caffe/caffe.hpp"
 #include "caffe/util/io.hpp"
 #include "caffe/util/upgrade_proto.hpp"
 
 using std::ofstream;
+
 
 using namespace caffe;  // NOLINT(build/namespaces)
 

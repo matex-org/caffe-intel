@@ -12,7 +12,6 @@
 #include "caffe/solver.hpp"
 #include "caffe/sgd_solvers.hpp"
 
-DECLARE_uint64(rgroup_bits);
 
 namespace caffe {
 
@@ -20,9 +19,11 @@ namespace caffe {
 template<typename Dtype>
 class MPISyncCPU : public CPUParams<Dtype>, public Solver<Dtype>::Callback {
  protected:
-#ifdef USE_MPI
+   int rgroup_bits_;
+//#ifdef USE_MPI
    MPI_Comm comm_;
-#endif
+//
+// #endif
    int comm_size_;
    int comm_rank_;
    int node_rank_;
@@ -40,7 +41,7 @@ class MPISyncCPU : public CPUParams<Dtype>, public Solver<Dtype>::Callback {
   friend class SGDSolver<Dtype>;
   friend class Solver<Dtype>;
 
-  explicit MPISyncCPU(shared_ptr<Solver<Dtype> > root_solver);
+  explicit MPISyncCPU(shared_ptr<Solver<Dtype> > root_solver, int rgroup_bits);
   virtual ~MPISyncCPU();
 
   inline const shared_ptr<Solver<Dtype> >& solver() const {
@@ -53,10 +54,13 @@ class MPISyncCPU : public CPUParams<Dtype>, public Solver<Dtype>::Callback {
   std::vector<MPI_Comm> subcomm_;
   std::vector<MPI_Comm> subcomm2_;
   std::vector<int> subcomm_size_;
-  std::vector<int> subcomm_size2_;
 
-  void mpi_avg_2(Dtype * real_buffer, Dtype * temp_buffer, size_t count, int root_node, int remote_node, int tag);
 
+  void mpi_avg_2(Dtype * real_buffer, Dtype * temp_buffer, size_t count,
+                 int root_node, int remote_node, int tag);
+
+  void mpi_avg_3(Dtype * real_buffer, Dtype * temp_buffer, size_t pcount,
+                 int root_node, int remote_node1, int remote_node2, int tag);
 
  protected:
   void on_start();

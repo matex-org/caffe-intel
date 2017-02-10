@@ -40,12 +40,18 @@ std::vector<std::vector<int>> Groups::get_stagelist(int node) {
 }
 
 
-Groups::Groups(size_t num_nodes, size_t group_bits):
+// constructor for when just given a fixed number of nodes.
+// This will split until all groups contain either 2 or 3 nodes in each stage.
+// For non-power-of-2 node allocations (e.g. 48 nodes, 15 nodes) the number
+// of groups in each stage may be different.
+
+Groups::Groups(size_t num_nodes):
 _num_nodes(num_nodes),
-_num_groups_per_stage(0x1UL << group_bits),
 _po2(!(num_nodes & (num_nodes-1))),
 _highbit( 63 - __builtin_clzll(num_nodes)),
-_num_stages( n_choose_r(_highbit, group_bits))
+_max_sort_bits(_highbit > 0 ? (_highbit -1) : 0),
+_num_stages( static_cast<int>(n_choose_r(_highbit, _max_sort_bits))),
+_group_bits(_max_sort_bits)
 {
   if (_po2) {
     std::clog << "number of nodes "
@@ -57,14 +63,343 @@ _num_stages( n_choose_r(_highbit, group_bits))
               << std::endl;
   }
 
+  std::clog << "highbit is " << _highbit << std::endl;
+  std::clog << "Max prelim sort bit is " << _max_sort_bits << std::endl;
+
 
   std::clog << "There are "
-            << _num_groups_per_stage
-            << " groups for each of "
             << _num_stages
             << " stages." << std::endl;
 
+  if (_num_stages > 1) {
+    // assume a "binary" number with "_highbits" digits
+    // select all such binary numbers with exactly "group_bits" ones
+    // i.e. a Gray code generator, using
+    // Philip Chase's M-out-of-N algorithm
+    // http://dl.acm.org/citation.cfm?id=362502
+    //
+    std::vector<unsigned int> masks(_num_stages);
 
+    {
+      std::vector<int> b(_highbit);
+      std::vector<int> p(_highbit + 2);
+
+      unsigned int stage0 = 0;
+      const unsigned int N_M = static_cast<unsigned int>(_highbit - _group_bits);
+      for (unsigned int i = 0; i < N_M; i++) {
+        b[i] = 0;
+      }
+      std::clog << "N_M=" << N_M << std::endl;
+
+      for (unsigned int i = N_M; i < _highbit; i++) {
+        stage0 = (stage0 << 1);
+        b[i] = 1;
+        stage0 |= 0x1;
+      }
+
+      masks[0] = stage0;
+
+      inittwiddle(static_cast<unsigned int>(_group_bits), _highbit, p);
+
+      int stage = 1;
+      int x, y, z;
+      while (!twiddle(&x, &y, &z, p)) {
+        b[x] = 1;
+        b[y] = 0;
+        unsigned int stage_n = 0;
+        for (unsigned int i = 0; i != _highbit; i++) {
+          stage_n = stage_n << 1;
+          if (b[i]) {
+            stage_n |= 0x1;
+          }
+        }
+        masks[stage] = stage_n;
+        stage++;
+      }
+    }
+
+    std::clog << "Past twiddle generator." << std::endl;
+    fflush(stderr);
+
+    // Masks contains the list of all possible bit combinations with
+    // "group_bits" ones.
+
+    // Now, brute-force through all possible list orderings using
+    // "Heap's algorithm" and calculate an "overlap cost" for each
+    // ordering, penalizing overlapping bits more at the early stages
+    // than at later stages.  Our goal is to find the order
+    // with the lowest item-to-item bit overlap, rotated with
+    // the least overlap at the earliest stages.
+
+    unsigned int current_cost = cost(masks);
+    _ordered_masks = std::vector <unsigned int>(masks);
+
+    const unsigned int N = masks.size();
+    if (current_cost > 0) {
+      std::vector<unsigned int> c(N, 0);
+      unsigned int i = 0;
+      while (i < N) {
+        if (c[i] < i) {
+          if ((~i) & 0x1) {
+            unsigned int temp = masks[i];
+            masks[i] = masks[0];
+            masks[0] = temp;
+          } else {
+            unsigned int temp = masks[i];
+            masks[i] = masks[c[i]];
+            masks[c[i]] = temp;
+          }
+
+          // evaluate cost of new ordering.
+          // if it is the lowest cost so far, then
+          // swap with our prior ordering.
+          unsigned int newcost = cost(masks);
+          if (newcost < current_cost) {
+            current_cost = newcost;
+            for (int k = 0; k < N; k++) {
+              _ordered_masks[k] = masks[k];
+            }
+          }
+
+          c[i] += 1;
+          i = 0;
+        } else {
+          c[i] = 0;
+          i++;
+        }
+      }
+    }
+/*
+  std::clog << std::endl << "----------" << std::endl << std::endl;
+  // ordered_masks now has the minimal cost bit ordering
+  // display the low-cost ordering
+  for (int i=0; i<N; i++)  {
+    const unsigned int t = _ordered_masks[i];
+    for(int j = (_highbit-1); j >=0; j--) {
+      std::clog << (((t>>j)&0x1) ? "1" : "0");
+    }
+    std::clog << std::endl;
+  }
+*/
+
+    // generate list of "1" bits for each mask
+    std::vector <std::vector<int>> bitlists;
+
+    for (int i = 0; i < N; i++) {
+      std::vector<int> stage;
+      int bitcounter = 0;
+      const unsigned int mcopy = _ordered_masks[i];
+      for (int j = 31; j >= 0; j--) {
+        if ((mcopy >> j) & 0x1) {
+          stage.push_back(j);
+          bitcounter++;
+          if (bitcounter == _group_bits) break;
+        }
+      }
+      bitlists.push_back(stage);
+    }
+
+    // generate the communication patterns from the bit ordering
+    for (int k = 0; k < _num_stages; k++) {
+      std::vector <std::vector<int>> stage;
+      for (int j = 0; j < (0x1L << _group_bits); j++) {
+        std::vector<int> group;
+        stage.push_back(group);
+      }
+      _membership.push_back(stage);
+    }
+
+    for (int stage = 0; stage < _num_stages; stage++) {
+      //std::clog << "Beginning stage " << stage << std::endl;
+
+      for (int node = 0; node < _num_nodes; node++) {
+        unsigned int group = 0;
+        for (int group_index = 0; group_index < _group_bits; group_index++) {
+          unsigned int bit = bitlists[stage][group_index];
+          group = (group << 1);
+          group |= ((((0x1 << bit) & node)) ? 1 : 0);
+        }
+//      std::clog << "At stage " << stage << ", node "  << node
+//                << " is in group " << group << std::endl;
+        _membership[stage][group].push_back(node);
+      }
+    }
+
+    // print out original structure
+    {
+      const size_t num_stages = _membership.size();
+      for (size_t a = 0; a < num_stages; a++) {
+        std::clog << "Stage " << a << ":" << std::endl;
+        const size_t num_groups = _membership[a].size();
+        for (size_t b = 0; b < num_groups; b++) {
+          std::clog << "   Group " << b << ": ";
+          const size_t num_nodes = _membership[a][b].size();
+          for (size_t c = 0; c < num_nodes; c++) {
+            std::clog << _membership[a][b][c] << " ";
+          }
+          std::clog << std::endl;
+        }
+        std::clog << std::endl;
+      }
+    }
+
+
+    // review stages for asymmetry
+    {
+      const size_t num_stages = _membership.size();
+      for (size_t a = 0; a < num_stages; a++) {
+        const size_t num_groups = _membership[a].size();
+        for (size_t b = 0; b < num_groups; b++) {
+          const size_t num_nodes = _membership[a][b].size();
+          if (num_nodes == 4) {
+            std::vector<int> group;
+            for (int i = 0; i < 2; i++) {
+              group.push_back((_membership[a][b].back()));
+              _membership[a][b].pop_back();
+            }
+            _membership[a].push_back(group);
+          }
+        }
+      }
+    }
+
+
+    // print out updated structure
+    {
+      const size_t num_stages = _membership.size();
+      for (size_t a = 0; a < num_stages; a++) {
+        std::clog << "Stage " << a << ":" << std::endl;
+        const size_t num_groups = _membership[a].size();
+        for (size_t b = 0; b < num_groups; b++) {
+          std::clog << "   Group " << b << ": ";
+          const size_t num_nodes = _membership[a][b].size();
+          for (size_t c = 0; c < num_nodes; c++) {
+            std::clog << _membership[a][b][c] << " ";
+          }
+          std::clog << std::endl;
+        }
+        std::clog << std::endl;
+      }
+    }
+
+    // peers[node][stage] list of node // 0th element will be "root" for that group
+    //std::vector<std::vector<std::vector<int>>> peers[node][stage] list
+    for (int node = 0; node < _num_nodes; node++) {
+      std::vector <std::vector<int>> stages;
+      for (int stage = 0; stage < _num_stages; stage++) {
+        std::vector<int> nodelist;
+        stages.push_back(nodelist);
+      }
+      _peers.push_back(stages);
+
+      std::vector<int> foo;
+      _group_assignment.push_back(foo);
+    }
+
+    for (int stage = 0; stage < _num_stages; stage++) {
+      //std::clog << " stage: " << stage << std::endl;
+      for (int groupnum = 0; groupnum < _membership[stage].size(); groupnum++) {
+/*
+      std::clog << "    group: " << groupnum << std::endl;
+      std::clog << "       nodes: " << std::endl;
+      std::clog << "         (there are "
+                << _membership[stage][groupnum].size()
+                << " nodes in this group in this stage): ";
+                << std::endl;
+*/
+        for (int node_index_in_group = 0; node_index_in_group < _membership[stage][groupnum].size();
+             node_index_in_group++) {
+//        std::clog << _membership[stage][groupnum][node_index_in_group] << " ";
+          const int assigning_node = _membership[stage][groupnum][node_index_in_group];
+          _group_assignment[assigning_node].push_back(groupnum);
+
+          /*
+            std::clog << "processing node " << assigning_node
+                      << " stage " << stage
+                      << std::endl;
+            std::clog << "        peers: ";
+           */
+          for (int z = 0; z < _membership[stage][groupnum].size(); z++) {
+            int node = _membership[stage][groupnum][z];
+            _peers[assigning_node][stage].push_back(node);
+            //  std::clog << node << " ";
+          }
+          //  std::clog << std::endl;
+        }
+//      std::clog << std::endl;
+      }
+    }
+
+/*
+  std::clog << std::endl << std::endl << std::endl;
+
+
+  for (int i=0; i<_num_nodes; i++) {
+    std::clog << "Node " << i << ":" << std::endl;
+    for (int j=0; j<_num_stages; j++) {
+      std::clog << "   Stage " << j << ": " << std::endl;
+      std::clog << "      Node peers: ";
+      for (unsigned int k=0; k<_peers[i][j].size(); k++) {
+        std::clog << _peers[i][j][k] << " ";
+      }
+      std::clog << std::endl;
+    }
+    std::clog << std::endl;
+  }
+*/
+  } else {
+    std::vector <std::vector<int>> stages;
+    // only 1 stage
+    std::vector<int> nodelist;
+    for (int j = 0; j < _num_nodes; j++) {
+      nodelist.push_back(j);
+    }
+    stages.push_back(nodelist);
+    for (int node = 0; node < _num_nodes; node++) {
+      _peers.push_back(stages);
+
+    }
+    std::vector<int> foo;
+    foo.push_back(0);
+    for (int j = 0; j < _num_nodes; j++) {
+      _group_assignment.push_back(foo);
+    }
+
+  }
+
+}
+
+
+
+
+// constructor for when a specific number of group_bits are specified
+Groups::Groups(size_t num_nodes, size_t group_bits):
+    _num_nodes(num_nodes),
+    _po2(!(num_nodes & (num_nodes-1))),
+    _highbit( 63 - __builtin_clzll(num_nodes)),
+    _max_sort_bits(_highbit > 0 ? (_highbit -1) : 0),
+    _num_stages( n_choose_r(_highbit, group_bits)),
+    _group_bits(group_bits)
+{
+  if (_po2) {
+    std::clog << "number of nodes "
+              << _num_nodes << " is a power of 2"
+              << std::endl;
+  } else {
+    std::clog << "number of nodes "
+              << _num_nodes << " is NOT a power of 2"
+              << std::endl;
+  }
+
+  std::clog << "highbit is " << _highbit << std::endl;
+  std::clog << "Max prelim sort bit is " << _max_sort_bits << std::endl;
+
+
+  std::clog << "There are "
+            << _num_stages
+            << " stages." << std::endl;
+
+if (_num_stages  >1) {
   // assume a "binary" number with "_highbits" digits
   // select all such binary numbers with exactly "group_bits" ones
   // i.e. a Gray code generator, using
@@ -73,19 +408,20 @@ _num_stages( n_choose_r(_highbit, group_bits))
   //
   std::vector<unsigned int> masks(_num_stages);
 
-  { std::vector<int> b(_highbit);
-    std::vector<int> p(_highbit+2);
+  {
+    std::vector<int> b(_highbit);
+    std::vector<int> p(_highbit + 2);
 
-    unsigned int stage0=0;
-    const unsigned int N_M = static_cast<unsigned int>(_highbit - group_bits);
-    for (unsigned int i=0; i<N_M; i++) {
+    unsigned int stage0 = 0;
+    const unsigned int N_M = static_cast<unsigned int>((_highbit > 0) ? (_highbit - group_bits) : 1);
+    for (unsigned int i = 0; i < N_M; i++) {
       b[i] = 0;
-     // std::clog << "0";
+      // std::clog << "0";
     }
 
-    for (unsigned int i=N_M; i<_highbit; i++) {
+    for (unsigned int i = N_M; i < _highbit; i++) {
       stage0 = (stage0 << 1);
-      b[i]=1;
+      b[i] = 1;
 //      std::clog << "1";
       stage0 |= 0x1;
     }
@@ -93,18 +429,17 @@ _num_stages( n_choose_r(_highbit, group_bits))
 
     //std::clog << "stage0 is " << stage0 << std::endl;
 
-    masks[0]=stage0;
+    masks[0] = stage0;
 
     inittwiddle(static_cast<unsigned int>(group_bits), _highbit, p);
 
-    int stage=1;
+    int stage = 1;
     int x, y, z;
-    while(!twiddle(&x, &y, &z, p))
-    {
+    while (!twiddle(&x, &y, &z, p)) {
       b[x] = 1;
       b[y] = 0;
-      unsigned int stage_n=0;
-      for(unsigned int i = 0; i != _highbit; i++) {
+      unsigned int stage_n = 0;
+      for (unsigned int i = 0; i != _highbit; i++) {
 //        std::clog << (b[i] ? "1" : "0");
         stage_n = stage_n << 1;
         if (b[i]) {
@@ -128,10 +463,11 @@ _num_stages( n_choose_r(_highbit, group_bits))
   // the least overlap at the earliest stages.
 
   unsigned int current_cost = cost(masks);
-  _ordered_masks = std::vector<unsigned int> (masks);
+  _ordered_masks = std::vector < unsigned
+  int > (masks);
 
   const unsigned int N = masks.size();
-  if (current_cost >0) {
+  if (current_cost > 0) {
     std::vector<unsigned int> c(N, 0);
     unsigned int i = 0;
     while (i < N) {
@@ -165,28 +501,16 @@ _num_stages( n_choose_r(_highbit, group_bits))
       }
     }
   }
-/*
-  std::clog << std::endl << "----------" << std::endl << std::endl;
-  // ordered_masks now has the minimal cost bit ordering
-  // display the low-cost ordering
-  for (int i=0; i<N; i++)  {
-    const unsigned int t = _ordered_masks[i];
-    for(int j = (_highbit-1); j >=0; j--) {
-      std::clog << (((t>>j)&0x1) ? "1" : "0");
-    }
-    std::clog << std::endl;
-  }
-*/
 
   // generate list of "1" bits for each mask
-  std::vector<std::vector<int>> bitlists;
+  std::vector <std::vector<int>> bitlists;
 
-  for (int i=0; i<N; i++) {
+  for (int i = 0; i < N; i++) {
     std::vector<int> stage;
-    int bitcounter=0;
+    int bitcounter = 0;
     const unsigned int mcopy = _ordered_masks[i];
-    for (int j=31; j>=0; j--) {
-      if ((mcopy>>j) & 0x1) {
+    for (int j = 31; j >= 0; j--) {
+      if ((mcopy >> j) & 0x1) {
         stage.push_back(j);
         bitcounter++;
         if (bitcounter == group_bits) break;
@@ -196,39 +520,52 @@ _num_stages( n_choose_r(_highbit, group_bits))
   }
 
   // generate the communication patterns from the bit ordering
-  for (int k=0; k<_num_stages; k++) {
-    std::vector<std::vector<int>> stage;
-    for (int j = 0; j < _num_groups_per_stage; j++) {
+  for (int k = 0; k < _num_stages; k++) {
+    std::vector <std::vector<int>> stage;
+    for (int j = 0; j < (0x1L << _group_bits); j++) {
       std::vector<int> group;
       stage.push_back(group);
     }
     _membership.push_back(stage);
   }
 
-
   for (int stage = 0; stage < _num_stages; stage++) {
-    //std::clog << "Beginning stage " << stage << std::endl;
-
     for (int node = 0; node < _num_nodes; node++) {
       unsigned int group = 0;
       for (int group_index = 0; group_index < group_bits; group_index++) {
         unsigned int bit = bitlists[stage][group_index];
-        group = (group <<1);
+        group = (group << 1);
         group |= ((((0x1 << bit) & node)) ? 1 : 0);
       }
-    /*  std::clog << "At stage " << stage << ", node "  << node
-                << " is in group " << group << std::endl;
-     */
       _membership[stage][group].push_back(node);
     }
   }
 
+/*
+  // print out original structure
+  {
+    const size_t num_stages = _membership.size();
+    for (size_t a = 0; a < num_stages; a++) {
+      std::clog << "Stage " << a << ":" << std::endl;
+      const size_t num_groups = _membership[a].size();
+      for (size_t b = 0; b < num_groups; b++) {
+        std::clog << "   Group " << b << ": ";
+        const size_t num_nodes = _membership[a][b].size();
+        for (size_t c = 0; c < num_nodes; c++) {
+          std::clog << _membership[a][b][c] << " ";
+        }
+        std::clog << std::endl;
+      }
+      std::clog << std::endl;
+    }
+  }
+*/
 
   // peers[node][stage] list of node // 0th element will be "root" for that group
   //std::vector<std::vector<std::vector<int>>> peers[node][stage] list
   for (int node = 0; node < _num_nodes; node++) {
-    std::vector<std::vector<int>> stages;
-    for (int stage = 0; stage < _num_stages ; stage++) {
+    std::vector <std::vector<int>> stages;
+    for (int stage = 0; stage < _num_stages; stage++) {
       std::vector<int> nodelist;
       stages.push_back(nodelist);
     }
@@ -240,40 +577,40 @@ _num_stages( n_choose_r(_highbit, group_bits))
 
   for (int stage = 0; stage < _num_stages; stage++) {
     //std::clog << " stage: " << stage << std::endl;
-    for (int groupnum=0; groupnum<_num_groups_per_stage; groupnum++) {
-      /*
+    for (int groupnum = 0; groupnum < _membership[stage].size(); groupnum++) {
+/*
       std::clog << "    group: " << groupnum << std::endl;
       std::clog << "       nodes: " << std::endl;
       std::clog << "         (there are "
                 << _membership[stage][groupnum].size()
-                << " nodes in this group in this stage "
+                << " nodes in this group in this stage): ";
                 << std::endl;
-      */
-      for (int node_index_in_group=0; node_index_in_group<_membership[stage][groupnum].size(); node_index_in_group++) {
-        //std::clog << _membership[stage][groupnum][node_index_in_group] << " ";
-        const int assigning_node =  _membership[stage][groupnum][node_index_in_group];
+*/
+      for (int node_index_in_group = 0; node_index_in_group < _membership[stage][groupnum].size();
+           node_index_in_group++) {
+//        std::clog << _membership[stage][groupnum][node_index_in_group] << " ";
+        const int assigning_node = _membership[stage][groupnum][node_index_in_group];
         _group_assignment[assigning_node].push_back(groupnum);
 
-      /*
-        std::clog << "processing node " << assigning_node
-                  << " stage " << stage
-                  << std::endl;
-        std::clog << "        peers: ";
-       */
-        for (int z=0; z<_membership[stage][groupnum].size(); z++) {
+        /*
+          std::clog << "processing node " << assigning_node
+                    << " stage " << stage
+                    << std::endl;
+          std::clog << "        peers: ";
+         */
+        for (int z = 0; z < _membership[stage][groupnum].size(); z++) {
           int node = _membership[stage][groupnum][z];
           _peers[assigning_node][stage].push_back(node);
-        //  std::clog << node << " ";
+          //  std::clog << node << " ";
         }
-        //std::clog << std::endl;
+        //  std::clog << std::endl;
       }
-      //std::clog << std::endl;
+//      std::clog << std::endl;
     }
   }
 
 /*
   std::clog << std::endl << std::endl << std::endl;
-
 
   for (int i=0; i<_num_nodes; i++) {
     std::clog << "Node " << i << ":" << std::endl;
@@ -289,8 +626,29 @@ _num_stages( n_choose_r(_highbit, group_bits))
   }
 */
 
+} else {
+  std::vector <std::vector<int>> stages;
+  // only 1 stage
+  std::vector<int> nodelist;
+  for (int j = 0; j < _num_nodes; j++) {
+    nodelist.push_back(j);
+  }
+  stages.push_back(nodelist);
+  for (int node = 0; node < _num_nodes; node++) {
+    _peers.push_back(stages);
 
+  }
+  std::vector<int> foo;
+  foo.push_back(0);
+  for (int j = 0; j < _num_nodes; j++) {
+    _group_assignment.push_back(foo);
+  }
 }
+}
+
+
+
+
 
 std::vector<int> Groups::get_peers_in_stage(int node, int stage) {
   std::vector<int> peerlist(_peers[node][stage]);

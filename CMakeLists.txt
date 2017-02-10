@@ -6,6 +6,48 @@ if(POLICY CMP0054)
   cmake_policy(SET CMP0054 NEW)
 endif()
 
+
+
+# ---[ Warfel build environment customizations
+set( ENV{LEVELDB_ROOT} "/home/files0/warf949/caffe3/leveldb/install")
+
+set( ENV{PYTHON_INCLUDE} "/home/d3n000/local_caffe/include/python2.7 $ENV{PYTHON_INCLUDE}")
+set( ENV{PYTHON_INCLUDE}
+        "/home/d3n000/local_caffe/lib/python2.7/site-packages/numpy-1.11.0-py2.7-linux-x86_64.egg/numpy/core/include/numpy $ENV{PYTHON_INCLUDE}")
+
+set( PYTHON_LIBRARY "/home/d3n000/local_caffe/lib/libpython2.7.so")
+
+message(STATUS "+++++ Initial CMAKE_PREFIX_PATH is ${CMAKE_PREFIX_PATH}")
+set( CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} "/home/files0/warf949/caffe3/caffe-intel/cmake/Modules")
+set( CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} "/home/files0/warf949/caffe3/leveldb/install")
+
+set( LevelDB_DIR "/home/files0/warf949/caffe3/leveldb/install")
+set( LevelDB_ROOT_DIR "/home/files0/warf949/caffe3/leveldb/install")
+
+set( snappy_DIR "/home/files0/warf949/caffe3/snappy/install")
+set( SNAPPY_ROOT_DIR "/home/files0/warf949/caffe3/snappy/install")
+
+set(ENV{LMDB_DIR} "/home/d3n000/local_caffe")
+set( BOOST_ROOT "/home/files0/warf949/Development/local/boost")
+set(GFLAGS_LIBRARY "/home/d3n000/local_caffe/lib/libgflags.so")
+set(GFLAGS_INCLUDE_DIR "/home/d3n000/local_caffe/include")
+
+set(GLOG_INCLUDE_DIR "/home/d3n000/local_caffe/include")
+set(GLOG_LIBRARY "/home/d3n000/local_caffe/lib/libglog.so")
+
+#set(PROTOBUF_ROOT "/home/d3n000/local_caffe")
+set(PROTOBUF_ROOT_DIR "/home/d3n000/local_caffe")
+set(PROTOBUF_INCLUDE_DIR "/home/d3n000/local_caffe/include")
+set(PROTOBUF_LIBRARY "/home/d3n000/local_caffe/lib/libprotobuf.so")
+
+#set(HDF5_hdf5_cpp_LIBRARY "/home/d3n000/local_caffe/lib/libhdf5.so")
+#set(HDF5_INCLUDE_DIRS "/home/d3n000/local_caffe/include")
+set(HDF5_ROOT "/home/d3n000/local_caffe")
+#set(HDF5_LIBRARY "/home/d3n000/local_caffe/lib/libhdf5.so")
+#set(HDF5_HL_LIBRARY "/home/d3n000/local_caffe/lib/libhdf5_hl.so")
+
+
+
 # ---[ Caffe project
 project(Caffe C CXX)
 
@@ -136,3 +178,8 @@ caffe_print_configuration_summary()
 
 # ---[ Export configs generation
 caffe_generate_export_configs()
+
+set(CMAKE_CXX_STANDARD 11)
+set(TEST_GROUPS test/test_groups.cpp src/caffe/parallel/groups.cpp include/caffe/parallel/groups.hpp)
+add_executable(test_groups ${TEST_GROUPS})
+
