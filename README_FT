@@ -1,0 +1,14 @@
+Instructions for Fault Tolerance:
+
+- Use branch feature/ft_frozen.
+- Install ULFM-OpenMPI and made available on PATH
+- Enable FILE-IO by executing {for file in ompi/mpi/c/file_*.c; do sed -i
+  's/OPAL_ENABLE_FT_MPI/0 \&\& OPAL_ENABLE_FT_MPI/g' $file; done}
+- Avoid enabling thread-multiple flag for ULFM.
+  on the ULFM_OpenMPI SRC/ROOT/Folder.
+- Compile Caffe dependencies that require MPI with ULFM
+- Enable Fault tolerance with "CAFFE_FT := 1" in CAFFE_SRC_ROOT/Makefile.config
+
+Execution:
+
+- Execute caffe with "-am enable-ft-mpi" just before the application.
