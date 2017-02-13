@@ -390,7 +390,7 @@ void Solver<Dtype>::Step(int iters) {
     }
 
 #ifdef ADAPTIVE_BATCH
-  if(batch_iter_count < 1) {
+  // if(batch_iter_count < 1) {
     if(hieuristic_OptType == "RANDOM") {
       batch_apply_iter = NewBatchSize<batchOptionRan>::get(randomThres,gen);
       DLOG(INFO) << "BATCHAPPLYITER value:" << batch_apply_iter;
@@ -401,24 +401,24 @@ void Solver<Dtype>::Step(int iters) {
     else if (hieuristic_OptType == "LOSSRATE") {
       int last_batchApplyIter = batch_apply_iter;
       DLOG(INFO) << "lastBatchApplyIter : ------------" << last_batchApplyIter;
-      //batch_apply_iter = *itrB;
-        // batch_apply_iter = NewBatchSize<batchOptionLR>::get(deltaLosses_
-        //, lossThres, last_batchApplyIter);
-      //++itrB;
-      //if(itrB == tempBatchSizes.end())
-      //  itrB = tempBatchSizes.begin();
-      batch_apply_iter = 1;
+      batch_apply_iter = *itrB;
+      // batch_apply_iter = NewBatchSize<batchOptionLR>::get(deltaLosses_
+      //  , lossThres, last_batchApplyIter);
+      ++itrB;
+      if(itrB == tempBatchSizes.end())
+        itrB = tempBatchSizes.begin();
+      // batch_apply_iter = 1;
     }
     else if(hieuristic_OptType == "RATIOCTOC") {
       //TODO: Need to revisit
       batch_apply_iter =
         NewBatchSize<batchOptionRatioCToC>::get(CToCThres, currentCToC);
     }
-    batch_iter_count = batch_apply_iter;
+    //batch_iter_count = batch_apply_iter;
   #ifdef USE_MPI
     MPI_Bcast(&batch_apply_iter, 1, MPI_INT, 0, MPI_COMM_WORLD);
   #endif
-  }
+  //}
 
 #endif
 
