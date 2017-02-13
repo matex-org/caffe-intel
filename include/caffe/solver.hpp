@@ -110,24 +110,39 @@ struct NewBatchSize {
     typename = typename std::enable_if<std::is_same<
                         U, AdaptiveBatchOption::LossRate>::value, U>::type,
     typename Dtype>
-  static int get(std::queue<Dtype> deltaLosses, float lossThresh, int& batchApplyIter) {
-    if(deltaLosses.size() > 1)
-    {
-      if(((deltaLosses.front() 
-            - deltaLosses.back())/deltaLosses.size()) > lossThresh) {
+  static int get(std::deque<Dtype>& deltaLosses, float lossThres, int& batchApplyIter) {
+    // if(deltaLosses.size() > 1)
+    // {
+      Dtype deltaAvg1 = 0;
+      for (int i = 0; i < 10; ++i)
+        deltaAvg1 += deltaLosses[i];
+      deltaAvg1 = deltaAvg1/10;
+      
+      Dtype deltaAvg2 = 0;
+      for (int i = 10; i < 20; ++i)
+        deltaAvg2 += deltaLosses[i];
+      deltaAvg2 = deltaAvg2/10;
+
+      // Dtype trendAvg = (deltaAvg1 + deltaAvg2)/ 2;
+      Dtype trendDiff = deltaAvg1 - deltaAvg2; 
+
+      if( (trendDiff > 0) && trendDiff > lossThres) {
         return (batchApplyIter + 1); // fixed increment size;  
+      }
+      else if ((trendDiff > 0) && trendDiff <= lossThres ){
+        return batchApplyIter; // continue with same batch size;
       }
       else {
         if(batchApplyIter > 1) {
-          return (batchApplyIter - 1);
+          return (batchApplyIter - 1); // decrease batch size; 
         }
       }
-    }
-    else {
-      return 1; 
-    }
+    // }
+    // else {
+    //   return 1; 
+    // }
 
-    return batchApplyIter;
+    // return batchApplyIter;
   }
 };
 #endif
@@ -282,7 +297,7 @@ class Solver {
   Dtype smoothed_loss_;
 #ifdef ADAPTIVE_BATCH
   int newitersize_;
-  std::queue<Dtype> deltaLosses_;
+  std::deque<Dtype> deltaLosses_;
 #endif 
 
   // The root solver that holds root nets (actually containing shared layers)

@@ -318,12 +318,13 @@ void Solver<Dtype>::Step(int iters) {
   smoothed_loss_ = 0;
 
 #ifdef ADAPTIVE_BATCH
+  // std::size_t batch_icnt;
  #ifdef USE_MPI
   int rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
  #endif
   int new_iter_size = param_.iter_size(); // 4
-  std::size_t batch_iter_count = 0;
+  std::size_t batch_iter_count = 1;
   bool batch_h_update = false;
   Dtype lastLoss = 0;
   int temp = 0;
@@ -401,25 +402,28 @@ void Solver<Dtype>::Step(int iters) {
     else if (hieuristic_OptType == "LOSSRATE") {
       int last_batchApplyIter = batch_apply_iter;
       DLOG(INFO) << "lastBatchApplyIter : ------------" << last_batchApplyIter;
-      batch_apply_iter = *itrB;
-      // batch_apply_iter = NewBatchSize<batchOptionLR>::get(deltaLosses_
-      //  , lossThres, last_batchApplyIter);
-      ++itrB;
-      if(itrB == tempBatchSizes.end())
-        itrB = tempBatchSizes.begin();
-      // batch_apply_iter = 1;
+      // batch_apply_iter = *itrB;
+      if(deltaLosses_.size() > 20)
+      {
+        batch_apply_iter = NewBatchSize<batchOptionLR>::get(deltaLosses_
+        , lossThres, last_batchApplyIter);
+      }
+      // ++itrB;
+      // if(itrB == tempBatchSizes.end())
+      //  itrB = tempBatchSizes.begin();
     }
     else if(hieuristic_OptType == "RATIOCTOC") {
       //TODO: Need to revisit
       batch_apply_iter =
         NewBatchSize<batchOptionRatioCToC>::get(CToCThres, currentCToC);
     }
-    //batch_iter_count = batch_apply_iter;
+
+    // batch_iter_count = batch_apply_iter;
   #ifdef USE_MPI
     MPI_Bcast(&batch_apply_iter, 1, MPI_INT, 0, MPI_COMM_WORLD);
   #endif
-  //}
-
+  // }
+  
 #endif
 
     for (int i = 0; i < callbacks_.size(); ++i) {
@@ -439,13 +443,15 @@ void Solver<Dtype>::Step(int iters) {
 
 #ifdef ADAPTIVE_BATCH
     Dtype loss = forward_backward_(new_iter_size);
-    if(deltaLosses_.size() < 20) {
-      deltaLosses_.push(loss - lastLoss);
+
+    if(deltaLosses_.size() < 21) {
+      deltaLosses_.push_front(lastLoss - loss);  
     }
     else {
-      deltaLosses_.pop();
-      deltaLosses_.push(loss - lastLoss);
+      deltaLosses_.pop_back();
+      deltaLosses_.push_front(lastLoss - loss);
     }
+    lastLoss = loss;
 #else
     Dtype loss = forward_backward_();
 #endif
