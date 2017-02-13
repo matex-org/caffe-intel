@@ -239,8 +239,8 @@ void MKLDNNPoolingLayer<Dtype>::InitPooling(const vector<Blob<Dtype>*>& bottom, 
     engine engine = ep.getMKLDNNSubEngine(subEngineIndex);
 
     // ---- Initialize remaining memory descriptors -------------
-    shared_ptr<MemPD> prv_input_mpd(NULL);
-    shared_ptr<MemPD> prv_output_mpd(NULL);
+    shared_ptr<MemPD> prv_input_mpd;
+    shared_ptr<MemPD> prv_output_mpd;
     if (bottom_data_is_prv) {
         prv_input_mpd.reset(new MemPD(*input_md, engine));
         prv_output_mpd.reset(new MemPD(*output_md, engine));
@@ -283,7 +283,7 @@ void MKLDNNPoolingLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom
     if (NULL == poolingFwd_pd)
         InitPooling(bottom, top);
     // making reorders if needed.
-    fwd_bottom_data->sync_before_read(false);
+    fwd_bottom_data->sync_before_read();
     // update top that head at prv
     fwd_top_data->sync_before_write();
 

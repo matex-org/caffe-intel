@@ -42,6 +42,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "caffe/layers/softmax_loss_layer.hpp"
 #include "caffe/util/math_functions.hpp"
 
+#ifdef USE_MLSL
+using namespace MLSL;
+#endif /* USE_MLSL */
+
 namespace caffe {
 
 template <typename Dtype>
@@ -70,6 +74,26 @@ void SoftmaxWithLossLayer<Dtype>::LayerSetUp(
   } else {
     normalization_ = this->layer_param_.loss_param().normalization();
   }
+
+#ifdef USE_MLSL
+
+    int ic = bottom[0]->channels();
+    int iw = bottom[0]->width();
+    int ih = bottom[0]->height();
+
+    DataType dt = (sizeof(Dtype) == 4)? DT_FLOAT : DT_DOUBLE;
+  	ComputeOpRegInfo *myRegInfo;
+  	myRegInfo = new ComputeOpRegInfo(COMP_OP_TYPE_EVAL);
+  	myRegInfo->SetName(this->layer_param_.name().c_str());
+  	myRegInfo->AddInputFeatureMap(ic, iw*ih, dt);
+  	myRegInfo->AddInputFeatureMap(bottom[1]->channels(), bottom[1]->width()*bottom[1]->height(), dt);
+
+    myRegInfo->Validate();
+  	this->layerOp = new ComputeOp(myRegInfo, caffe::internode::data_parallelism);
+    delete myRegInfo;
+
+#endif /* USE_MLSL */
+
 }
 
 template <typename Dtype>
@@ -145,7 +169,9 @@ void SoftmaxWithLossLayer<Dtype>::Forward_cpu(
       ++count;
     }
   }
-  top[0]->mutable_cpu_data()[0] = loss / get_normalizer(normalization_, count);
+  Dtype normalizer = LossLayer<Dtype>::GetNormalizer(
+      normalization_, outer_num_, inner_num_, count);
+  top[0]->mutable_cpu_data()[0] = loss / normalizer;
   if (top.size() == 2) {
     top[1]->ShareData(prob_);
   }
@@ -179,8 +205,9 @@ void SoftmaxWithLossLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top,
       }
     }
     // Scale gradient
-    Dtype loss_weight = top[0]->cpu_diff()[0] /
-                        get_normalizer(normalization_, count);
+    Dtype normalizer = LossLayer<Dtype>::GetNormalizer(
+        normalization_, outer_num_, inner_num_, count);
+    Dtype loss_weight = top[0]->cpu_diff()[0] / normalizer;
     caffe_scal(prob_.count(), loss_weight, bottom_diff);
   }
 }

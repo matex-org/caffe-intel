@@ -119,7 +119,7 @@ void MKLDNNLRNLayer<Dtype>::InitLRN(const vector<Blob<Dtype>*>& bottom, const ve
     memory::data_type mpcsn = memory::data_type::f32;
     // ---- Initialize memory descriptors -------------
     shared_ptr<memory::desc> input_md, output_md;
-    shared_ptr<memory::primitive_desc> usr_mpd(NULL), prv_mpd(NULL);
+    shared_ptr<memory::primitive_desc> usr_mpd, prv_mpd;
     if (bottom_data_is_prv) {
         shared_ptr<MKLDNNMemoryDescriptor<Dtype, false> > mem_descr
             = get_mkldnn_prv_descriptor<Dtype, false>(bottom[0]);
@@ -181,7 +181,7 @@ void MKLDNNLRNLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom
     if( lrnFwd_pd == NULL)
         InitLRN(bottom, top);
     // making reorders if needed.
-    fwd_bottom_data->sync_before_read(false);
+    fwd_bottom_data->sync_before_read();
     // update top that head at prv
     fwd_top_data->sync_before_write();
 

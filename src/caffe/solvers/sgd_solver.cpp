@@ -93,6 +93,35 @@ Dtype SGDSolver<Dtype>::GetLearningRate() {
     rate = this->param_.base_lr() * (Dtype(1.) /
         (Dtype(1.) + exp(-this->param_.gamma() * (Dtype(this->iter_) -
           Dtype(this->param_.stepsize())))));
+  } else if (lr_policy == "plateau") {
+    // Update minimum loss if needed
+    if (this->smoothed_loss_ < this->minimum_loss_) {
+      this->minimum_loss_ = this->smoothed_loss_;
+      this->iter_last_event_ = this->iter_;
+    }
+
+    // If sufficient iters have passed after the last event, then lower LR
+    // An event is defined an update of minimum loss or LR
+    if (this->current_step_ < this->param_.plateau_winsize_size()) {
+      int iter_next_update = this->iter_last_event_
+            + this->param_.plateau_winsize(this->current_step_);
+
+      if (this->iter_ >= iter_next_update) {
+        this->current_step_++;
+        this->iter_last_event_ = this->iter_;
+        LOG(INFO) << "Plateau Status: Iteration " << this->iter_
+                  << ", step = " << this->current_step_;
+      }
+    }
+
+    if (this->param_.display() && this->iter_ % this->param_.display() == 0
+        && this->iter_last_event_ > (this->iter_ - this->param_.display())) {
+      LOG(INFO) << "Plateau Status: Iteration " << this->iter_
+                << ", current minimum_loss = " << this->minimum_loss_;
+    }
+
+    rate = this->param_.base_lr() *
+        pow(this->param_.gamma(), this->current_step_);
   } else {
     LOG(FATAL) << "Unknown learning rate policy: " << lr_policy;
   }
@@ -108,10 +137,14 @@ void SGDSolver<Dtype>::PreSolve() {
   temp_.clear();
   for (int i = 0; i < net_params.size(); ++i) {
     const vector<int>& shape = net_params[i]->shape();
+
+    // TODO: allocate these buffers taking into account owned_count to reduce memory footprint
     history_.push_back(shared_ptr<Blob<Dtype> >(new Blob<Dtype>(shape)));
     update_.push_back(shared_ptr<Blob<Dtype> >(new Blob<Dtype>(shape)));
     temp_.push_back(shared_ptr<Blob<Dtype> >(new Blob<Dtype>(shape)));
   }
+
+  this->minimum_loss_ = std::numeric_limits<float>::max();
 }
 
 template <typename Dtype>
@@ -154,6 +187,8 @@ void SGDSolver<Dtype>::ApplyUpdate(int param_id) {
   CHECK(Caffe::root_solver());
   Dtype rate = GetLearningRate();
 
+  LOG_PARAM_BLOB(this->net_->learnable_params()[param_id], diff, param_id, "ApplyUpdate: raw delwt:");
+
   // If Learning rate for this learnable params is zero then skip
   // updating params
   if (this->net_->params_lr()[param_id] == 0) {
@@ -161,21 +196,71 @@ void SGDSolver<Dtype>::ApplyUpdate(int param_id) {
   }
 
   Normalize(param_id);
+  LOG_PARAM_BLOB(this->net_->learnable_params()[param_id], diff, param_id, "ApplyUpdate: delwt after Normalize:");
+
   Regularize(param_id);
+  LOG_PARAM_BLOB(this->net_->learnable_params()[param_id], diff, param_id, "ApplyUpdate: delwt after Regularize:");
+
   ComputeUpdateValue(param_id, rate);
+  LOG_PARAM_BLOB(this->net_->learnable_params()[param_id], diff, param_id, "ApplyUpdate: wtinc:");
+
+#ifndef DISTR_WEIGHT_UPDATE
+
+  LOG_PARAM_BLOB(this->net_->learnable_params()[param_id], data, param_id, "ApplyUpdate: weight before update:");
+
   this->net_->learnable_params()[param_id]->Update();
+
+  LOG_PARAM_BLOB(this->net_->learnable_params()[param_id], data, param_id, "ApplyUpdate: weight after update:");
+
+#endif /* !DISTR_WEIGHT_UPDATE */
 }
 
 template <typename Dtype>
 void SGDSolver<Dtype>::Normalize(int param_id) {
+
+#ifdef USE_MLSL
+  if ((this->param_.iter_size() == 1) && (MLSL::GetNumNodes() == 1)) { return; }
+#else /* !USE_MLSL */
   if (this->param_.iter_size() == 1) { return; }
+#endif /* USE_MLSL */
+
   // Scale gradient to counterbalance accumulation.
   const vector<Blob<Dtype>*>& net_params = this->net_->learnable_params();
+
+#ifdef USE_MLSL
+  const Dtype accum_normalization = Dtype(1.) / (this->param_.iter_size() * MLSL::GetNumNodes());
+#else /* !USE_MLSL */
   const Dtype accum_normalization = Dtype(1.) / this->param_.iter_size();
+#endif /* USE_MLSL */
+
   switch (Caffe::mode()) {
   case Caffe::CPU: {
-    caffe_scal(net_params[param_id]->count(), accum_normalization,
-        net_params[param_id]->mutable_cpu_diff());
+
+    if (net_params[param_id]->prv_diff()
+        && (net_params[param_id]->prv_diff_count()
+            == net_params[param_id]->count())) {
+
+//#ifdef DISTR_WEIGHT_UPDATE
+//        caffe_scal(net_params[param_id]->owned_count(), accum_normalization,
+//            net_params[param_id]->mutable_prv_diff() + net_params[param_id]->owned_offset());
+//#else
+        caffe_scal(net_params[param_id]->count(), accum_normalization,
+            net_params[param_id]->mutable_prv_diff());
+//#endif /* DISTR_WEIGHT_UPDATE */
+
+    }
+    else {
+
+//#ifdef DISTR_WEIGHT_UPDATE
+//        caffe_scal(net_params[param_id]->owned_count(), accum_normalization,
+//            net_params[param_id]->mutable_cpu_diff() + net_params[param_id]->owned_offset());
+//#else
+        caffe_scal(net_params[param_id]->count(), accum_normalization,
+            net_params[param_id]->mutable_cpu_diff());
+//#endif /* DISTR_WEIGHT_UPDATE */
+
+    }
+
     break;
   }
   case Caffe::GPU: {
@@ -212,17 +297,44 @@ void SGDSolver<Dtype>::Regularize(int param_id) {
             net_params[param_id]->get_prv_data_descriptor()->layout_compare(
             net_params[param_id]->get_prv_diff_descriptor()));
 
+//#ifdef DISTR_WEIGHT_UPDATE
+//          caffe_axpy(net_params[param_id]->owned_count(),
+//                     local_decay,
+//                     net_params[param_id]->prv_data() + net_params[param_id]->owned_offset(),
+//                     net_params[param_id]->mutable_prv_diff() + net_params[param_id]->owned_offset());
+//#else
           caffe_axpy(net_params[param_id]->count(),
                      local_decay,
                      net_params[param_id]->prv_data(),
                      net_params[param_id]->mutable_prv_diff());
+//#endif /* DISTR_WEIGHT_UPDATE */
+
         } else {
+
+//#ifdef DISTR_WEIGHT_UPDATE
+//          caffe_axpy(net_params[param_id]->owned_count(),
+//              local_decay,
+//              net_params[param_id]->cpu_data() + net_params[param_id]->owned_offset(),
+//              net_params[param_id]->mutable_cpu_diff() + net_params[param_id]->owned_offset());
+//#else
           caffe_axpy(net_params[param_id]->count(),
               local_decay,
               net_params[param_id]->cpu_data(),
               net_params[param_id]->mutable_cpu_diff());
+//#endif /* DISTR_WEIGHT_UPDATE */
+
         }
       } else if (regularization_type == "L1") {
+
+//#ifdef DISTR_WEIGHT_UPDATE
+//        caffe_cpu_sign(net_params[param_id]->owned_count(),
+//            net_params[param_id]->cpu_data() + net_params[param_id]->owned_offset(),
+//            temp_[param_id]->mutable_cpu_data() + net_params[param_id]->owned_offset());
+//        caffe_axpy(net_params[param_id]->owned_count(),
+//            local_decay,
+//            temp_[param_id]->cpu_data() + net_params[param_id]->owned_offset(),
+//            net_params[param_id]->mutable_cpu_diff() + net_params[param_id]->owned_offset());
+//#else
         caffe_cpu_sign(net_params[param_id]->count(),
             net_params[param_id]->cpu_data(),
             temp_[param_id]->mutable_cpu_data());
@@ -230,6 +342,8 @@ void SGDSolver<Dtype>::Regularize(int param_id) {
             local_decay,
             temp_[param_id]->cpu_data(),
             net_params[param_id]->mutable_cpu_diff());
+//#endif /* DISTR_WEIGHT_UPDATE */
+
       } else {
         LOG(FATAL) << "Unknown regularization type: " << regularization_type;
       }
@@ -285,6 +399,19 @@ void SGDSolver<Dtype>::ComputeUpdateValue(int param_id, Dtype rate) {
     if (net_params[param_id]->prv_diff()
         && (net_params[param_id]->prv_diff_count()
             == net_params[param_id]->count())) {
+
+//#ifdef DISTR_WEIGHT_UPDATE
+//
+//      caffe_cpu_axpby(net_params[param_id]->owned_count(), local_rate,
+//                      net_params[param_id]->prv_diff() + net_params[param_id]->owned_offset(), momentum,
+//                      history_[param_id]->mutable_cpu_data() + net_params[param_id]->owned_offset());
+//
+//      caffe_copy(net_params[param_id]->owned_count(),
+//                 history_[param_id]->cpu_data() + net_params[param_id]->owned_offset(),
+//                 net_params[param_id]->mutable_prv_diff() + net_params[param_id]->owned_offset());
+
+//#else /* DISTR_WEIGHT_UPDATE */
+
       caffe_cpu_axpby(net_params[param_id]->count(), local_rate,
                       net_params[param_id]->prv_diff(), momentum,
                       history_[param_id]->mutable_cpu_data());
@@ -292,14 +419,33 @@ void SGDSolver<Dtype>::ComputeUpdateValue(int param_id, Dtype rate) {
       caffe_copy(net_params[param_id]->count(),
                  history_[param_id]->cpu_data(),
                  net_params[param_id]->mutable_prv_diff());
+
+//#endif /* DISTR_WEIGHT_UPDATE */
+
     } else {
+
+//#ifdef DISTR_WEIGHT_UPDATE
+//
+//      caffe_cpu_axpby(net_params[param_id]->owned_count(), local_rate,
+//                      net_params[param_id]->cpu_diff() + net_params[param_id]->owned_offset(), momentum,
+//                      history_[param_id]->mutable_cpu_data() + net_params[param_id]->owned_offset());
+//
+//      caffe_copy(net_params[param_id]->owned_count(),
+//                 history_[param_id]->cpu_data() + net_params[param_id]->owned_offset(),
+//                 net_params[param_id]->mutable_cpu_diff() + net_params[param_id]->owned_offset());
+
+//#else /* DISTR_WEIGHT_UPDATE */
+
       caffe_cpu_axpby(net_params[param_id]->count(), local_rate,
-          net_params[param_id]->cpu_diff(), momentum,
-          history_[param_id]->mutable_cpu_data());
+                     net_params[param_id]->cpu_diff(), momentum,
+                     history_[param_id]->mutable_cpu_data());
 
       caffe_copy(net_params[param_id]->count(),
-          history_[param_id]->cpu_data(),
-          net_params[param_id]->mutable_cpu_diff());
+                 history_[param_id]->cpu_data(),
+                 net_params[param_id]->mutable_cpu_diff());
+
+//#endif /* DISTR_WEIGHT_UPDATE */
+
     }
     break;
   }
@@ -340,6 +486,8 @@ void SGDSolver<Dtype>::SnapshotSolverStateToBinaryProto(
   state.set_iter(this->iter_);
   state.set_learned_net(model_filename);
   state.set_current_step(this->current_step_);
+  state.set_iter_last_event(this->iter_last_event_);
+  state.set_minimum_loss(this->minimum_loss_);
   state.clear_history();
   for (int i = 0; i < history_.size(); ++i) {
     // Add history
@@ -365,6 +513,8 @@ void SGDSolver<Dtype>::SnapshotSolverStateToHDF5(
   hdf5_save_int(file_hid, "iter", this->iter_);
   hdf5_save_string(file_hid, "learned_net", model_filename);
   hdf5_save_int(file_hid, "current_step", this->current_step_);
+  hdf5_save_int(file_hid, "iter_last_event", this->iter_last_event_);
+  hdf5_save_float<Dtype>(file_hid, "minimum_loss", this->minimum_loss_);
   hid_t history_hid = H5Gcreate2(file_hid, "history", H5P_DEFAULT, H5P_DEFAULT,
       H5P_DEFAULT);
   CHECK_GE(history_hid, 0)
@@ -390,6 +540,8 @@ void SGDSolver<Dtype>::RestoreSolverStateFromBinaryProto(
     this->net_->CopyTrainedLayersFrom(net_param);
   }
   this->current_step_ = state.current_step();
+  this->iter_last_event_ = state.iter_last_event();
+  this->minimum_loss_ = state.minimum_loss();
   CHECK_EQ(state.history_size(), history_.size())
       << "Incorrect length of history blobs.";
   LOG(INFO) << "SGDSolver: restoring history";
@@ -408,6 +560,8 @@ void SGDSolver<Dtype>::RestoreSolverStateFromHDF5(const string& state_file) {
     this->net_->CopyTrainedLayersFrom(learned_net);
   }
   this->current_step_ = hdf5_load_int(file_hid, "current_step");
+  this->iter_last_event_ = hdf5_load_int(file_hid, "iter_last_event");
+  this->minimum_loss_ = hdf5_load_float<Dtype>(file_hid, "minimum_loss");
   hid_t history_hid = H5Gopen2(file_hid, "history", H5P_DEFAULT);
   CHECK_GE(history_hid, 0) << "Error reading history from " << state_file;
   int state_history_size = hdf5_get_num_links(history_hid);
