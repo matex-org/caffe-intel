@@ -324,7 +324,7 @@ void Solver<Dtype>::Step(int iters) {
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
  #endif
   int new_iter_size = param_.iter_size(); // 4
-  std::size_t batch_iter_count = 1;
+  std::size_t batch_iter_count = 0;
   bool batch_h_update = false;
   Dtype lastLoss = 0;
   int temp = 0;
@@ -391,7 +391,7 @@ void Solver<Dtype>::Step(int iters) {
     }
 
 #ifdef ADAPTIVE_BATCH
-  // if(batch_iter_count < 1) {
+  if(batch_iter_count < 1) {
     if(hieuristic_OptType == "RANDOM") {
       batch_apply_iter = NewBatchSize<batchOptionRan>::get(randomThres,gen);
       DLOG(INFO) << "BATCHAPPLYITER value:" << batch_apply_iter;
@@ -403,7 +403,7 @@ void Solver<Dtype>::Step(int iters) {
       int last_batchApplyIter = batch_apply_iter;
       DLOG(INFO) << "lastBatchApplyIter : ------------" << last_batchApplyIter;
       // batch_apply_iter = *itrB;
-      if(deltaLosses_.size() > 20)
+      if((deltaLosses_.size() > 20) && (iter_ > 300))
       {
         batch_apply_iter = NewBatchSize<batchOptionLR>::get(deltaLosses_
         , lossThres, last_batchApplyIter);
@@ -418,11 +418,11 @@ void Solver<Dtype>::Step(int iters) {
         NewBatchSize<batchOptionRatioCToC>::get(CToCThres, currentCToC);
     }
 
-    // batch_iter_count = batch_apply_iter;
+    batch_iter_count = batch_apply_iter;
   #ifdef USE_MPI
     MPI_Bcast(&batch_apply_iter, 1, MPI_INT, 0, MPI_COMM_WORLD);
   #endif
-  // }
+  }
   
 #endif
 
