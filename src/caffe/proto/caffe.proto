@@ -712,6 +712,25 @@ message CropParameter {
   repeated uint32 offset = 2;
 }
 
+message CacheParameter {
+  enum CacheStoragePolicy {
+    HEAP = 0;
+    HBM = 1;
+    REMOTE = 2;
+  }
+  enum CacheReplacementPolicy {
+    RATE = 0;
+    LAST_ERROR = 1;
+    LAST_LOSS = 2;
+  }
+  
+  optional uint32 size = 1 [default = 0];
+  optional CacheReplacementPolicy replace = 2 [default = RATE];
+  optional CacheStoragePolicy type = 3 [default = HEAP] ;
+  optional uint32 eviction_rate = 4 [default = 0];
+  
+}
+
 message DataParameter {
   enum DB {
     LEVELDB = 0;
@@ -747,7 +766,7 @@ message DataParameter {
   // Whether or not DataLayer should shuffle the images at every epoch.
   optional bool shuffle = 11 [default = false];
   
-  optional uint32 cache_size = 12 [default = 0];
+  repeated CacheParameter cache = 12;
 }
 
 message RemoteDataParameter {

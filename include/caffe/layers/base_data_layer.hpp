@@ -108,25 +108,37 @@ class BasePrefetchingDataLayer :
   static const int PREFETCH_COUNT = 3;
   virtual void Pass_Value_To_Layer(Dtype value, unsigned int position) {
     //LOG(INFO) << "Base Pass";
-    ignoreAccuracy=false;
-    historical_accuracy.push_back(value);
+    //ignoreAccuracy_=false;
+    historical_accuracy_.push_back(value);
   }
 
  protected:
+  void refill_cache(int current_cache);
   virtual void InternalThreadEntry();
   virtual void load_batch(Batch<Dtype>* batch) = 0;
 
   virtual void GetBatch();
+  void rate_replace_policy(int next_cache);
+  
+  struct cache
+  {
+    Batch<Dtype> * cache_;
+    int size_;
+    int eviction_rate_;
+    int current_shuffle_count_;
+    BlockingQueue<Batch<Dtype>*> cache_full_;
+    bool ignoreAccuracy_;
+    void (BasePrefetchingDataLayer<Dtype>::*refill_policy)(int);  
+  };
 
   GenRandNumbers randomGen;
   Batch<Dtype> prefetch_[PREFETCH_COUNT];
   BlockingQueue<Batch<Dtype>*> prefetch_free_;
   BlockingQueue<Batch<Dtype>*> prefetch_full_;
-  Batch<Dtype> * cache_;
+  
+  cache * caches_;
   int cache_size_;
-  vector<Dtype> historical_accuracy;
-  BlockingQueue<Batch<Dtype>*> cache_full_;
-  bool ignoreAccuracy;
+  vector<Dtype> historical_accuracy_;
 
   Blob<Dtype> transformed_data_;
 };
