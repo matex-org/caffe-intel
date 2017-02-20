@@ -716,7 +716,8 @@ message CacheParameter {
   enum CacheStoragePolicy {
     HEAP = 0;
     HBM = 1;
-    REMOTE = 2;
+    DISK = 2;
+    REMOTE = 3;
   }
   enum CacheReplacementPolicy {
     RATE = 0;
@@ -728,6 +729,8 @@ message CacheParameter {
   optional CacheReplacementPolicy replace = 2 [default = RATE];
   optional CacheStoragePolicy type = 3 [default = HEAP] ;
   optional uint32 eviction_rate = 4 [default = 0];
+  optional string disk_location = 5 [default = "./"];
+  optional string server_address = 6 [default = "127.0.0.1"];
   
 }
 

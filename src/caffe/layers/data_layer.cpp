@@ -77,11 +77,6 @@ void DataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bottom,
   for (int i = 0; i < this->PREFETCH_COUNT; ++i) {
     this->prefetch_[i].data_.Reshape(top_shape);
   }
-  for (int i = 0; i < this->cache_size_; ++i) {
-    for (int j = 0; j < this->caches_[i].size_; ++j) {
-      this->caches_[i].cache_[j].data_.Reshape(top_shape);
-    }
-  }
   LOG(INFO) << "output data size: " << top[0]->num() << ","
       << top[0]->channels() << "," << top[0]->height() << ","
       << top[0]->width();
@@ -92,11 +87,13 @@ void DataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bottom,
     for (int i = 0; i < this->PREFETCH_COUNT; ++i) {
       this->prefetch_[i].label_.Reshape(label_shape);
     }
-    for (int i = 0; i < this->cache_size_; ++i) {
-      for (int j = 0; j < this->caches_[i].size_; ++j) {
-        this->caches_[i].cache_[j].label_.Reshape(label_shape);
-      }
-    }
+    for (int i = 0; i < this->cache_size_; ++i)
+      this->caches_[i]->reshape(&top_shape, &label_shape);
+  }
+  else
+  {
+    for (int i = 0; i < this->cache_size_; ++i)
+      this->caches_[i]->reshape(&top_shape, NULL);
   }
 }
 
