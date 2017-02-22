@@ -11,14 +11,15 @@
 #include "boost/thread.hpp"
 #include "caffe/caffe.hpp"
 #include "caffe/mpi.hpp"
-#include "caffe/parallel/mpi_sync_cpu.hpp"
+#include "caffe/parallel/mpi_subgroup_nonblocking_cpu.hpp"
 
 namespace caffe {
 
 
 // Constructor
 template<typename Dtype>
-MPISyncCPU<Dtype>::MPISyncCPU(shared_ptr<Solver<Dtype> > root_solver, const int rgroup_bits)
+MPI_subgroup_nonblocking_CPU<Dtype>::MPI_subgroup_nonblocking_CPU(shared_ptr<Solver<Dtype> > root_solver, 
+                                                                  const int rgroup_bits)
     : CPUParams<Dtype>(root_solver),
   rgroup_bits_(rgroup_bits),
 //#ifdef USE_MPI
@@ -30,8 +31,10 @@ MPISyncCPU<Dtype>::MPISyncCPU(shared_ptr<Solver<Dtype> > root_solver, const int 
   peerlist_(nodegroups.get_stagelist(comm_rank_)),
   comm_stages_(nodegroups.get_num_stages()),
   current_stage_(0),
-  mergebuffer_(std::vector<Dtype>(size_+2)),
-  mergebuffer2_(std::vector<Dtype>(size_+2)),
+  data_send_buffer_(std::vector<Dtype>(size_)),
+  diff_send_buffer_(std::vector<Dtype>(size_)),
+  prior_data_(std::vector<Dtype>(size_)),
+  prior_diff_(std::vector<Dtype>(size_)),
   my_group_( nodegroups.get_assigned_group_per_stage(comm_rank_) ),
   subcomm_(std::vector<MPI_Comm>(nodegroups.get_num_stages())),
   subcomm2_(std::vector<MPI_Comm>(nodegroups.get_num_stages())),
@@ -54,7 +57,14 @@ MPISyncCPU<Dtype>::MPISyncCPU(shared_ptr<Solver<Dtype> > root_solver, const int 
       subcount_(0)
 {
   std::clog << "Initializing with rgroup bits = " << rgroup_bits_ << std::endl;
-
+  {
+    double raw_log=log2(comm_size_);
+    if ((raw_log -1) != rgroup_bits_) {
+      std::cerr << "Error - number of nodes must be power of 2, and rgroup_bits must be "
+                << "log2(# nodes) -1 for this nonblocking subgroup implementation" << std::endl;
+      exit(1);
+    }
+  }
 
   solver_ = root_solver;
   this->configure(solver_.get());
@@ -115,7 +125,7 @@ MPISyncCPU<Dtype>::MPISyncCPU(shared_ptr<Solver<Dtype> > root_solver, const int 
 
 
 template<typename Dtype>
-MPISyncCPU<Dtype>::~MPISyncCPU() {
+MPI_subgroup_nonblocking_CPU<Dtype>::~MPI_subgroup_nonblocking_CPU() {
 }
 
 
@@ -128,7 +138,7 @@ MPISyncCPU<Dtype>::~MPISyncCPU() {
 //    tag for this exchange so that there's no chance of this exchange being confused with any other
 
 template<typename Dtype>
-void MPISyncCPU<Dtype>::mpi_avg_3(Dtype * real_buffer,
+void MPI_subgroup_nonblocking_CPU<Dtype>::mpi_avg_3(Dtype * real_buffer,
                                   Dtype * temp_buffer,
                                   const size_t pcount,
                                   const int root_node,
@@ -328,7 +338,7 @@ void MPISyncCPU<Dtype>::mpi_avg_3(Dtype * real_buffer,
 //    tag for this exchange so that there's no chance of this exchange being confused with any other
 
 template<typename Dtype>
-void MPISyncCPU<Dtype>::mpi_avg_2(Dtype * real_buffer,
+void MPI_subgroup_nonblocking_CPU<Dtype>::mpi_avg_2(Dtype * real_buffer,
                                   Dtype * temp_buffer,
                                   const size_t pcount,
                                   const int root_node,
@@ -429,226 +439,160 @@ void MPISyncCPU<Dtype>::mpi_avg_2(Dtype * real_buffer,
 
 
 template<typename Dtype>
- void MPISyncCPU<Dtype>::on_start() {
- //  const Dtype scalefactor = (static_cast<Dtype>(1.0) /
- //   static_cast<Dtype>(subcomm_size_[current_stage_]));
- //  SGDSolver<Dtype>* sgd_solver = dynamic_cast<SGDSolver<Dtype>*>(solver_.get());
+ void MPI_subgroup_nonblocking_CPU<Dtype>::on_start() {
+   // we've already verified we're safe to run with # nodes / # rgroup bits
+   const int prior_stage_ = (current_stage_ > 0) ? (current_stage_ -1) : (comm_stages_ -1);
+   std::vector<int> prior_buddies(peerlist_[prior_stage_]);
+   std::vector<int> current_buddies(peerlist_[current_stage_]);
+   const size_t prior_stage_size= prior_buddies.size();
+   const size_t current_stage_size= current_buddies.size();
+   //const int receive_tag = ((0x1 << 12) + prior_stage_);
+   const int send_tag = ((0x1 << 12) + current_stage_);
 
-   if (rgroup_bits_ > 0) {
-     std::vector<int> buddies(peerlist_[current_stage_]);
-/*
-     // copy internal momentum history into mergebuffer_ array in preparation
-     size_t poffset=0;
-     const vector<Blob < Dtype>*>&net_params = solver_->net_->learnable_params();
-
-     for (int param_id = 0;
-          param_id < solver_->net_->learnable_params().size();
-          ++param_id) {
-       const size_t pnum = net_params[param_id]->count();
-       Dtype *ptr = (Dtype *)(history_[param_id]->cpu_data());
-       for (int j=0; j<pnum; j++) {
-         mergebuffer_[j+poffset] = ptr[j];
-       }
-       poffset = (poffset + pnum);
-     }
-
-     if (poffset != size_) {
-       std::clog << "*** Error - history is wrong. ***" << std::endl;
-       exit(1);
-     }
-*/
-
-     // do merging
-     if (buddies.size() ==2) {
-       // merge data between 2 nodes using mergebuffer2_ as temp space
-       mpi_avg_2((Dtype *) data_, (Dtype *) &mergebuffer2_[0], size_,
-                 buddies[0], buddies[1], (current_stage_ + (0x1 << 6)));
-/*
-       // merge history (packed into mergebuffer_) between 2 nodes
-       // using mergebuffer2_ as temp space
-       mpi_avg_2((Dtype *)&mergebuffer_[0], (Dtype *)&mergebuffer2_[0], size_,
-                 buddies[0], buddies[1], (current_stage_ + (0x1<<7)));
-*/
-
-     } else if (buddies.size()==3) {
-       // merge data between 3 nodes
-       mpi_avg_3((Dtype *) data_, (Dtype *) &mergebuffer2_[0], size_,
-                 buddies[0], buddies[1], buddies[2], (current_stage_ + (0x1 << 6)));
-/*
-       // merge history (packed into mergebuffer_) between 3 nodes
-       // using mergebuffer2_ as temp space
-       mpi_avg_3((Dtype *)&mergebuffer_[0], (Dtype *)&mergebuffer2_[0], size_,
-                 buddies[0], buddies[1], buddies[2], (current_stage_ + (0x1<<7)));
-*/
-
-     } else {
-       // merge data between some other number of nodes
-       const Dtype scalefactor = (static_cast<Dtype>(1.0) / static_cast<Dtype>(buddies.size()));
-
-       MPI_Allreduce((Dtype *) data_, (Dtype *) &mergebuffer2_[0], size_,
-                     ((sizeof(Dtype) == 4) ? MPI_FLOAT : MPI_DOUBLE),
-                     MPI_SUM, subcomm_[current_stage_]);
-
-       caffe_scal<Dtype>(size_, scalefactor, (Dtype *) &mergebuffer2_[0]);
-       for (size_t i = 0; i < size_; i++) {
-         ((Dtype *) data_)[i] = ((Dtype *) (&mergebuffer2_[0]))[i];
-       }
-
-/*
-       // merge history between some other number of nodes
-       MPI_Allreduce((Dtype *)&mergebuffer_[0], (Dtype *)&mergebuffer2_[0],  size_,
-                     ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
-                     MPI_SUM, subcomm_[current_stage_]);
-
-       caffe_scal<Dtype>(size_, scalefactor, (Dtype *)&mergebuffer2_[0]);
-       for (size_t i=0; i<size_; i++) {
-         ((Dtype *)&mergebuffer_[0])[i] = ((Dtype *)(&mergebuffer2_[0]))[i];
-       }
-*/
-     }
-
-////////////////////////////////
-/*
-     // copy merged momentum history from mergebuffer_ back
-     // into the internal data structures
-      poffset = 0;
-      for (int param_id = 0;
-           param_id < solver_->net_->learnable_params().size();
-           ++param_id) {
-        const size_t pnum = net_params[param_id]->count();
-        Dtype *ptr = history_[param_id]->mutable_cpu_data();
-        for (int j = 0; j < pnum; j++) {
-          ptr[j] = mergebuffer_[j + poffset];
-        }
-        poffset = (poffset + pnum);
-      }
-*/
-     // do _not_ increment group stage counter here; wait until after on_post_apply()
-   } else {
-
-     // may not need or want this reduction
-     if (comm_size_ > 1) {
-
-/*
-       // do all-reduce of data across all nodes
-       const Dtype scalefactor = (static_cast<Dtype>(1.0) / static_cast<Dtype>(comm_size_));
-       MPI_Allreduce((Dtype *)data_, (Dtype *)&mergebuffer2_[0],  size_,
-                     ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
-                     MPI_SUM, comm_);
-       caffe_scal<Dtype>(size_, scalefactor, (Dtype *)&mergebuffer2_[0]);
-       for (size_t i=0; i<size_; i++) {
-         ((Dtype *)data_)[i] = ((Dtype *)(&mergebuffer2_[0]))[i];
-       }
-
-
-       // copy internal momentum history into mergebuffer_ array in preparation
-       size_t poffset=0;
-       const vector<Blob < Dtype>*>&net_params = solver_->net_->learnable_params();
-
-       for (int param_id = 0;
-            param_id < solver_->net_->learnable_params().size();
-            ++param_id) {
-         const size_t pnum = net_params[param_id]->count();
-         Dtype *ptr = (Dtype *)(history_[param_id]->cpu_data());
-         for (int j=0; j<pnum; j++) {
-           mergebuffer_[j+poffset] = ptr[j];
-         }
-         poffset = (poffset + pnum);
-       }
-
-       if (poffset != size_) {
-         std::clog << "*** Error - history is wrong. ***" << std::endl;
-         exit(1);
-       }
-
-
-       // do the history Allreduce
-       MPI_Allreduce((Dtype *)&mergebuffer_[0], (Dtype *)&mergebuffer2_[0],  size_,
-                     ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
-                     MPI_SUM, comm_);
-       caffe_scal<Dtype>(size_, scalefactor, (Dtype *)&mergebuffer2_[0]);
-
-
-       // copy merged momentum history from mergebuffer2_ back
-       // into the internal data structures
-       poffset = 0;
-       for (int param_id = 0;
-            param_id < solver_->net_->learnable_params().size();
-            ++param_id) {
-         const size_t pnum = net_params[param_id]->count();
-         Dtype *ptr = history_[param_id]->mutable_cpu_data();
-         for (int j = 0; j < pnum; j++) {
-           ptr[j] = mergebuffer2_[j + poffset];
-         }
-         poffset = (poffset + pnum);
-       }
-*/
-     } // if comm_size_ > 1
+   MPI_Status present_status[2];
+   
+   if ((current_stage_size !=2) || (prior_stage_size != 2)) {
+     std::cerr << "Error in on_start.  current or prior buddies list size != 2" << std::endl;
+     exit(1);
    }
+
+   // LOG(INFO) << "on_start(), iter=" << solver_->iter() << std::endl;
+
+   // if not 1st iteration, wait until we've received prior buddy's data and 
+   // finished sending our data to prior buddy
+   if (solver_->iter() > 0) {
+     //LOG(INFO) << "Reading prior buddies' data" << std::endl; 
+     int error = MPI_Waitall(prior_stage_size, prior_data_request, present_status);
+     if (error != MPI_SUCCESS) {
+       std::clog << "Error doing MPI_Waitall in on_start()" << std::endl;
+     }
+
+     // merge current data with prior_buddies' earlier data
+     //Dtype *plocal = &data_[0];
+     Dtype *premote= &prior_data_[0];
+     Dtype *pfinal = &data_[(size_ + 1)];
+     Dtype *pbuffer = (Dtype *) &data_send_buffer_[0];
+
+     for (Dtype *plocal = &data_[0]; plocal < pfinal;) {
+      const Dtype temp=(*plocal + *premote++) * 0.5;
+      *plocal++ = temp;
+      *pbuffer++ = temp;
+     }
+   } else {
+     Dtype *pfinal = &data_[(size_ + 1)];
+     Dtype *pbuffer = (Dtype *) &data_send_buffer_[0];
+     for (Dtype *plocal = &data_[0]; plocal < pfinal;) {
+      *pbuffer++ = *plocal++;
+     }
+
+   }
+
+
+   // if we're not the last iteration, start the next send/receive with current buddy...
+   if (solver_->iter() < (solver_->max_iter()-1)) {
+     int remote = (current_buddies[0] == comm_rank_)
+                  ? current_buddies[1] : current_buddies[0]; 
+
+     // pre-post receive for next iteration's data  
+     int error = MPI_Irecv((Dtype *)&prior_data_[0], size_,
+                      ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
+                      remote,
+                      send_tag,
+                      comm_, &prior_data_request[0]);
+
+     if (error != MPI_SUCCESS) {
+       std::clog << "Error queueing MPI_Irecv for data" << std::endl;
+     }
+
+     // send merged data now to current buddy before doing current gradient calculations
+     error = MPI_Isend((Dtype *)&data_send_buffer_[0], size_,
+                      ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
+                      remote,
+                      send_tag,
+                      comm_, &prior_data_request[1]);
+
+     if (error != MPI_SUCCESS) {
+       std::clog << "Error queueing MPI_Isend for data" << std::endl;
+     }
+
+   } 
+
+
+   // do _not_ increment group stage counter here; wait until after on_post_apply()
+
  }
 
 
  template<typename Dtype>
- void MPISyncCPU<Dtype>::on_gradients_ready() {
+ void MPI_subgroup_nonblocking_CPU<Dtype>::on_gradients_ready() {
    DLOG(INFO) << "on_gradients_ready()";
+   const int prior_stage_ = (current_stage_ > 0) ? (current_stage_ -1) : (comm_stages_ -1);
+   std::vector<int> prior_buddies(peerlist_[prior_stage_]);
+   std::vector<int> current_buddies(peerlist_[current_stage_]);
+   const size_t prior_stage_size= prior_buddies.size();
+   const size_t current_stage_size= current_buddies.size();
+  // const int receive_tag = ((0x1 << 13) + prior_stage_);
+   const int send_tag = ((0x1 << 13) + current_stage_);
 
 #define USE_MPI 1
 #ifdef USE_MPI
-   // Sum gradients
-//  caffe::mpi::allreduce(diff_, size_, MPI_SUM, comm_);
+   MPI_Status present_status[2];
+   // if not 1st iteration, wait until we've received prior buddy's data and 
+   // finished sending our data to prior buddy
+   if (solver_->iter() > 0) {
+     int error = MPI_Waitall(prior_stage_size, prior_gradient_request, present_status);
+     if (error != MPI_SUCCESS) {
+       std::clog << "Error doing MPI_Waitall in on_gradients_ready()" << std::endl;
+     }
 
-/*
-  if ((comm_rank_ == 0) || (comm_rank_== 8) || (comm_rank_== 4)) {
-      std::clog << "[" << comm_rank_ << "] pre-merge diffs: ";
-      for (int i=0; i<10; i++) {
-        std::clog << ((Dtype *)diff_)[i] << " ";
-      }
-      std::clog << std::endl;
-  }
-*/
+     // merge current diffs with prior_buddies' earlier diffs
+     //Dtype *plocal = &data_[0];
+     Dtype *premote= &prior_diff_[0];
+     Dtype *pfinal = &diff_[(size_ + 1)];
+     Dtype *pbuffer = (Dtype *) &diff_send_buffer_[0];
 
-  if (rgroup_bits_ > 0) {
-    std::vector<int> buddies(peerlist_[current_stage_]);
-
-    if (buddies.size() == 2) {
-      // merge data between 2 nodes using mergebuffer2_ as temp space
-      mpi_avg_2((Dtype *) diff_, (Dtype *) &mergebuffer_[0], size_,
-                buddies[0], buddies[1], (current_stage_ + (0x1 << 8)));
-
-    } else if (buddies.size() == 3) {
-      // merge data between 3 nodes
-      mpi_avg_3((Dtype *) diff_, (Dtype *) &mergebuffer_[0], size_,
-                buddies[0], buddies[1], buddies[2], (current_stage_ + (0x1 << 8)));
-
-    } else {
-      // merge data between some other number of nodes
-      const Dtype scalefactor = (static_cast<Dtype>(1.0) / static_cast<Dtype>(buddies.size()));
-
-      MPI_Allreduce((Dtype *) diff_, (Dtype *) &mergebuffer_[0], size_,
-                    ((sizeof(Dtype) == 4) ? MPI_FLOAT : MPI_DOUBLE),
-                    MPI_SUM, subcomm_[current_stage_]);
-
-      caffe_scal<Dtype>(size_, scalefactor, (Dtype *) &mergebuffer_[0]);
-      for (size_t i = 0; i < size_; i++) {
-        ((Dtype *) diff_)[i] = ((Dtype *) (&mergebuffer_[0]))[i];
-      }
-
-    }
-
- // Sum gradients
+     for (Dtype *plocal = &diff_[0]; plocal < pfinal;) {
+      const Dtype temp=(*plocal + *premote++) * 0.5;
+      *plocal++ = temp;
+      *pbuffer++ = temp;
+     }
    } else {
-    if (comm_size_ > 1) {
-      MPI_Allreduce((Dtype *) diff_, (Dtype *) &mergebuffer_[0], size_,
-                    ((sizeof(Dtype) == 4) ? MPI_FLOAT : MPI_DOUBLE),
-                    MPI_SUM, comm_);
+     Dtype *pfinal = &diff_[(size_ + 1)];
+     Dtype *pbuffer = (Dtype *) &diff_send_buffer_[0];
+     for (Dtype *plocal = &diff_[0]; plocal < pfinal;) {
+      *pbuffer++ = *plocal++;
+     }
+   }
 
-      const Dtype scalefactor = (static_cast<Dtype>(1.0) / static_cast<Dtype>(comm_size_));
-      caffe_scal<Dtype>(size_, scalefactor, (Dtype *) &mergebuffer_[0]);
-      for (size_t i = 0; i < size_; i++) {
-        ((Dtype *) diff_)[i] = ((Dtype *) (&mergebuffer_[0]))[i];
-      }
-    }
-  }
+   if (solver_->iter() < (solver_->max_iter()-1)) {
+     // if we're not the last iteration, start MPI_Isend of merged data to current buddy...
+     int remote = (current_buddies[0] == comm_rank_)
+                  ? current_buddies[1] : current_buddies[0]; 
+
+     // pre-post receive for next iteration's diff  
+     int error = MPI_Irecv((Dtype *)&prior_diff_[0], size_,
+                      ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
+                      remote,
+                      send_tag,
+                      comm_, &prior_gradient_request[0]);
+
+     if (error != MPI_SUCCESS) {
+       std::clog << "Error queueing MPI_Irecv for diff" << std::endl;
+     }
+
+     // send merged diffs now before doing current gradient calculations
+     error = MPI_Isend((Dtype *)&diff_send_buffer_[0], size_,
+                      ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
+                      remote,
+                      send_tag,
+                      comm_, &prior_gradient_request[1]);
+
+     if (error != MPI_SUCCESS) {
+       std::clog << "Error queueing MPI_Isend for diff" << std::endl;
+     }
+
+   } 
+
 
 #else
    NO_MPI;
@@ -658,158 +602,31 @@ template<typename Dtype>
 
 
 template<typename Dtype>
-void MPISyncCPU<Dtype>::on_post_apply() {
-/*
-  const Dtype scalefactor = (static_cast<Dtype>(1.0) /
-                             static_cast<Dtype>(subcomm_size_[current_stage_]));
-  SGDSolver<Dtype>* sgd_solver = dynamic_cast<SGDSolver<Dtype>*>(solver_.get());
-
-  if ((comm_rank_ == 0) || (comm_rank_== 8) || (comm_rank_== 4)) {
-    std::clog << "[" << comm_rank_ << "] on_post_apply(), stage "
-      << current_stage_
-      << " iteration " << sgd_solver->iter() << " size: " << size_
-      << std::endl;
-  }
-  */
-
-
-  if (rgroup_bits_ > 0) {
-
-  /*
-
-      std::vector<int> buddies(peerlist_[current_stage_]);
-
-    // copy internal momentum history into mergebuffer_ array in preparation
-    size_t poffset=0;
-    const vector<Blob < Dtype>*>&net_params = solver_->net_->learnable_params();
-
-    for (int param_id = 0;
-         param_id < solver_->net_->learnable_params().size();
-         ++param_id) {
-      const size_t pnum = net_params[param_id]->count();
-      Dtype *ptr = (Dtype *)(history_[param_id]->cpu_data());
-      for (int j=0; j<pnum; j++) {
-        mergebuffer_[j+poffset] = ptr[j];
-      }
-      poffset = (poffset + pnum);
-    }
-
-    if (poffset != size_) {
-      std::clog << "*** Error - history is wrong. ***" << std::endl;
-      exit(1);
-    }
-
-    // do merging
-    if (buddies.size() ==2) {
-      // merge data between 2 nodes using mergebuffer2_ as temp space
-      mpi_avg_2((Dtype *) data_, (Dtype *) &mergebuffer2_[0], size_,
-                buddies[0], buddies[1], (current_stage_ + (0x1 << 6)));
-
-      // merge history (packed into mergebuffer_) between 2 nodes
-      // using mergebuffer2_ as temp space
-      mpi_avg_2((Dtype *)&mergebuffer_[0], (Dtype *)&mergebuffer2_[0], size_,
-                buddies[0], buddies[1], (current_stage_ + (0x1<<7)));
-
-
-    } else if (buddies.size()==3) {
-      // merge data between 3 nodes
-      mpi_avg_3((Dtype *) data_, (Dtype *) &mergebuffer2_[0], size_,
-                buddies[0], buddies[1], buddies[2], (current_stage_ + (0x1 << 6)));
-
-      // merge history (packed into mergebuffer_) between 3 nodes
-      // using mergebuffer2_ as temp space
-      mpi_avg_3((Dtype *)&mergebuffer_[0], (Dtype *)&mergebuffer2_[0], size_,
-                buddies[0], buddies[1], buddies[2], (current_stage_ + (0x1<<7)));
-
-
-    } else {
-      // merge data between some other number of nodes
-      const Dtype scalefactor = (static_cast<Dtype>(1.0) / static_cast<Dtype>(buddies.size()));
-
-      MPI_Allreduce((Dtype *)data_, (Dtype *)&mergebuffer2_[0],  size_,
-                    ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
-                    MPI_SUM, subcomm_[current_stage_]);
-
-      caffe_scal<Dtype>(size_, scalefactor, (Dtype *)&mergebuffer2_[0]);
-      for (size_t i=0; i<size_; i++) {
-        ((Dtype *)data_)[i] = ((Dtype *)(&mergebuffer2_[0]))[i];
-      }
-
-
-      // merge history between some other number of nodes
-      MPI_Allreduce((Dtype *)&mergebuffer_[0], (Dtype *)&mergebuffer2_[0],  size_,
-                    ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
-                    MPI_SUM, subcomm_[current_stage_]);
-
-      caffe_scal<Dtype>(size_, scalefactor, (Dtype *)&mergebuffer2_[0]);
-      for (size_t i=0; i<size_; i++) {
-        ((Dtype *)&mergebuffer_[0])[i] = ((Dtype *)(&mergebuffer2_[0]))[i];
-      }
-    }
-
-////////////////////////////////
-
-    // copy merged momentum history from mergebuffer_ back
-    // into the internal data structures
-    poffset = 0;
-    for (int param_id = 0;
-         param_id < solver_->net_->learnable_params().size();
-         ++param_id) {
-      const size_t pnum = net_params[param_id]->count();
-      Dtype *ptr = history_[param_id]->mutable_cpu_data();
-      for (int j = 0; j < pnum; j++) {
-        ptr[j] = mergebuffer_[j + poffset];
-      }
-      poffset = (poffset + pnum);
-    }
-
-    */
-
-
-    current_stage_++;
-    if (current_stage_ == comm_stages_) current_stage_=0;
-
-  } else {
-    /*
-    // may not need or want this reduction
-    if (comm_size_ > 1) {
-      // do all-reduce of data across all nodes
-      const Dtype scalefactor = (static_cast<Dtype>(1.0) / static_cast<Dtype>(comm_size_));
-      MPI_Allreduce((Dtype *)data_, (Dtype *)&mergebuffer2_[0],  size_,
-                    ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
-                    MPI_SUM, comm_);
-      caffe_scal<Dtype>(size_, scalefactor, (Dtype *)&mergebuffer2_[0]);
-      for (size_t i=0; i<size_; i++) {
-        ((Dtype *)data_)[i] = ((Dtype *)(&mergebuffer2_[0]))[i];
-      }
-    }
-    */
-
-  }
-
-
+void MPI_subgroup_nonblocking_CPU<Dtype>::on_post_apply() {
+  current_stage_++;
+  if (current_stage_ == comm_stages_) current_stage_=0;
 }
 
 
 
 
 template<typename Dtype>
-void MPISyncCPU<Dtype>::Run() {
-  LOG(INFO)<< "Starting Optimization - mpi_sync_cpu (Allreduce or blocking subgroup)";
+void MPI_subgroup_nonblocking_CPU<Dtype>::Run() {
+  LOG(INFO)<< "Starting Optimization - MPI_subgroup_nonblocking_CPU";
 
   // Run root solver on current thread
   solver_->Solve();
 }
 
 template<typename Dtype>
-void MPISyncCPU<Dtype>::Step(int iters) {
+void MPI_subgroup_nonblocking_CPU<Dtype>::Step(int iters) {
   //LOG(INFO)<< "Stepping Optimization";
 
   // Run root solver on current thread
   solver_->Step(iters);
 }
 
-INSTANTIATE_CLASS(MPISyncCPU);
+INSTANTIATE_CLASS(MPI_subgroup_nonblocking_CPU);
 
 }  // namespace caffe
 

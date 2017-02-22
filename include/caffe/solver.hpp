@@ -112,6 +112,7 @@ class Solver {
     return test_nets_;
   }
   int iter() { return iter_; }
+  int max_iter() { return param_.max_iter(); }
   void set_iter(int value) { iter_ = value; }
   float scale_on_apply() { return scale_on_apply_; }
   void set_scale_on_apply(float value) { scale_on_apply_ = value; }

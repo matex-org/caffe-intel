@@ -54,6 +54,7 @@ namespace bp = boost::python;
 #include "caffe/internode/mpiutil.hpp"
 #include "caffe/multinode/multinode.hpp"
 #include "caffe/parallel/mpi_sync_cpu.hpp"
+#include "caffe/parallel/mpi_subgroup_nonblocking_cpu.hpp"
 #include "caffe/training_utils.hpp"
 #include "caffe/util/signal_handler.h"
 
@@ -118,6 +119,7 @@ DEFINE_string(par, "",
 // TEW
 DEFINE_uint64(rgroup_bits, 0, "Number of node ID bits into reduction sub-groups.  (0==AllReduce with a single group of all nodes as before, 1==two groups at a time, 2=four groups at a time, etc.)");
 
+DEFINE_bool(nonblocking, false, "If set, and if rgroup_bits != 0, run non-blocking subgroup communication"); 
 
 // A simple registry for caffe commands.
 typedef int (*BrewFunction)();
@@ -343,10 +345,16 @@ int train() {
 
   } else if (FLAGS_par != "") {
     if (FLAGS_par == "MPISyncCPU") {
-      caffe::MPISyncCPU<float> sync(solver, static_cast<int>(FLAGS_rgroup_bits));
-      sync.Run();
-    }
-    else {
+
+//TEW
+      if ((FLAGS_nonblocking == false) || (FLAGS_rgroup_bits==0)) {
+        caffe::MPISyncCPU<float> sync(solver, static_cast<int>(FLAGS_rgroup_bits));
+        sync.Run();
+      } else {
+        caffe::MPI_subgroup_nonblocking_CPU<float> async(solver, static_cast<int>(FLAGS_rgroup_bits));
+        async.Run();
+      }
+    } else {
       LOG(ERROR) << "unrecognized -par value: " << FLAGS_par;
       return 1;
     }

@@ -1,16 +1,17 @@
-net: "runs/test3_alexnet/16nodes/train_val3a.prototxt"
+net: "runs/blocking_alexnet/64_ranks/train_batch256_val_batch50.prototxt"
 solver_mode: CPU
 
 # How many forward passes (test iterations) per test_interval
 test_iter: 100
 
-# Carry out testing every 500 training iterations.
-test_interval: 500
+# Carry out testing every 1000 training iterations.
+test_interval: 1000
 
 # Maximum number of iterations before stopping the training
 max_iter: 10000
 #max_iter: 450000
 
+test_initialization: false
 
 
 #
