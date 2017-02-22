@@ -327,6 +327,12 @@ class DiskCache : public Cache <Dtype>
       LOG(INFO) << "Cache Location" << Cache<Dtype>::disk_location;
       cache.open (Cache<Dtype>::disk_location, ios::trunc| ios::in | ios::out | ios::binary );
       open = true;
+      if(!cache.is_open())
+      {
+        LOG(INFO) << "Couldn't open disk cache location: " << Cache<Dtype>::disk_location;
+        exit(1);
+      }
+
     } 
     Dtype * data = cache_buffer->data_.mutable_cpu_data();  
     Dtype * label = cache_buffer->label_.mutable_cpu_data();
@@ -346,11 +352,8 @@ class DiskCache : public Cache <Dtype>
       {
         int offset = cache_buffer->data_.offset(i);
         bytes = (char*) (data+offset);
-        
-        //for (int k = 0; k < datum_size; ++k)
         cache.write( bytes, datum_size); 
         bytes = (char*) (label+i);
-        //for (int k = 0; k < sizeof(Dtype); ++k)
         cache.write( bytes, sizeof(Dtype)); 
       }
     }
@@ -384,6 +387,8 @@ class DiskCache : public Cache <Dtype>
     char * bytes;
     for (int j = 0; j < Cache<Dtype>::size; ++j) {
       batch = next_cache->pop(); //->cache_full_.pop("Data layer cache queue empty");
+      data = batch->data_.mutable_cpu_data();  
+      label = batch->label_.mutable_cpu_data();  
       //cache_buffer->data_.CopyFrom( batch->data_ );
       //cache_buffer->label_.CopyFrom( batch->label_ );
       int image_count = batch->data_.shape(0);
@@ -396,10 +401,8 @@ class DiskCache : public Cache <Dtype>
       cache.write( (char *)&datum_size, sizeof(int)); 
       for (int i = 0; i < image_count; ++i)
       {
-        int offset = cache_buffer->data_.offset(i);
+        int offset = batch->data_.offset(i);
         bytes = (char*) (data+offset);
-        
-        //for (int k = 0; k < datum_size; ++k)
         cache.write( bytes, datum_size); 
         bytes = (char*) (label+i);
         cache.write( bytes, sizeof(Dtype)); 
