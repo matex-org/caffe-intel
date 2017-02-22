@@ -18,11 +18,18 @@ module purge
 
 export LD_LIBRARY_PATH=""
 
-module load gcc/4.8.2
+export GCC_VERSION="4.8.2"
+
+module load gcc/${GCC_VERSION}
 #module load intel/16.0.1
 module load binutils/2.24
 module load cmake/3.3.0
 module load autotools/2014.10
+
+export CMAKE_CC_COMPILE=/share/apps/gcc/${GCC_VERSION}/bin/gcc
+export CC=/share/apps/gcc/${GCC_VERSION}/bin/gcc
+export CPP=/share/apps/gcc/${GCC_VERSION}/bin/cpp
+export CXX=/share/apps/gcc/${GCC_VERSION}/bin/g++
 
 # version for 
 #  gcc4.8.2, Jeff-compiled mvapich2.2, leveldb, and pnetcdf 

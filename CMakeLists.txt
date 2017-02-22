@@ -6,10 +6,94 @@ if(POLICY CMP0054)
   cmake_policy(SET CMP0054 NEW)
 endif()
 
-
+LIST(APPEND CMAKE_MODULE_PATH  "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+project(caffe_intel)
 
 # ---[ Warfel build environment customizations
-set( ENV{LEVELDB_ROOT} "/home/files0/warf949/caffe3/leveldb/install")
+# find compiler
+#SET(Env{CMAKE_CC_COMPILE} "mpicc")
+#SET(Env{CMAKE_CXX_COMPILE} "mpicxx")
+#SET(Env{CC} "mpicc")
+#SET(Env{CXX} "mpicxx")
+
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DUSE_MPI=1")
+
+message(STATUS "CMAKE CXX Compiler ID is ${CMAKE_CXX_COMPILER_ID} ")
+message(STATUS "CMAKE C Compiler ID is ${CMAKE_C_COMPILER_ID} ")
+if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
+    message("-- Compiler is clang(++)")
+    set(CMAKE_COMPILER_IS_CLANG 1)
+elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
+    message("-- Compiler is GNU ")
+    set(CMAKE_COMPILER_IS_GNUCXX 1)
+    set(CMAKE_COMPILER_IS_GNUCCC 1)
+elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Intel")
+    message("-- Compiler is ICC ")
+    set(CMAKE_COMPILER_IS_ICC 1)
+endif()
+
+
+### Verify C and C++ compilers support c11 / c++11
+#Verify C++ compiler supports C++11
+include(CheckCXXCompilerFlag)
+CHECK_CXX_COMPILER_FLAG("-std=c++11" COMPILER_SUPPORTS_CXX11)
+if(COMPILER_SUPPORTS_CXX11)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 ")
+else()
+    message(STATUS "The compiler ${CMAKE_CXX_COMPILER} has no C++11 support. Please use a different C++ compiler.")
+endif()
+
+
+#Verify C compiler supports C11
+include(CheckCCompilerFlag)
+CHECK_C_COMPILER_FLAG("-std=c11" COMPILER_SUPPORTS_C11)
+if(COMPILER_SUPPORTS_C11)
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c11 ")
+else()
+    message(STATUS "The compiler ${CMAKE_C_COMPILER_ID} has no C11 support. Please use a different C compiler.")
+endif()
+#change default build type to Release (for speed) rather than Debug
+if (NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE "Release" CACHE STRING
+            "Define build type, options are: Debug Release RelWithDebInfo MinSizeRel" FORCE)
+endif(NOT CMAKE_BUILD_TYPE)
+
+
+# set default compiler flags
+set(USE_FLAGS " -Wall -Wno-format -fomit-frame-pointer -fstrict-aliasing ")
+#for profiling
+#set(USE_FLAGS " -Wall -Wno-format -fstrict-aliasing -pg ")
+
+if (CMAKE_BUILD_TYPE MATCHES "Debug")
+    set(USE_FLAGS "${USE_FLAGS} -O1 -g")
+endif(CMAKE_BUILD_TYPE MATCHES "Debug")
+
+
+if (CMAKE_BUILD_TYPE MATCHES "Release")
+    set(USE_FLAGS "${USE_FLAGS} -O3")
+endif(CMAKE_BUILD_TYPE MATCHES "Release")
+
+
+if (CMAKE_BUILD_TYPE MATCHES "RelWithDebInfo")
+    set(USE_FLAGS "${USE_FLAGS} -O3")
+endif(CMAKE_BUILD_TYPE MATCHES "RelWithDebInfo")
+
+
+
+#minor optimizations on x64 for GCC variants
+if (CMAKE_COMPILER_IS_GNUCXX)
+    set(USE_FLAGS "${USE_FLAGS} -malign-double -fprefetch-loop-arrays")
+endif(CMAKE_COMPILER_IS_GNUCXX)
+
+
+# check if SSE ( and AVX?) features are present
+INCLUDE(CheckSSEFeatures)
+message(STATUS "SSE_FLAGS is ${SSE_FLAGS}")
+set(USE_FLAGS "${USE_FLAGS} ${SSE_FLAGS}")
+
+
+#set( ENV{LEVELDB_ROOT} "/home/files0/warf949/caffe3/leveldb/install")
+set( ENV{LEVELDB_ROOT} "/home/d3n000/leveldb-1.18")
 
 set( ENV{PYTHON_INCLUDE} "/home/d3n000/local_caffe/include/python2.7 $ENV{PYTHON_INCLUDE}")
 set( ENV{PYTHON_INCLUDE}
@@ -28,7 +112,7 @@ set( snappy_DIR "/home/files0/warf949/caffe3/snappy/install")
 set( SNAPPY_ROOT_DIR "/home/files0/warf949/caffe3/snappy/install")
 
 set(ENV{LMDB_DIR} "/home/d3n000/local_caffe")
-set( BOOST_ROOT "/home/files0/warf949/Development/local/boost")
+set( BOOST_ROOT "/home/d3n000/boost_1_61_0")
 set(GFLAGS_LIBRARY "/home/d3n000/local_caffe/lib/libgflags.so")
 set(GFLAGS_INCLUDE_DIR "/home/d3n000/local_caffe/include")
 
@@ -150,6 +234,7 @@ configure_file(cmake/Templates/caffe_config.h.in "${PROJECT_BINARY_DIR}/caffe_co
 set(Caffe_INCLUDE_DIR ${PROJECT_SOURCE_DIR}/include)
 include_directories(${Caffe_INCLUDE_DIR} ${PROJECT_BINARY_DIR})
 include_directories(BEFORE src/gtest/include src/gmock/include) # This is needed for gtest.
+include_directories($ENV{MPI_HOME}/include)
 
 # ---[ Subdirectories
 #add_subdirectory(src/gtest)

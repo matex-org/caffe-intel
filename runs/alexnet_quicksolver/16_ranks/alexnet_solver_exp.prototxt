@@ -1,0 +1,12 @@
+net: "runs/alexnet_quicksolver/16_ranks/train_batch256_val_batch50.prototxt"
+test_iter: 500
+test_interval: 5000
+test_initialization: false
+base_lr: 0.02
+momentum: 0.9
+weight_decay: 0.0005
+lr_policy: "exp"
+gamma: 0.999964
+display: 20
+max_iter: 60000
+solver_mode: CPU

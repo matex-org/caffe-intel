@@ -439,6 +439,316 @@ void MPI_subgroup_nonblocking_CPU<Dtype>::mpi_avg_2(Dtype * real_buffer,
 
 
 template<typename Dtype>
+ void MPI_subgroup_nonblocking_CPU<Dtype>::on_start() {}
+
+
+template<typename Dtype>
+void MPI_subgroup_nonblocking_CPU<Dtype>::on_gradients_ready() {
+  DLOG(INFO) << "on_gradients_ready()";
+  // first calculate gradients with the data we already have,
+  // _then_ receive prior data and gradients, _then_ average and sum
+
+
+  const int prior_stage_ = (current_stage_ > 0) ? (current_stage_ -1) : (comm_stages_ -1);
+  std::vector<int> prior_buddies(peerlist_[prior_stage_]);
+  std::vector<int> current_buddies(peerlist_[current_stage_]);
+  const size_t prior_stage_size= prior_buddies.size();
+  const size_t current_stage_size= current_buddies.size();
+  // const int receive_tag = ((0x1 << 13) + prior_stage_);
+  const int send_data_tag = ((0x1 << 12) + current_stage_);
+  const int send_gradient_tag = ((0x1 << 13) + current_stage_);
+
+  if ((current_stage_size !=2) || (prior_stage_size != 2)) {
+    std::cerr << "Error in on_gradients_ready().  current or prior buddies list size != 2" << std::endl;
+    exit(1);
+  }
+
+#define USE_MPI 1
+#ifdef USE_MPI
+  MPI_Status present_status[2];
+
+
+// if not 1st iteration, wait until we've received prior buddy's data and
+  // finished sending our data to prior buddy
+  if (solver_->iter() > 0) {
+    //LOG(INFO) << "Reading prior buddies' data" << std::endl;
+    int error = MPI_Waitall(prior_stage_size, prior_data_request, present_status);
+    if (error != MPI_SUCCESS) {
+      std::clog << "Error doing MPI_Waitall in on_start()" << std::endl;
+    }
+
+    // merge current data with prior_buddies' earlier data
+    //Dtype *plocal = &data_[0];
+    Dtype *premote= &prior_data_[0];
+    Dtype *pfinal = &data_[(size_ + 1)];
+    Dtype *pbuffer = (Dtype *) &data_send_buffer_[0];
+
+    for (Dtype *plocal = &data_[0]; plocal < pfinal;) {
+      const Dtype temp=(*plocal + *premote++) * 0.5;
+      *plocal++ = temp;
+      *pbuffer++ = temp;
+    }
+  } else {
+    Dtype *pfinal = &data_[(size_ + 1)];
+    Dtype *pbuffer = (Dtype *) &data_send_buffer_[0];
+    for (Dtype *plocal = &data_[0]; plocal < pfinal;) {
+      *pbuffer++ = *plocal++;
+    }
+
+  }
+
+  // if we're not the last iteration, start the next send/receive of Data with current buddy...
+  if (solver_->iter() < (solver_->max_iter()-1)) {
+    int remote = (current_buddies[0] == comm_rank_)
+                 ? current_buddies[1] : current_buddies[0];
+
+    // pre-post receive for next iteration's data
+    int error = MPI_Irecv((Dtype *)&prior_data_[0], size_,
+                          ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
+                          remote,
+                          send_data_tag,
+                          comm_, &prior_data_request[0]);
+
+    if (error != MPI_SUCCESS) {
+      std::clog << "Error queueing MPI_Irecv for data" << std::endl;
+    }
+
+    // send merged data now to current buddy before doing current gradient calculations
+    error = MPI_Isend((Dtype *)&data_send_buffer_[0], size_,
+                      ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
+                      remote,
+                      send_data_tag,
+                      comm_, &prior_data_request[1]);
+
+    if (error != MPI_SUCCESS) {
+      std::clog << "Error queueing MPI_Isend for data" << std::endl;
+    }
+
+  }
+
+
+  // if not 1st iteration, wait until we've received prior buddy's diffs
+  // finished sending our diffs to our prior buddy
+  if (solver_->iter() > 0) {
+    int error = MPI_Waitall(prior_stage_size, prior_gradient_request, present_status);
+    if (error != MPI_SUCCESS) {
+      std::clog << "Error doing MPI_Waitall in on_gradients_ready()" << std::endl;
+    }
+
+    // merge current diffs with prior_buddies' earlier diffs
+    //Dtype *plocal = &data_[0];
+    Dtype *premote= &prior_diff_[0];
+    Dtype *pfinal = &diff_[(size_ + 1)];
+    Dtype *pbuffer = (Dtype *) &diff_send_buffer_[0];
+
+    for (Dtype *plocal = &diff_[0]; plocal < pfinal;) {
+      const Dtype temp=(*plocal + *premote++) * 0.5;
+      *plocal++ = temp;
+      *pbuffer++ = temp;
+    }
+  } else {
+    Dtype *pfinal = &diff_[(size_ + 1)];
+    Dtype *pbuffer = (Dtype *) &diff_send_buffer_[0];
+    for (Dtype *plocal = &diff_[0]; plocal < pfinal;) {
+      *pbuffer++ = *plocal++;
+    }
+  }
+
+  if (solver_->iter() < (solver_->max_iter()-1)) {
+    // if we're not the last iteration, start MPI_Isend of merged data to current buddy...
+    int remote = (current_buddies[0] == comm_rank_)
+                 ? current_buddies[1] : current_buddies[0];
+
+    // pre-post receive for next iteration's diff
+    int error = MPI_Irecv((Dtype *)&prior_diff_[0], size_,
+                          ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
+                          remote,
+                          send_gradient_tag,
+                          comm_, &prior_gradient_request[0]);
+
+    if (error != MPI_SUCCESS) {
+      std::clog << "Error queueing MPI_Irecv for diff" << std::endl;
+    }
+
+    // send merged diffs now before doing current gradient calculations
+    error = MPI_Isend((Dtype *)&diff_send_buffer_[0], size_,
+                      ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
+                      remote,
+                      send_gradient_tag,
+                      comm_, &prior_gradient_request[1]);
+
+    if (error != MPI_SUCCESS) {
+      std::clog << "Error queueing MPI_Isend for diff" << std::endl;
+    }
+
+  }
+
+
+#else
+  NO_MPI;
+#endif
+
+}
+
+/* second version nonblocking
+
+template<typename Dtype>
+void MPI_subgroup_nonblocking_CPU<Dtype>::on_gradients_ready() {
+  DLOG(INFO) << "on_gradients_ready()";
+  // first calculate gradients with the data we already have,
+  // _then_ receive prior data and gradients, _then_ average and sum
+
+
+  const int prior_stage_ = (current_stage_ > 0) ? (current_stage_ -1) : (comm_stages_ -1);
+  std::vector<int> prior_buddies(peerlist_[prior_stage_]);
+  std::vector<int> current_buddies(peerlist_[current_stage_]);
+  const size_t prior_stage_size= prior_buddies.size();
+  const size_t current_stage_size= current_buddies.size();
+  // const int receive_tag = ((0x1 << 13) + prior_stage_);
+  const int send_data_tag = ((0x1 << 12) + current_stage_);
+  const int send_gradient_tag = ((0x1 << 13) + current_stage_);
+
+  if ((current_stage_size !=2) || (prior_stage_size != 2)) {
+    std::cerr << "Error in on_gradients_ready().  current or prior buddies list size != 2" << std::endl;
+    exit(1);
+  }
+
+#define USE_MPI 1
+#ifdef USE_MPI
+  MPI_Status present_status[2];
+
+
+// if not 1st iteration, wait until we've received prior buddy's data and
+  // finished sending our data to prior buddy
+  if (solver_->iter() > 0) {
+    //LOG(INFO) << "Reading prior buddies' data" << std::endl;
+    int error = MPI_Waitall(prior_stage_size, prior_data_request, present_status);
+    if (error != MPI_SUCCESS) {
+      std::clog << "Error doing MPI_Waitall in on_start()" << std::endl;
+    }
+
+    // merge current data with prior_buddies' earlier data
+    //Dtype *plocal = &data_[0];
+    Dtype *premote= &prior_data_[0];
+    Dtype *pfinal = &data_[(size_ + 1)];
+    Dtype *pbuffer = (Dtype *) &data_send_buffer_[0];
+
+    for (Dtype *plocal = &data_[0]; plocal < pfinal;) {
+      const Dtype temp=(*plocal + *premote++) * 0.5;
+      *plocal++ = temp;
+      *pbuffer++ = temp;
+    }
+  } else {
+    Dtype *pfinal = &data_[(size_ + 1)];
+    Dtype *pbuffer = (Dtype *) &data_send_buffer_[0];
+    for (Dtype *plocal = &data_[0]; plocal < pfinal;) {
+      *pbuffer++ = *plocal++;
+    }
+
+  }
+
+  // if we're not the last iteration, start the next send/receive of Data with current buddy...
+  if (solver_->iter() < (solver_->max_iter()-1)) {
+    int remote = (current_buddies[0] == comm_rank_)
+                 ? current_buddies[1] : current_buddies[0];
+
+    // pre-post receive for next iteration's data
+    int error = MPI_Irecv((Dtype *)&prior_data_[0], size_,
+                          ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
+                          remote,
+                          send_data_tag,
+                          comm_, &prior_data_request[0]);
+
+    if (error != MPI_SUCCESS) {
+      std::clog << "Error queueing MPI_Irecv for data" << std::endl;
+    }
+
+    // send merged data now to current buddy before doing current gradient calculations
+    error = MPI_Isend((Dtype *)&data_send_buffer_[0], size_,
+                      ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
+                      remote,
+                      send_data_tag,
+                      comm_, &prior_data_request[1]);
+
+    if (error != MPI_SUCCESS) {
+      std::clog << "Error queueing MPI_Isend for data" << std::endl;
+    }
+
+  }
+
+
+  // if not 1st iteration, wait until we've received prior buddy's diffs
+  // finished sending our diffs to our prior buddy
+  if (solver_->iter() > 0) {
+    int error = MPI_Waitall(prior_stage_size, prior_gradient_request, present_status);
+    if (error != MPI_SUCCESS) {
+      std::clog << "Error doing MPI_Waitall in on_gradients_ready()" << std::endl;
+    }
+
+    // merge current diffs with prior_buddies' earlier diffs
+    //Dtype *plocal = &data_[0];
+    Dtype *premote= &prior_diff_[0];
+    Dtype *pfinal = &diff_[(size_ + 1)];
+    Dtype *pbuffer = (Dtype *) &diff_send_buffer_[0];
+
+    for (Dtype *plocal = &diff_[0]; plocal < pfinal;) {
+      const Dtype temp=(*plocal + *premote++) * 0.5;
+      *plocal++ = temp;
+      *pbuffer++ = temp;
+    }
+  } else {
+    Dtype *pfinal = &diff_[(size_ + 1)];
+    Dtype *pbuffer = (Dtype *) &diff_send_buffer_[0];
+    for (Dtype *plocal = &diff_[0]; plocal < pfinal;) {
+      *pbuffer++ = *plocal++;
+    }
+  }
+
+  if (solver_->iter() < (solver_->max_iter()-1)) {
+    // if we're not the last iteration, start MPI_Isend of merged data to current buddy...
+    int remote = (current_buddies[0] == comm_rank_)
+                 ? current_buddies[1] : current_buddies[0];
+
+    // pre-post receive for next iteration's diff
+    int error = MPI_Irecv((Dtype *)&prior_diff_[0], size_,
+                          ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
+                          remote,
+                          send_gradient_tag,
+                          comm_, &prior_gradient_request[0]);
+
+    if (error != MPI_SUCCESS) {
+      std::clog << "Error queueing MPI_Irecv for diff" << std::endl;
+    }
+
+    // send merged diffs now before doing current gradient calculations
+    error = MPI_Isend((Dtype *)&diff_send_buffer_[0], size_,
+                      ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
+                      remote,
+                      send_gradient_tag,
+                      comm_, &prior_gradient_request[1]);
+
+    if (error != MPI_SUCCESS) {
+      std::clog << "Error queueing MPI_Isend for diff" << std::endl;
+    }
+
+  }
+
+
+#else
+  NO_MPI;
+#endif
+
+}
+
+
+
+ * /
+
+
+/*  original nonblocking
+
+
+template<typename Dtype>
  void MPI_subgroup_nonblocking_CPU<Dtype>::on_start() {
    // we've already verified we're safe to run with # nodes / # rgroup bits
    const int prior_stage_ = (current_stage_ > 0) ? (current_stage_ -1) : (comm_stages_ -1);
@@ -450,7 +760,7 @@ template<typename Dtype>
    const int send_tag = ((0x1 << 12) + current_stage_);
 
    MPI_Status present_status[2];
-   
+
    if ((current_stage_size !=2) || (prior_stage_size != 2)) {
      std::cerr << "Error in on_start.  current or prior buddies list size != 2" << std::endl;
      exit(1);
@@ -458,10 +768,10 @@ template<typename Dtype>
 
    // LOG(INFO) << "on_start(), iter=" << solver_->iter() << std::endl;
 
-   // if not 1st iteration, wait until we've received prior buddy's data and 
+   // if not 1st iteration, wait until we've received prior buddy's data and
    // finished sending our data to prior buddy
    if (solver_->iter() > 0) {
-     //LOG(INFO) << "Reading prior buddies' data" << std::endl; 
+     //LOG(INFO) << "Reading prior buddies' data" << std::endl;
      int error = MPI_Waitall(prior_stage_size, prior_data_request, present_status);
      if (error != MPI_SUCCESS) {
        std::clog << "Error doing MPI_Waitall in on_start()" << std::endl;
@@ -491,9 +801,9 @@ template<typename Dtype>
    // if we're not the last iteration, start the next send/receive with current buddy...
    if (solver_->iter() < (solver_->max_iter()-1)) {
      int remote = (current_buddies[0] == comm_rank_)
-                  ? current_buddies[1] : current_buddies[0]; 
+                  ? current_buddies[1] : current_buddies[0];
 
-     // pre-post receive for next iteration's data  
+     // pre-post receive for next iteration's data
      int error = MPI_Irecv((Dtype *)&prior_data_[0], size_,
                       ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
                       remote,
@@ -515,7 +825,7 @@ template<typename Dtype>
        std::clog << "Error queueing MPI_Isend for data" << std::endl;
      }
 
-   } 
+   }
 
 
    // do _not_ increment group stage counter here; wait until after on_post_apply()
@@ -537,7 +847,7 @@ template<typename Dtype>
 #define USE_MPI 1
 #ifdef USE_MPI
    MPI_Status present_status[2];
-   // if not 1st iteration, wait until we've received prior buddy's data and 
+   // if not 1st iteration, wait until we've received prior buddy's data and
    // finished sending our data to prior buddy
    if (solver_->iter() > 0) {
      int error = MPI_Waitall(prior_stage_size, prior_gradient_request, present_status);
@@ -567,9 +877,9 @@ template<typename Dtype>
    if (solver_->iter() < (solver_->max_iter()-1)) {
      // if we're not the last iteration, start MPI_Isend of merged data to current buddy...
      int remote = (current_buddies[0] == comm_rank_)
-                  ? current_buddies[1] : current_buddies[0]; 
+                  ? current_buddies[1] : current_buddies[0];
 
-     // pre-post receive for next iteration's diff  
+     // pre-post receive for next iteration's diff
      int error = MPI_Irecv((Dtype *)&prior_diff_[0], size_,
                       ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
                       remote,
@@ -591,7 +901,7 @@ template<typename Dtype>
        std::clog << "Error queueing MPI_Isend for diff" << std::endl;
      }
 
-   } 
+   }
 
 
 #else
@@ -599,6 +909,9 @@ template<typename Dtype>
 #endif
 
  }
+
+
+ */
 
 
 template<typename Dtype>
