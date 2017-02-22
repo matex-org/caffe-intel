@@ -107,6 +107,21 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
       ptr = hbw_malloc(sizeof(Batch<Dtype>)*caches_[i-1]->size);
       caches_[i-1]->create( new (ptr) Batch<Dtype>[caches_[i-1]->size] );
     }
+    else if(param.data_param().cache(j).type() == CacheParameter::DISK)
+    {
+      void * ptr = hbw_malloc(sizeof(DiskCache<Dtype>));
+      caches_[i-1] = new (ptr) DiskCache<Dtype>;
+      caches_[i-1]->size = param.data_param().cache(j).size();
+      ptr = hbw_malloc(sizeof(Batch<Dtype>));
+      caches_[i-1]->create( new (ptr) Batch<Dtype>[1] );
+    }
+  #else
+    else if(param.data_param().cache(j).type() == CacheParameter::DISK)
+    {
+      caches_[i-1] = (ptr) DiskCache<Dtype>;
+      caches_[i-1]->size = param.data_param().cache(j).size();
+      caches_[i-1]->create( new Batch<Dtype>[1] );
+    }
   #endif
     else
     {
@@ -116,6 +131,8 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
     caches_[i-1]->current_shuffle_count = 0;
     caches_[i-1]->eviction_rate = param.data_param().cache(j).eviction_rate();
     caches_[i-1]->refill_policy = &BasePrefetchingDataLayer<Dtype>::rate_replace_policy;
+    caches_[i-1]->disk_location = param.data_param().cache(j).disk_location();
+    LOG(INFO) << "Cacher " <<  param.data_param().cache(j).disk_location() << " " << caches_[i-1]->disk_location;
   }
   for (int i = 0; i < PREFETCH_COUNT; ++i) {
     prefetch_free_.push(&prefetch_[i]);
@@ -218,7 +235,7 @@ template <typename Dtype>
 void BasePrefetchingDataLayer<Dtype>::rate_replace_policy(int next_cache)
 {
  
-  LOG(INFO) << "replace " << caches_[next_cache-1]->current_shuffle_count; // << " " << caches_[next_cache-1]->cache_full.size();
+  //LOG(INFO) << "replace " << caches_[next_cache-1]->current_shuffle_count; // << " " << caches_[next_cache-1]->cache_full.size();
 
   if(caches_[next_cache-1]->current_shuffle_count < caches_[next_cache-1]->eviction_rate)
   {
@@ -237,15 +254,13 @@ void BasePrefetchingDataLayer<Dtype>::rate_replace_policy(int next_cache)
   {
     caches_[next_cache-1]->current_shuffle_count=0;
     //Refill higher levels
-    LOG(INFO) << "Recurse level " << next_cache << " " << caches_[next_cache]->size;
-    LOG(INFO) << "Recurse Queue Size " << caches_[next_cache]->current_shuffle_count; // << " " << caches_[next_cache]->cache_full.size();
+    //LOG(INFO) << "Recurse level " << next_cache << " " << caches_[next_cache]->size;
+    //LOG(INFO) << "Recurse Queue Size " << caches_[next_cache]->current_shuffle_count; // << " " << caches_[next_cache]->cache_full.size();
     if(caches_[next_cache]->empty() ) //empty cache
       (this->*(caches_[next_cache]->refill_policy))(next_cache+1);
+    
     LOG(INFO) << "Refilling level " << next_cache-1 << " " << caches_[next_cache-1]->size;
-    //for (int i = 0; i < caches_[next_cache-1].size_; ++i)
-    {
-      caches_[next_cache-1]->refill(caches_[next_cache]);
-    }
+    caches_[next_cache-1]->refill(caches_[next_cache]);
   }
 }
 
