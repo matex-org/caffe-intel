@@ -55,7 +55,7 @@ MPISyncCPU<Dtype>::MPISyncCPU(shared_ptr<Solver<Dtype> > root_solver, const int 
       forward_map_(std::vector<std::vector<int>> (2, std::vector<int>(comm_size_))),
       reverse_map_(std::vector<std::vector<int>> (2, std::vector<int>(comm_size_))),
       current_map_index_(0),
-      my_rnd_get_(std::mt19937(1492)), // for now, hard-code seed, later take as param
+      my_rnd_gen_(std::mt19937(1492)), // for now, hard-code seed, later take as param
       subcount_(0)
 {
   std::clog << "Initializing with rgroup bits = " << rgroup_bits_ << std::endl;
@@ -129,7 +129,7 @@ void MPISyncCPU<Dtype>::shuffle_vector(int *array_ptr, const int num_elements) {
     for (int i=0; i<(num_elements-2); i++) {
       //int range= num_elements-i -1; // value between 0 and "range" inclusive
       std::uniform_int_distribution<int> random_element(i,(comm_size_ -1));
-      const j=random_element(my_rnd_gen_);
+      const int j=random_element(my_rnd_gen_);
       const int temp = array_ptr[j];
       array_ptr[j]=array_ptr[i];
       array_ptr[i]=temp;
@@ -453,12 +453,16 @@ void MPISyncCPU<Dtype>::mpi_avg_2(Dtype * real_buffer,
 
 template<typename Dtype>
  void MPISyncCPU<Dtype>::on_start() {
- //  const Dtype scalefactor = (static_cast<Dtype>(1.0) /
- //   static_cast<Dtype>(subcomm_size_[current_stage_]));
- //  SGDSolver<Dtype>* sgd_solver = dynamic_cast<SGDSolver<Dtype>*>(solver_.get());
+   const int virtual_id = reverse_map_[current_map_index_][comm_rank_];
+
 
    if (rgroup_bits_ > 0) {
-     std::vector<int> buddies(peerlist_[current_stage_]);
+     std::vector<std::vector<int>> peerlist(nodegroups.get_stagelist(virtual_id));
+     std::vector<int> virtual_buddies(peerlist[current_stage_]);
+     std::vector<int> buddies(virtual_buddies.size());
+     for (int i=0; i<virtual_buddies.size(); i++) {
+       buddies[i] = forward_map_[current_map_index_][virtual_buddies[i]];
+     }
 /*
      // copy internal momentum history into mergebuffer_ array in preparation
      size_t poffset=0;
@@ -630,8 +634,15 @@ template<typename Dtype>
   }
 */
 
+  const int virtual_id = reverse_map_[current_map_index_][comm_rank_];
   if (rgroup_bits_ > 0) {
-    std::vector<int> buddies(peerlist_[current_stage_]);
+    std::vector<std::vector<int>> peerlist(nodegroups.get_stagelist(virtual_id));
+    std::vector<int> virtual_buddies(peerlist[current_stage_]);
+    std::vector<int> buddies(virtual_buddies.size());
+    for (int i=0; i<virtual_buddies.size(); i++) {
+      buddies[i] = forward_map_[current_map_index_][virtual_buddies[i]];
+    }
+
 
     if (buddies.size() == 2) {
       // merge data between 2 nodes using mergebuffer2_ as temp space
@@ -791,6 +802,10 @@ void MPISyncCPU<Dtype>::on_post_apply() {
 
     current_stage_++;
     if (current_stage_ == comm_stages_) current_stage_=0;
+
+    // add forward/reverse mapping stuff here too.
+    //
+
 
   } else {
     /*
