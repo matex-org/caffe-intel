@@ -46,9 +46,6 @@ class Groups {
   const size_t _group_bits;
 
  public:
-
-
-
   // calculate an estimated "overlap cost" for a specific
   // maskbit pattern
   unsigned int cost(std::vector<unsigned int> &masks);
@@ -60,10 +57,8 @@ class Groups {
   Groups(size_t num_nodes);
 
   int getroot(int node, int stage);
-
   std::vector<int> get_peers_in_stage(int node, int stage);
   std::vector<std::vector<int>> get_stagelist(int node);
-
   std::vector<int> get_assigned_group_per_stage(int node);
 
   inline size_t get_num_groups_per_stage(int stage) {

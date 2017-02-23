@@ -51,6 +51,11 @@ MPISyncCPU<Dtype>::MPISyncCPU(shared_ptr<Solver<Dtype> > root_solver, const int 
            std::cerr << "You may need to handle additional vectors in that case." << std::endl;
            exit(99);
          }()),
+
+      forward_map_(std::vector<std::vector<int>> (2, std::vector<int>(comm_size_))),
+      reverse_map_(std::vector<std::vector<int>> (2, std::vector<int>(comm_size_))),
+      current_map_index_(0),
+      my_rnd_get_(std::mt19937(1492)), // for now, hard-code seed, later take as param
       subcount_(0)
 {
   std::clog << "Initializing with rgroup bits = " << rgroup_bits_ << std::endl;
@@ -60,6 +65,12 @@ MPISyncCPU<Dtype>::MPISyncCPU(shared_ptr<Solver<Dtype> > root_solver, const int 
   this->configure(solver_.get());
   solver_->add_callback(this);
 
+  for (int j=0; j<2; j++) {
+    for (int i = 0; i < comm_size_; i++) {
+      forward_map_[j][i]=i;
+      reverse_map_[j][i]=i;
+    }
+  }
 
 #ifdef USE_MPI
   std::clog << "Sanity check: Compiled with MPI, I am node " << comm_rank_
@@ -112,7 +123,19 @@ MPISyncCPU<Dtype>::MPISyncCPU(shared_ptr<Solver<Dtype> > root_solver, const int 
 #endif
 }
 
-
+template<typename Dtype>
+void MPISyncCPU<Dtype>::shuffle_vector(int *array_ptr, const int num_elements) {
+  if (num_elements > 2) {
+    for (int i=0; i<(num_elements-2); i++) {
+      //int range= num_elements-i -1; // value between 0 and "range" inclusive
+      std::uniform_int_distribution<int> random_element(i,(comm_size_ -1));
+      const j=random_element(my_rnd_gen_);
+      const int temp = array_ptr[j];
+      array_ptr[j]=array_ptr[i];
+      array_ptr[i]=temp;
+    }
+  }
+}
 
 template<typename Dtype>
 MPISyncCPU<Dtype>::~MPISyncCPU() {
