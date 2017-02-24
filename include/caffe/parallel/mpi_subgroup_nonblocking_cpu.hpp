@@ -83,7 +83,15 @@ class MPI_subgroup_nonblocking_CPU : public CPUParams<Dtype>, public Solver<Dtyp
   //Dtype* history_; // optionally defined if root solver is "SGD" (?)
   const vector<shared_ptr<Blob<Dtype>>> history_;
 
-  private:
+  // use for remapping logical rank to physical
+  std::vector<std::vector<int>> forward_map_;
+  std::vector<std::vector<int>> reverse_map_;
+  int current_map_index_;
+  std::mt19937 my_rnd_gen_;
+
+  void shuffle_vector(int *array_ptr, const int num_elements);
+
+ private:
    size_t subcount_;
  };
 

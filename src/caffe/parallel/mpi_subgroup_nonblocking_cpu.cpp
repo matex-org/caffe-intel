@@ -450,8 +450,27 @@ void MPI_subgroup_nonblocking_CPU<Dtype>::on_gradients_ready() {
 
 
   const int prior_stage_ = (current_stage_ > 0) ? (current_stage_ -1) : (comm_stages_ -1);
-  std::vector<int> prior_buddies(peerlist_[prior_stage_]);
-  std::vector<int> current_buddies(peerlist_[current_stage_]);
+
+  ///***
+  const int prior_map_index = 1 - current_map_index_;
+  const int prior_virtual_id = reverse_map_[prior_map_index][comm_rank_];
+  const int current_virtual_id = reverse_map_[current_map_index_][comm_rank_];
+
+  std::vector<int> prior_virtual_buddies(nodegroups.get_stagelist(prior_virtual_id)[prior_stage_]);
+  std::vector<int> current_virtual_buddies(nodegroups.get_stagelist(current_virtual_id)[current_stage_]);
+
+  std::vector<int> prior_buddies(prior_virtual_buddies.size());
+  std::vector<int> current_buddies(current_virtual_buddies.size());
+  ///*** copy code to assign real from virtuals
+  for (int i=0; i<prior_virtual_buddies.size(); i++) {
+    prior_buddies[i]=forward_map_[prior_map_index][prior_virtual_buddies[i]];
+  }
+
+  for (int i=0; i<current_virtual_buddies.size(); i++) {
+    current_buddies[i]=forward_map_[current_map_index_][current_virtual_buddies[i]];
+  }
+
+
   const size_t prior_stage_size= prior_buddies.size();
   const size_t current_stage_size= current_buddies.size();
   // const int receive_tag = ((0x1 << 13) + prior_stage_);
@@ -917,7 +936,21 @@ template<typename Dtype>
 template<typename Dtype>
 void MPI_subgroup_nonblocking_CPU<Dtype>::on_post_apply() {
   current_stage_++;
-  if (current_stage_ == comm_stages_) current_stage_=0;
+
+  if (current_stage_ == comm_stages_) {
+    current_stage_=0;
+    const int next_map_index = 1 - current_map_index_;
+    for (int i=0; i<comm_size_; i++) {
+      forward_map_[next_map_index][i] = forward_map_[current_map_index_][i];
+      reverse_map_[next_map_index][i] = reverse_map_[current_map_index_][i];
+    }
+    shuffle_vector((int *) &forward_map_[next_map_index][0], comm_size_);
+    for (int i=0; i<comm_size_; i++) {
+      reverse_map_[next_map_index][forward_map_[next_map_index][i]] = i;
+    }
+    current_map_index_ = next_map_index;
+  }
+
 }
 
 

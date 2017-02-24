@@ -129,7 +129,7 @@ void MPISyncCPU<Dtype>::shuffle_vector(int *array_ptr, const int num_elements) {
     for (int i=0; i<(num_elements-2); i++) {
       //int range= num_elements-i -1; // value between 0 and "range" inclusive
       std::uniform_int_distribution<int> random_element(i,(comm_size_ -1));
-      const j=random_element(my_rnd_gen_);
+      const int j=random_element(my_rnd_gen_);
       const int temp = array_ptr[j];
       array_ptr[j]=array_ptr[i];
       array_ptr[i]=temp;
@@ -790,7 +790,19 @@ void MPISyncCPU<Dtype>::on_post_apply() {
 
 
     current_stage_++;
-    if (current_stage_ == comm_stages_) current_stage_=0;
+    if (current_stage_ == comm_stages_) {
+      current_stage_=0;
+      const int next_map_index = 1 - current_map_index_;
+      for (int i=0; i<comm_size_; i++) {
+        forward_map_[next_map_index][i] = forward_map_[current_map_index_][i];
+        reverse_map_[next_map_index][i] = reverse_map_[current_map_index_][i];
+      }
+      shuffle_vector((int *) &forward_map_[next_map_index][0], comm_size_);
+      for (int i=0; i<comm_size_; i++) {
+        reverse_map_[next_map_index][forward_map_[next_map_index][i]] = i;
+      }
+      current_map_index_ = next_map_index;
+    }
 
   } else {
     /*
