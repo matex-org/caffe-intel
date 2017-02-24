@@ -54,6 +54,10 @@ MPI_subgroup_nonblocking_CPU<Dtype>::MPI_subgroup_nonblocking_CPU(shared_ptr<Sol
            std::cerr << "You may need to handle additional vectors in that case." << std::endl;
            exit(99);
          }()),
+      forward_map_(std::vector<std::vector<int>> (2, std::vector<int>(comm_size_))),
+      reverse_map_(std::vector<std::vector<int>> (2, std::vector<int>(comm_size_))),
+      current_map_index_(0),
+      my_rnd_gen_(std::mt19937(1492)), // for now, hard-code seed, later take as param
       subcount_(0)
 {
   std::clog << "Initializing with rgroup bits = " << rgroup_bits_ << std::endl;
@@ -70,6 +74,12 @@ MPI_subgroup_nonblocking_CPU<Dtype>::MPI_subgroup_nonblocking_CPU(shared_ptr<Sol
   this->configure(solver_.get());
   solver_->add_callback(this);
 
+  for (int j=0; j<2; j++) {
+    for (int i = 0; i < comm_size_; i++) {
+      forward_map_[j][i]=i;
+      reverse_map_[j][i]=i;
+    }
+  }
 
 #ifdef USE_MPI
   std::clog << "Sanity check: Compiled with MPI, I am node " << comm_rank_

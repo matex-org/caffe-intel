@@ -463,6 +463,7 @@ template<typename Dtype>
      for (int i=0; i<virtual_buddies.size(); i++) {
        buddies[i] = forward_map_[current_map_index_][virtual_buddies[i]];
      }
+     
 /*
      // copy internal momentum history into mergebuffer_ array in preparation
      size_t poffset=0;
