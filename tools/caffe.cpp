@@ -120,6 +120,7 @@ DEFINE_string(par, "",
 DEFINE_uint64(rgroup_bits, 0, "Number of node ID bits into reduction sub-groups.  (0==AllReduce with a single group of all nodes as before, 1==two groups at a time, 2=four groups at a time, etc.)");
 
 DEFINE_bool(nonblocking, false, "If set, and if rgroup_bits != 0, run non-blocking subgroup communication"); 
+DEFINE_bool(randomize_subgroups, false, "If set, and if rgroup_bits != 0, randomize mapping of MPI ranks to specific subgroups between sets"); 
 
 // A simple registry for caffe commands.
 typedef int (*BrewFunction)();
@@ -348,10 +349,10 @@ int train() {
 
 //TEW
       if ((FLAGS_nonblocking == false) || (FLAGS_rgroup_bits==0)) {
-        caffe::MPISyncCPU<float> sync(solver, static_cast<int>(FLAGS_rgroup_bits));
+        caffe::MPISyncCPU<float> sync(solver, static_cast<int>(FLAGS_rgroup_bits), FLAGS_randomize_subgroups);
         sync.Run();
       } else {
-        caffe::MPI_subgroup_nonblocking_CPU<float> async(solver, static_cast<int>(FLAGS_rgroup_bits));
+        caffe::MPI_subgroup_nonblocking_CPU<float> async(solver, static_cast<int>(FLAGS_rgroup_bits), FLAGS_randomize_subgroups);
         async.Run();
       }
     } else {

@@ -47,7 +47,7 @@ class MPI_subgroup_nonblocking_CPU : public CPUParams<Dtype>, public Solver<Dtyp
   friend class SGDSolver<Dtype>;
   friend class Solver<Dtype>;
 
-  explicit MPI_subgroup_nonblocking_CPU(shared_ptr<Solver<Dtype> > root_solver, int rgroup_bits);
+  explicit MPI_subgroup_nonblocking_CPU(shared_ptr<Solver<Dtype> > root_solver, int rgroup_bits, const bool randomize_subgroups);
   virtual ~MPI_subgroup_nonblocking_CPU();
 
   inline const shared_ptr<Solver<Dtype> >& solver() const {
@@ -93,6 +93,7 @@ class MPI_subgroup_nonblocking_CPU : public CPUParams<Dtype>, public Solver<Dtyp
 
  private:
    size_t subcount_;
+   const bool randomize_subgroups_;
  };
 
 }  // namespace caffe

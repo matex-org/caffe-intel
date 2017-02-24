@@ -5,9 +5,9 @@ source ./env_caffe.sh
 #SBATCH --ntasks-per-node=16
 #SBATCH --nodes=4     
 #SBATCH --time=12:00:00
-#SBATCH --job-name "alexnet-64ranks-4nodes-batch4096"
-#SBATCH -o stdout.alexnet.64ranks.4nodes.batch4096.txt
-#SBATCH -e stderr.alexnet.64ranks.4nodes.batch4096.txt
+#SBATCH --job-name "blocking-64ranks-4nodes-batch4096"
+#SBATCH -o stdout.blocking.64ranks.4nodes.batch4096.txt
+#SBATCH -e stderr.blocking.64ranks.4nodes.batch4096.txt
 #SBATCH -p all
 mpiexec \
 	-genv MV2_VBUF_TOTAL_SIZE=6144 \

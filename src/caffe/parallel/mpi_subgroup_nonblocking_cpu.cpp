@@ -19,7 +19,8 @@ namespace caffe {
 // Constructor
 template<typename Dtype>
 MPI_subgroup_nonblocking_CPU<Dtype>::MPI_subgroup_nonblocking_CPU(shared_ptr<Solver<Dtype> > root_solver, 
-                                                                  const int rgroup_bits)
+                                                                  const int rgroup_bits,
+                                                                  const bool randomize_subgroups)
     : CPUParams<Dtype>(root_solver),
   rgroup_bits_(rgroup_bits),
 //#ifdef USE_MPI
@@ -58,7 +59,8 @@ MPI_subgroup_nonblocking_CPU<Dtype>::MPI_subgroup_nonblocking_CPU(shared_ptr<Sol
       reverse_map_(std::vector<std::vector<int>> (2, std::vector<int>(comm_size_))),
       current_map_index_(0),
       my_rnd_gen_(std::mt19937(1492)), // for now, hard-code seed, later take as param
-      subcount_(0)
+      subcount_(0),
+      randomize_subgroups_(randomize_subgroups)
 {
   std::clog << "Initializing with rgroup bits = " << rgroup_bits_ << std::endl;
   {
@@ -132,6 +134,19 @@ MPI_subgroup_nonblocking_CPU<Dtype>::MPI_subgroup_nonblocking_CPU(shared_ptr<Sol
 #endif
 }
 
+
+template<typename Dtype>
+void MPI_subgroup_nonblocking_CPU<Dtype>::shuffle_vector(int *array_ptr, const int num_elements) {
+  if (num_elements > 2) {
+    for (int i=0; i<(num_elements-2); i++) {
+      std::uniform_int_distribution<int> random_element(i,(comm_size_ -1));
+      const int j=random_element(my_rnd_gen_);
+      const int temp = array_ptr[j];
+      array_ptr[j]=array_ptr[i];
+      array_ptr[i]=temp;
+    }
+  }
+}
 
 
 template<typename Dtype>
@@ -510,7 +525,7 @@ void MPI_subgroup_nonblocking_CPU<Dtype>::on_gradients_ready() {
     //Dtype *plocal = &data_[0];
     Dtype *premote= &prior_data_[0];
     Dtype *pfinal = &data_[(size_ + 1)];
-    Dtype *pbuffer = (Dtype *) &data_send_buffer_[0];
+    //Dtype *pbuffer = (Dtype *) &data_send_buffer_[0];
 
     for (Dtype *plocal = &data_[0]; plocal < pfinal;) {
       const Dtype temp=(*plocal + *premote++) * 0.5;
@@ -956,9 +971,11 @@ void MPI_subgroup_nonblocking_CPU<Dtype>::on_post_apply() {
       forward_map_[next_map_index][i] = forward_map_[current_map_index_][i];
       reverse_map_[next_map_index][i] = reverse_map_[current_map_index_][i];
     }
-    shuffle_vector((int *) &forward_map_[next_map_index][0], comm_size_);
-    for (int i=0; i<comm_size_; i++) {
-      reverse_map_[next_map_index][forward_map_[next_map_index][i]] = i;
+    if (randomize_subgroups_) {
+      shuffle_vector((int *) &forward_map_[next_map_index][0], comm_size_);
+      for (int i=0; i<comm_size_; i++) {
+        reverse_map_[next_map_index][forward_map_[next_map_index][i]] = i;
+      }
     }
     current_map_index_ = next_map_index;
   }
