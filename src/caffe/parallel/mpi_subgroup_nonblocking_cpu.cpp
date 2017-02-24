@@ -505,16 +505,16 @@ void MPI_subgroup_nonblocking_CPU<Dtype>::on_gradients_ready() {
     for (Dtype *plocal = &data_[0]; plocal < pfinal;) {
       const Dtype temp=(*plocal + *premote++) * 0.5;
       *plocal++ = temp;
-      *pbuffer++ = temp;
+     // *pbuffer++ = temp;
     }
-  } else {
+  } /*else {
     Dtype *pfinal = &data_[(size_ + 1)];
     Dtype *pbuffer = (Dtype *) &data_send_buffer_[0];
     for (Dtype *plocal = &data_[0]; plocal < pfinal;) {
       *pbuffer++ = *plocal++;
     }
 
-  }
+  }*/
 
   // if we're not the last iteration, start the next send/receive of Data with current buddy...
   if (solver_->iter() < (solver_->max_iter()-1)) {
@@ -533,7 +533,8 @@ void MPI_subgroup_nonblocking_CPU<Dtype>::on_gradients_ready() {
     }
 
     // send merged data now to current buddy before doing current gradient calculations
-    error = MPI_Isend((Dtype *)&data_send_buffer_[0], size_,
+//    error = MPI_Isend((Dtype *)&data_send_buffer_[0], size_,
+    error = MPI_Isend((Dtype *)&data_[0], size_,
                       ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
                       remote,
                       send_data_tag,
@@ -558,20 +559,20 @@ void MPI_subgroup_nonblocking_CPU<Dtype>::on_gradients_ready() {
     //Dtype *plocal = &data_[0];
     Dtype *premote= &prior_diff_[0];
     Dtype *pfinal = &diff_[(size_ + 1)];
-    Dtype *pbuffer = (Dtype *) &diff_send_buffer_[0];
+    //Dtype *pbuffer = (Dtype *) &diff_send_buffer_[0];
 
     for (Dtype *plocal = &diff_[0]; plocal < pfinal;) {
       const Dtype temp=(*plocal + *premote++) * 0.5;
       *plocal++ = temp;
-      *pbuffer++ = temp;
+    //  *pbuffer++ = temp;
     }
-  } else {
+  } /*else {
     Dtype *pfinal = &diff_[(size_ + 1)];
     Dtype *pbuffer = (Dtype *) &diff_send_buffer_[0];
     for (Dtype *plocal = &diff_[0]; plocal < pfinal;) {
       *pbuffer++ = *plocal++;
     }
-  }
+  }*/
 
   if (solver_->iter() < (solver_->max_iter()-1)) {
     // if we're not the last iteration, start MPI_Isend of merged data to current buddy...
@@ -590,7 +591,8 @@ void MPI_subgroup_nonblocking_CPU<Dtype>::on_gradients_ready() {
     }
 
     // send merged diffs now before doing current gradient calculations
-    error = MPI_Isend((Dtype *)&diff_send_buffer_[0], size_,
+//    error = MPI_Isend((Dtype *)&diff_send_buffer_[0], size_,
+    error = MPI_Isend((Dtype *)&diff_[0], size_,
                       ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
                       remote,
                       send_gradient_tag,
