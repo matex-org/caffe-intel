@@ -128,6 +128,7 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
       LOG(INFO) << "Cache Type not supported";
       exit(1);
     }
+    caches_[i-1]->used = caches_[i-1]->size;
     caches_[i-1]->current_shuffle_count = 0;
     caches_[i-1]->eviction_rate = param.data_param().cache(j).eviction_rate();
     caches_[i-1]->refill_policy = &BasePrefetchingDataLayer<Dtype>::rate_replace_policy;
@@ -228,6 +229,22 @@ void BasePrefetchingDataLayer<Dtype>::GetBatch() {
       prefetch_full_.push(batch);
   } catch (boost::thread_interrupted&) {
     // Interrupted exception is expected on shutdown
+  }
+}
+
+template <typename Dtype>
+void BasePrefetchingDataLayer<Dtype>::thread_rate_replace_policy(int next_cache)
+{
+ 
+  if(next_cache == cache_size_) //Last level -> refill
+  {
+    caches_[next_cache-1]->fill(this);
+  }
+  else
+  {
+    (this->*(caches_[next_cache]->thread_refill_policy))(next_cache+1);
+    
+    caches_[next_cache-1]->refill(caches_[next_cache]);
   }
 }
 
