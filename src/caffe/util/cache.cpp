@@ -15,6 +15,83 @@
 #endif
 
 namespace caffe {
+/*template<typename T>
+class Batch<T>::sync {
+ public:
+  mutable boost::mutex mutex_;
+  boost::condition_variable condition_;
+};
+
+template <typename Dtype>
+void Batch<Dtype>::lock() {
+
+  if(sync_var)
+    sync_var->mutex_.lock();
+}
+
+template <typename Dtype>
+void Batch<Dtype>::unlock() {
+
+  if(sync_var)
+    sync_var->mutex_.unlock();
+}*/
+
+template <typename Dtype>
+void Cache<Dtype>::rate_replace_policy(int next_cache)
+{
+  if(current_shuffle_count < eviction_rate)
+  {
+    LOG(INFO) << "Shuffling Level " << next_cache-1 << " " << size;
+    shuffle();
+    if(used==0)
+      current_shuffle_count++;
+  }
+  else if(next == NULL) //Last level -> refill
+  {
+    fill();
+    if(used==0)
+      current_shuffle_count=0;
+  }
+  else
+  {
+    //Refill higher levels
+    //if(next->empty() ) //empty cache
+    //  (next->*(next->refill_policy))(next_cache+1);
+    
+    refill(next);
+    
+    if(used==0)
+      current_shuffle_count=0;
+  }
+}
+template <typename Dtype>
+void Cache<Dtype>::local_rate_replace_policy(int next_cache)
+{
+  if(current_shuffle_count < eviction_rate)
+  {
+    LOG(INFO) << "Shuffling Level " << next_cache-1 << " " << size;
+    shuffle();
+    if(used==0)
+      current_shuffle_count++;
+  }
+  else if(next == NULL) //Last level -> refill
+  {
+    fill();
+    if(used==0)
+      current_shuffle_count=0;
+  }
+  else
+  {
+    //Refill higher levels
+    if(!next->prefetch && next->empty() ) //empty cache
+      (next->*(next->local_refill_policy))(next_cache+1);
+    
+    refill(next);
+    
+    if(used==0)
+      current_shuffle_count=0;
+  }
+}
 template <typename Dtype>
 void MemoryCache<Dtype>::shuffle_cache(Batch<Dtype>* batch1, int batchPos1, Batch<Dtype>*  batch2, int batchPos2) {
   const int datum_channels = batch1->data_.shape(1);
@@ -47,9 +124,17 @@ void MemoryCache<Dtype>::shuffle_cache(Batch<Dtype>* batch1, int batchPos1, Batc
   }
 }
 template <typename Dtype>
-void MemoryCache<Dtype>::create( void * ptr )
+void MemoryCache<Dtype>::create( void * ptr, bool thread_safe )
 {
+
   cache = static_cast<Batch<Dtype> *> (ptr); 
+  /*for(int i=0; i< Cache<Dtype>::size; i++)
+  {
+    if(thread_safe)
+      cache[i].sync_var = boost::make_shared<Batch<Dtype>::sync>();
+    else
+      cache[i].sync_var = NULL;
+  }*/
 }
 template <typename Dtype>
 bool MemoryCache<Dtype>::empty()
@@ -59,44 +144,59 @@ bool MemoryCache<Dtype>::empty()
 template <typename Dtype>
 Batch<Dtype> * MemoryCache<Dtype>::pop()
 {
+  //Cache<Dtype>::lock();
   Cache<Dtype>::used++;
-  return cache_full.pop();
+  //Cache<Dtype>::unlock();
+  Batch<Dtype> *batch = cache_full.pop();
+  return batch;
 }
 template <typename Dtype>
-void MemoryCache<Dtype>::shuffle (BasePrefetchingDataLayer<Dtype> * data_helper)
+void MemoryCache<Dtype>::shuffle ()
 {
-  for(int i=0; i< Cache<Dtype>::used; i++)
-  {
+  //Cache<Dtype>::lock();
+  for (int i = Cache<Dtype>::refill_start; i < Cache<Dtype>::used; ++i) {
     for(int j=0; j< cache[i].data_.shape(0); j++)
     {
-      shuffle_cache(&cache[i], j, &cache[data_helper->randomGen(used)], data_helper->randomGen(cache[i].data_.shape(0)));
+      shuffle_cache(&cache[i], j, &cache[Cache<Dtype>::data_layer->randomGen(used)], Cache<Dtype>::data_layer->randomGen(cache[i].data_.shape(0)));
     }
     cache_full.push(&cache[i]);
   }
-  Cache<Dtype>::used = 0;
+  //Cache<Dtype>::used = 0;
+  if(used == Cache<Dtype>::size)
+    used=0;
+  refill_start = used;
+  //Cache<Dtype>::unlock();
 }
 template <typename Dtype>
-void MemoryCache<Dtype>::fill(BasePrefetchingDataLayer<Dtype> * filler)
+void MemoryCache<Dtype>::fill()
 {
-  for (int j = 0; j < Cache<Dtype>::used; ++j) {
-    filler->load_batch(&cache[j]);
+  //Cache<Dtype>::lock();
+  for (int j = Cache<Dtype>::refill_start; j < Cache<Dtype>::used; ++j) {
+    Cache<Dtype>::data_layer->load_batch(&cache[j]);
     cache_full.push(&cache[j]);
   }
-  Cache<Dtype>::used = 0;
+  if(used == Cache<Dtype>::size)
+    used=0;
+  refill_start = used;
+  //Cache<Dtype>::used = 0;
+  //Cache<Dtype>::unlock();
 }
 template <typename Dtype>
 void MemoryCache<Dtype>::refill(Cache<Dtype> * next_cache)
 {
+  //Cache<Dtype>::lock();
   Batch<Dtype>* batch;
-  for(int i=0; i< Cache<Dtype>::used; i++)
-  {
+  for (int j = Cache<Dtype>::refill_start; j < Cache<Dtype>::used; ++j) {
     //LOG(INFO) << position;
     batch = next_cache->pop(); //->cache_full_.pop("Data layer cache queue empty");
-    cache[i].data_.CopyFrom( batch->data_ );
-    cache[i].label_.CopyFrom( batch->label_ );
-    cache_full.push(&cache[i]);
+    cache[j].data_.CopyFrom( batch->data_ );
+    cache[j].label_.CopyFrom( batch->label_ );
+    cache_full.push(&cache[j]);
   }
-  Cache<Dtype>::used = 0;
+  if(used == Cache<Dtype>::size)
+    used=0;
+  refill_start = used;
+  //Cache<Dtype>::unlock();
 }  
 template <typename Dtype>
 void MemoryCache<Dtype>::reshape(vector<int> * top_shape, vector<int> * label_shape)
@@ -174,8 +274,12 @@ void DiskCache<Dtype>::shuffle_cache(int batch1, int batchPos1, int  batch2, int
   cache << label[0];*/
 }
 template <typename Dtype>
-void DiskCache<Dtype>::create( void * ptr )
+void DiskCache<Dtype>::create( void * ptr, bool thread_safe )
 {
+  //if(thread_safe)
+  //  Cache<Dtype>::sync_var = boost::make_shared<Cache<Dtype>::sync>();
+  //else
+  //  Cache<Dtype>::sync_var = NULL;
   open = false;
   cache_buffer = static_cast<Batch<Dtype> *> (ptr); 
   current_offset = 0;
@@ -192,6 +296,7 @@ bool DiskCache<Dtype>::empty()
 }
 template <typename Dtype>
 Batch<Dtype> * DiskCache<Dtype>::pop() {
+  //Cache<Dtype>::lock();
   Dtype * data = cache_buffer->data_.mutable_cpu_data();  
   Dtype * label = cache_buffer->label_.mutable_cpu_data();  
   int image_count;
@@ -215,11 +320,13 @@ Batch<Dtype> * DiskCache<Dtype>::pop() {
   current_offset++;
   Cache<Dtype>::used++;
 
+  //Cache<Dtype>::unlock();
   return cache_buffer;
 }
 template <typename Dtype>
-void DiskCache<Dtype>::fill(BasePrefetchingDataLayer<Dtype> * filler)
+void DiskCache<Dtype>::fill()
 {
+  //Cache<Dtype>::lock();
   if(!open)
   {
     LOG(INFO) << "Cache Location" << Cache<Dtype>::disk_location;
@@ -237,7 +344,7 @@ void DiskCache<Dtype>::fill(BasePrefetchingDataLayer<Dtype> * filler)
   char * bytes;
   cache.seekg (0, ios::beg);
   for (int j = 0; j < Cache<Dtype>::used; ++j) {
-    filler->load_batch(cache_buffer);
+    Cache<Dtype>::data_layer->load_batch(cache_buffer);
     int image_count = cache_buffer->data_.shape(0);
     int datum_size = cache_buffer->data_.shape(1);
     datum_size *= cache_buffer->data_.shape(2);
@@ -258,10 +365,12 @@ void DiskCache<Dtype>::fill(BasePrefetchingDataLayer<Dtype> * filler)
   cache.seekg (0, ios::beg);
   current_offset = 0;
   Cache<Dtype>::used=0;
+  //Cache<Dtype>::unlock();
 }
 template <typename Dtype>
-void DiskCache<Dtype>::shuffle (BasePrefetchingDataLayer<Dtype> * data_helper)
+void DiskCache<Dtype>::shuffle ()
 {
+  //Cache<Dtype>::lock();
   cache.seekg (0, ios::beg);
   int image_count;
   int datum_size;
@@ -271,15 +380,17 @@ void DiskCache<Dtype>::shuffle (BasePrefetchingDataLayer<Dtype> * data_helper)
   {
     for(int j=0; j< cache_buffer->data_.shape(0); j++)
     {
-      shuffle_cache(i, j, data_helper->randomGen(size), data_helper->randomGen(image_count), image_count, datum_size, 1);
+      shuffle_cache(i, j, Cache<Dtype>::data_layer->randomGen(size), Cache<Dtype>::data_layer->randomGen(image_count), image_count, datum_size, 1);
     }
   }
   cache.seekg (0, ios::beg);
   current_offset = 0;
+  //Cache<Dtype>::unlock();
 }
 template <typename Dtype>
 void DiskCache<Dtype>::refill(Cache<Dtype> * next_cache)
 {
+  //Cache<Dtype>::lock();
   Batch<Dtype>* batch;
   Dtype * data = cache_buffer->data_.mutable_cpu_data();  
   Dtype * label = cache_buffer->label_.mutable_cpu_data();  
@@ -311,6 +422,7 @@ void DiskCache<Dtype>::refill(Cache<Dtype> * next_cache)
   }
   cache.seekg (0, ios::beg);
   Cache<Dtype>::used=0;
+  //Cache<Dtype>::unlock();
 }  
 template <typename Dtype>
 void DiskCache<Dtype>::reshape(vector<int> * top_shape, vector<int> * label_shape)

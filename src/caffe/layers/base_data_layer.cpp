@@ -35,6 +35,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+#include <unistd.h> 
 #include <boost/thread.hpp>
 #include <vector>
 
@@ -78,8 +79,9 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
     : BaseDataLayer<Dtype>(param),
       prefetch_free_(), prefetch_full_(){
   //LOG(INFO) << "Cache size" << param.data_param().cache_size(0);
-  LOG(INFO) << "Caches " << param.data_param().cache_size();
   cache_size_ = param.data_param().cache_size();
+  LOG(INFO) << "Caches " << cache_size_;
+  prefetch=false;
   if(cache_size_)
   {
     #ifdef KNL
@@ -92,11 +94,16 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
   }
   for(int i = cache_size_, j=0; i > 0; i--, j++)
   {
+    bool thread_safe = param.data_param().cache(j).thread_safe();
+    
+    if(thread_safe)
+      prefetch = true;
+
     if(param.data_param().cache(j).type() == CacheParameter::HEAP)
     {
       caches_[i-1] = new MemoryCache<Dtype>;
       caches_[i-1]->size = param.data_param().cache(j).size();
-      caches_[i-1]->create( new Batch<Dtype>[caches_[i-1]->size] );
+      caches_[i-1]->create( new Batch<Dtype>[caches_[i-1]->size], thread_safe );
     }
   #ifdef KNL
     else if(param.data_param().cache(j).type() == CacheParameter::HBM)
@@ -105,7 +112,7 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
       caches_[i-1] = new (ptr) MemoryCache<Dtype>;
       caches_[i-1]->size = param.data_param().cache(j).size();
       ptr = hbw_malloc(sizeof(Batch<Dtype>)*caches_[i-1]->size);
-      caches_[i-1]->create( new (ptr) Batch<Dtype>[caches_[i-1]->size] );
+      caches_[i-1]->create( new (ptr) Batch<Dtype>[caches_[i-1]->size], thread_safe );
     }
     else if(param.data_param().cache(j).type() == CacheParameter::DISK)
     {
@@ -113,14 +120,14 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
       caches_[i-1] = new (ptr) DiskCache<Dtype>;
       caches_[i-1]->size = param.data_param().cache(j).size();
       ptr = hbw_malloc(sizeof(Batch<Dtype>));
-      caches_[i-1]->create( new (ptr) Batch<Dtype>[1] );
+      caches_[i-1]->create( new (ptr) Batch<Dtype>[1], thread_safe );
     }
   #else
     else if(param.data_param().cache(j).type() == CacheParameter::DISK)
     {
       caches_[i-1] = (ptr) DiskCache<Dtype>;
       caches_[i-1]->size = param.data_param().cache(j).size();
-      caches_[i-1]->create( new Batch<Dtype>[1] );
+      caches_[i-1]->create( new Batch<Dtype>[1], thread_safe );
     }
   #endif
     else
@@ -128,10 +135,19 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
       LOG(INFO) << "Cache Type not supported";
       exit(1);
     }
+    if(i-1==cache_size_)
+      caches_[i-1]->next = NULL; 
+    else  
+      caches_[i-1]->next = caches_[i]; 
+    
+    caches_[i-1]->data_layer = this;
     caches_[i-1]->used = caches_[i-1]->size;
+    caches_[i-1]->refill_start = 0;
     caches_[i-1]->current_shuffle_count = 0;
     caches_[i-1]->eviction_rate = param.data_param().cache(j).eviction_rate();
-    caches_[i-1]->refill_policy = &BasePrefetchingDataLayer<Dtype>::rate_replace_policy;
+    //caches_[i-1]->thread_refill_policy = Cache<Dtype>::thread_rate_replace_policy;
+    caches_[i-1]->refill_policy = &Cache<Dtype>::rate_replace_policy;
+    caches_[i-1]->local_refill_policy = &Cache<Dtype>::local_rate_replace_policy;
     caches_[i-1]->disk_location = param.data_param().cache(j).disk_location();
     LOG(INFO) << "Cacher " <<  param.data_param().cache(j).disk_location() << " " << caches_[i-1]->disk_location;
   }
@@ -180,10 +196,11 @@ void BasePrefetchingDataLayer<Dtype>::LayerSetUp(
   this->data_transformer_->InitRand();
 
   for (int i = 0; i < cache_size_; ++i) {
-    caches_[i]->fill(this);
+    caches_[i]->fill();
   }
   // Only if GPU mode on then we use background threads
-  if (Caffe::mode() == Caffe::GPU) {
+  //if (Caffe::mode() == Caffe::GPU) {
+  if (prefetch) {
     StartInternalThread();
   }
   DLOG(INFO) << "Prefetch initialized.";
@@ -198,7 +215,7 @@ void BasePrefetchingDataLayer<Dtype>::InternalThreadEntry() {
   }
 #endif
 
-  try {
+  /*try {
     while (!must_stop()) {
       Batch<Dtype>* batch = prefetch_free_.pop();
       load_batch(batch);
@@ -212,6 +229,17 @@ void BasePrefetchingDataLayer<Dtype>::InternalThreadEntry() {
     }
   } catch (boost::thread_interrupted&) {
     // Interrupted exception is expected on shutdown
+  }*/
+  while (!must_stop()) {
+    if(cache_size_)
+    {
+      for(int i=cache_size_-1; i>= 0; i--)
+      {
+        if(caches_[i]->prefetch)
+          (caches_[i]->*(caches_[i]->refill_policy))(1);
+      }
+      //usleep(1000000);
+    }
   }
 #ifndef CPU_ONLY
   if (Caffe::mode() == Caffe::GPU) {
@@ -232,7 +260,7 @@ void BasePrefetchingDataLayer<Dtype>::GetBatch() {
   }
 }
 
-template <typename Dtype>
+/*template <typename Dtype>
 void BasePrefetchingDataLayer<Dtype>::thread_rate_replace_policy(int next_cache)
 {
  
@@ -279,7 +307,7 @@ void BasePrefetchingDataLayer<Dtype>::rate_replace_policy(int next_cache)
     LOG(INFO) << "Refilling level " << next_cache-1 << " " << caches_[next_cache-1]->size;
     caches_[next_cache-1]->refill(caches_[next_cache]);
   }
-}
+}*/
 
 template <typename Dtype>
 void BasePrefetchingDataLayer<Dtype>::Forward_cpu(
@@ -287,9 +315,10 @@ void BasePrefetchingDataLayer<Dtype>::Forward_cpu(
   Batch<Dtype>* batch;
   if(cache_size_)
   {
-    if(caches_[0]->empty()) //empty cache
+    if(!caches_[0]->prefetch && caches_[0]->empty()) //empty cache
     {
-      (this->*(caches_[0]->refill_policy))(1);
+      LOG(INFO) << "Local Refill "; 
+      (caches_[0]->*(caches_[0]->local_refill_policy))(1);
     }
     batch = caches_[0]->pop();
   }
@@ -299,7 +328,8 @@ void BasePrefetchingDataLayer<Dtype>::Forward_cpu(
     //for(int i=0; i< accuracySize; i++)
     //  LOG(INFO) << "ACC" << historical_accuracy[i];
     // Here for CPU we do transformation
-    if (Caffe::mode() == Caffe::CPU) {
+    //if (Caffe::mode() == Caffe::CPU) {
+    if (!prefetch) {
       this->GetBatch();
     }
     batch = prefetch_full_.pop("Prefetch cache queue empty");

@@ -21,31 +21,43 @@ template <typename Dtype>
 class Batch {
  public:
   Blob<Dtype> data_, label_;
+  //class sync;
+  //shared_ptr<sync> sync_var;
+  //void lock();
+  //void unlock();
 };
 
 template <typename Dtype>
 class Cache
 {
   public:
+  class Cache * next;
   string disk_location;
   bool prefetch;
   int size;
+  int refill_start;
   int used;
   int eviction_rate;
   int current_shuffle_count;
   bool ignoreAccuracy;
-  void (BasePrefetchingDataLayer<Dtype>::*refill_policy)(int);  
-  void (BasePrefetchingDataLayer<Dtype>::*thread_refill_policy)(int);  
+  void rate_replace_policy(int next_cache);
+  void local_rate_replace_policy(int next_cache);
+  void (Cache<Dtype>::*refill_policy)(int);  
+  void (Cache<Dtype>::*local_refill_policy)(int);  
+  BasePrefetchingDataLayer<Dtype> * data_layer;
+  //void (BasePrefetchingDataLayer<Dtype>::*refill_policy)(int);  
+  //void (BasePrefetchingDataLayer<Dtype>::*thread_refill_policy)(int);  
   //void (Cache<Dtype>::*refill_policy)(Cache<Dtype> * next_cache);  
-  virtual void create( void * ptr ) { };
+  virtual void create( void * ptr, bool thread_safe ) { };
   virtual bool empty() { return false; };
   virtual Batch<Dtype> * pop() { return NULL; };
-  virtual void shuffle (BasePrefetchingDataLayer<Dtype> * data_helper){}
-  virtual void fill(BasePrefetchingDataLayer<Dtype> * filler) {};
+  virtual void shuffle (){}
+  virtual void fill() {};
   virtual void refill(Cache<Dtype> * next_cache) {};
   virtual void reshape(vector<int> * top_shape, vector<int> * label_shape) {};
   virtual void mutate_data(bool labels) {};
 };
+
 
 template <typename Dtype>
 class MemoryCache : public Cache <Dtype>
@@ -54,11 +66,11 @@ class MemoryCache : public Cache <Dtype>
   Batch<Dtype> * cache;
   BlockingQueue<Batch<Dtype>*> cache_full;
   void shuffle_cache(Batch<Dtype>* batch1, int batchPos1, Batch<Dtype>*  batch2, int batchPos2);
-  virtual void create( void * ptr );
+  virtual void create( void * ptr, bool thread_safe );
   virtual bool empty();
   virtual Batch<Dtype> * pop();
-  virtual void shuffle (BasePrefetchingDataLayer<Dtype> * data_helper);
-  virtual void fill(BasePrefetchingDataLayer<Dtype> * filler);
+  virtual void shuffle ();
+  virtual void fill();
   virtual void refill(Cache<Dtype> * next_cache);
   virtual void reshape(vector<int> * top_shape, vector<int> * label_shape);
   virtual void mutate_data(bool labels);
@@ -75,11 +87,11 @@ class DiskCache : public Cache <Dtype>
   Batch<Dtype> * cache_buffer;
   unsigned int current_offset;
   void shuffle_cache(int batch1, int batchPos1, int  batch2, int batchPos2, int image_count, int data_count, int label_count);
-  virtual void create( void * ptr );
+  virtual void create( void * ptr, bool thread_safe);
   virtual bool empty();
   virtual Batch<Dtype> * pop();
-  virtual void fill(BasePrefetchingDataLayer<Dtype> * filler);
-  virtual void shuffle (BasePrefetchingDataLayer<Dtype> * data_helper);
+  virtual void fill();
+  virtual void shuffle ();
   virtual void refill(Cache<Dtype> * next_cache);
   virtual void reshape(vector<int> * top_shape, vector<int> * label_shape);
   virtual void mutate_data(bool labels);
