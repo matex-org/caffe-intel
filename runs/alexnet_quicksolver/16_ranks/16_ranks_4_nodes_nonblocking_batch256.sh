@@ -16,7 +16,6 @@ mpiexec \
         -genv MKL_NUM_THREADS=5 \
         --wdir ${WORKING_DIR}  \
         ./build/tools/caffe train --solver=${WORKING_DIR}/runs/alexnet_quicksolver/16_ranks/alexnet_solver_exp.prototxt \
-
         --par MPISyncCPU \
         --rgroup_bits 3 \
         --nonblocking
