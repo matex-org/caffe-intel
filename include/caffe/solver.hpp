@@ -125,10 +125,17 @@ class Solver {
    protected:
     virtual void on_start() = 0;
     virtual void on_gradients_ready() = 0;
+    virtual void on_gradients_ready(int param_id) {}
+    virtual int on_apply(int param_id) { return param_id; }
     virtual void on_post_apply() = 0;
 
     template <typename T>
+    friend class SGDSolver;
+    template <typename T>
     friend class Solver;
+    template <typename T>
+    friend class Net;
+
   };
   const vector<Callback*>& callbacks() const { return callbacks_; }
   void add_callback(Callback* value) {
@@ -176,6 +183,12 @@ class Solver {
 #endif /* CAFFE_PER_LAYER_TIMINGS */
 
  protected:
+  virtual Dtype GetLearningRate() = 0;
+  virtual void Normalize(int param_id) = 0;
+  virtual void Regularize(int param_id) = 0;
+  virtual void ComputeUpdateValue(int param_id, Dtype rate) = 0;
+  virtual void ClipGradients() = 0;
+
   string SnapshotFilename(const string extension);
   string SnapshotToBinaryProto();
   string SnapshotToHDF5();
@@ -209,6 +222,10 @@ class Solver {
 
   // Scale gradients during apply
   float scale_on_apply_;
+
+  // Timing information
+  Timer iteration_timer_;
+  float iterations_last_;
 
   ForwardBackwardFunc forward_backward_;
 

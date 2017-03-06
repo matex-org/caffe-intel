@@ -55,6 +55,7 @@ namespace bp = boost::python;
 #include "caffe/multinode/multinode.hpp"
 #include "caffe/parallel/mpi_sync_cpu.hpp"
 #include "caffe/parallel/mpi_subgroup_nonblocking_cpu.hpp"
+#include "caffe/parallel/mpi_layerwise_async_const_cpu.hpp"
 #include "caffe/training_utils.hpp"
 #include "caffe/util/signal_handler.h"
 
@@ -121,6 +122,10 @@ DEFINE_uint64(rgroup_bits, 0, "Number of node ID bits into reduction sub-groups.
 
 DEFINE_bool(nonblocking, false, "If set, and if rgroup_bits != 0, run non-blocking subgroup communication"); 
 DEFINE_bool(randomize_subgroups, false, "If set, and if rgroup_bits != 0, randomize mapping of MPI ranks to specific subgroups between sets"); 
+DEFINE_uint64(initial_allreduce_iters, 0, "Number of global allreduce iterations to perform before starting one of the subgroup methods");
+DEFINE_int64(num_subgroup_iters, -1, "Number of subgroup iterations before starting an allreduce block of iterations");
+DEFINE_int64(num_allreduce_iters, -1, "Number of allreduce iterations to perform after completing num_subgroup_iters iterations"); 
+
 
 // A simple registry for caffe commands.
 typedef int (*BrewFunction)();
@@ -347,14 +352,35 @@ int train() {
   } else if (FLAGS_par != "") {
     if (FLAGS_par == "MPISyncCPU") {
 
+//
 //TEW
+//
       if ((FLAGS_nonblocking == false) || (FLAGS_rgroup_bits==0)) {
-        caffe::MPISyncCPU<float> sync(solver, static_cast<int>(FLAGS_rgroup_bits), FLAGS_randomize_subgroups);
+        caffe::MPISyncCPU<float> sync(solver, 
+                                      static_cast<int>(FLAGS_rgroup_bits), 
+                                      FLAGS_randomize_subgroups,
+	                              FLAGS_initial_allreduce_iters,
+                                      FLAGS_num_subgroup_iters,
+                                      FLAGS_num_allreduce_iters);
         sync.Run();
       } else {
-        caffe::MPI_subgroup_nonblocking_CPU<float> async(solver, static_cast<int>(FLAGS_rgroup_bits), FLAGS_randomize_subgroups);
+        caffe::MPI_subgroup_nonblocking_CPU<float> async(solver, 
+                                                         static_cast<int>(FLAGS_rgroup_bits), 
+                                                         FLAGS_randomize_subgroups,
+	                                                 FLAGS_initial_allreduce_iters,
+                                                         FLAGS_num_subgroup_iters,
+                                                         FLAGS_num_allreduce_iters);
         async.Run();
       }
+    } else if (FLAGS_par == "MPI_Layerwise_Const_CPU") {
+
+      caffe::MPI_layerwise_async_const_CPU<float> async(solver,
+                                                  FLAGS_randomize_subgroups,
+	                                          FLAGS_initial_allreduce_iters,
+                                                  FLAGS_num_subgroup_iters,
+                                                  FLAGS_num_allreduce_iters);
+      async.Run();
+
     } else {
       LOG(ERROR) << "unrecognized -par value: " << FLAGS_par;
       return 1;

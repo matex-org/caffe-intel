@@ -11,28 +11,35 @@
 #include "boost/thread.hpp"
 #include "caffe/caffe.hpp"
 #include "caffe/mpi.hpp"
-#include "caffe/parallel/mpi_subgroup_nonblocking_cpu.hpp"
+#include "caffe/parallel/mpi_layerwise_async_const_cpu.hpp"
 
 namespace caffe {
 
 
 // Constructor
 template<typename Dtype>
-MPI_subgroup_nonblocking_CPU<Dtype>::MPI_subgroup_nonblocking_CPU(shared_ptr<Solver<Dtype> > root_solver, 
-                                                                  const int rgroup_bits,
+MPI_layerwise_async_const_CPU<Dtype>::MPI_layerwise_async_const_CPU(shared_ptr<Solver<Dtype> > root_solver,
                                                                   const bool randomize_subgroups,
                                                                   const uint64_t initial_allreduce_iterations,
                                                                   const int64_t num_subgroup_iterations_per_allreduce_block,
-                                                                  const int64_t num_allreduce_iterations_per_allreduce_block
-)
-    : CPUParams<Dtype>(root_solver),
-  rgroup_bits_(rgroup_bits),
+                                                                  const int64_t num_allreduce_iterations_per_allreduce_block)
+ : CPUParams<Dtype>(root_solver),
+  rgroup_bits_( [&]()->int {
+                 const int num_nodes = (int) caffe::mpi::comm_size(comm_);
+                 const int power_of_2 = (int) (!(num_nodes & (num_nodes-1)));
+                  if (!power_of_2) { std::cerr << "not handling non-power-of-2-nodes yet" << std::endl; exit(1);}
+                 const int highbit =(int)  ( 63 - __builtin_clzll(num_nodes));
+                 const int max_sort_bits = (int) (highbit > 0 ? (highbit -1) : 0);
+                 return max_sort_bits;
+                }
+  ),
 //#ifdef USE_MPI
   comm_(caffe::mpi::comm_dup()),
   comm_size_(caffe::mpi::comm_size(comm_)),
   comm_rank_(caffe::mpi::comm_rank(comm_)),
   node_rank_(caffe::mpi::node_rank(comm_)),
-  nodegroups(static_cast<int>(comm_size_), rgroup_bits),
+
+  nodegroups(static_cast<int>(comm_size_), rgroup_bits_),
   peerlist_(nodegroups.get_stagelist(comm_rank_)),
   comm_stages_(nodegroups.get_num_stages()),
   current_stage_(0),
@@ -46,6 +53,9 @@ MPI_subgroup_nonblocking_CPU<Dtype>::MPI_subgroup_nonblocking_CPU(shared_ptr<Sol
   subcomm2_(std::vector<MPI_Comm>(nodegroups.get_num_stages())),
 //#endif
       solver_(),
+      params_(root_solver->net()->learnable_params()),
+      timer_(),
+      time_(0.0),
       history_(
         [&]()->const vector<shared_ptr<Blob<Dtype>>>& {
            if (!strcmp(root_solver->type(), "SGD")) {
@@ -70,7 +80,7 @@ MPI_subgroup_nonblocking_CPU<Dtype>::MPI_subgroup_nonblocking_CPU(shared_ptr<Sol
       num_subgroup_iterations_per_allreduce_block_(num_subgroup_iterations_per_allreduce_block),
       num_allreduce_iterations_per_allreduce_block_(num_allreduce_iterations_per_allreduce_block)
 {
-  std::clog << "Initializing with rgroup bits = " << rgroup_bits_ << std::endl;
+  std::clog << "Initializing mpi_layerwise_async_const_cpu with effective rgroup bits = " << rgroup_bits_ << std::endl;
   {
     double raw_log=log2(comm_size_);
     if ((raw_log -1) != rgroup_bits_) {
@@ -78,6 +88,10 @@ MPI_subgroup_nonblocking_CPU<Dtype>::MPI_subgroup_nonblocking_CPU(shared_ptr<Sol
                 << "log2(# nodes) -1 for this nonblocking subgroup implementation" << std::endl;
       exit(1);
     }
+  }
+  if (rgroup_bits_ < 1) {
+    std::cerr << "Error - layerwise_async_const with effective rgroup_bits of " << rgroup_bits_ << std::endl;
+    exit(1);
   }
 
   solver_ = root_solver;
@@ -91,16 +105,18 @@ MPI_subgroup_nonblocking_CPU<Dtype>::MPI_subgroup_nonblocking_CPU(shared_ptr<Sol
     }
   }
 
+  // ?? allocated request_ ??
+
 #ifdef USE_MPI
   std::clog << "Sanity check: Compiled with MPI, I am node " << comm_rank_
             << ", and there are " << comm_size_ << " nodes total." << std::endl;
 
-  std::clog << "rgroup_bits is " << rgroup_bits << std::endl;
+  std::clog << "rgroup_bits_ is " << rgroup_bits_ << std::endl;
 
   std::clog << "size_ is " << size_ << std::endl;
 
   if (comm_size_ > 1) {
-    if ((0x1UL << rgroup_bits) > (comm_size_ / 2)) {
+    if ((0x1UL << rgroup_bits_) > (comm_size_ / 2)) {
       std::clog << "Error - the number of reduce groups must be a power of two, and must be no more than" << std::endl;
       std::clog << "half the number of nodes." << std::endl;
       exit(1);
@@ -117,23 +133,6 @@ MPI_subgroup_nonblocking_CPU<Dtype>::MPI_subgroup_nonblocking_CPU(shared_ptr<Sol
     std::clog << std::endl;
   }
 
-  if (rgroup_bits >0) {
-    for (int stage=0; stage<nodegroups.get_num_stages(); stage++) {
-//      MPI_Comm_split(comm_, my_group_[stage], comm_rank_, &subcomm_[stage]);
-
-
-      MPI_Comm_dup(comm_, &subcomm2_[stage]);
-      MPI_Comm_split(subcomm2_[stage], my_group_[stage], comm_rank_, &subcomm_[stage]);
-
-      int this_size;
-      MPI_Comm_size(subcomm_[stage], &this_size);
-      subcomm_size_.push_back(this_size);
-
-      std::clog << "[" << comm_rank_ << "] - stage " << stage
-                << " is in group " << my_group_[stage] << std::endl;
-    }
-  }
-
 
   caffe::mpi::bcast(data_, size_, 0, comm_);
 
@@ -146,7 +145,55 @@ MPI_subgroup_nonblocking_CPU<Dtype>::MPI_subgroup_nonblocking_CPU(shared_ptr<Sol
 
 
 template<typename Dtype>
-void MPI_subgroup_nonblocking_CPU<Dtype>::shuffle_vector(int *array_ptr, const int num_elements) {
+void MPI_layerwise_async_const_CPU<Dtype>::on_start() {
+  DLOG(INFO) << "on_start()";
+  LOG(INFO) << "time comm " << time_;
+  time_ = 0.0;
+  std::clog << "Node \[" << caffe::mpi::comm_rank(comm_) 
+          << "] entering on_start(" 
+          << ") for iter " << solver_->iter() << std::endl;
+
+}
+
+
+
+template<typename Dtype>
+void MPI_layerwise_async_const_CPU<Dtype>::on_gradients_ready(int param_id) {
+  DLOG(INFO) << "on_gradients_ready(param_id)";
+  std::clog << "Node [" << caffe::mpi::comm_rank(comm_) 
+            << "] entering on_gradients_ready(param_id=" 
+            << param_id << ") for iter " << solver_->iter() << std::endl;
+#ifdef USE_MPI
+  Blob<Dtype> *blob = params_[param_id];
+  Dtype *param_diff = blob->mutable_cpu_diff();
+//  caffe::mpi::iallreduce(requests_[param_id], param_diff, blob->count(), MPI_SUM, comm_);
+//  caffe::mpi::test(requests_[param_id]);
+#endif
+}
+
+/*
+template<typename Dtype>
+void MPI_layerwise_async_const_CPU<Dtype>::on_gradients_ready() {
+   DLOG(INFO) << "on_gradients_ready()";
+#ifdef USE_MPI
+   caffe::mpi::waitall(requests_);
+#endif
+}
+*/
+
+
+template<typename Dtype>
+int MPI_layerwise_async_const_CPU<Dtype>::on_apply(int param_id) {
+std::clog << "Node [" << caffe::mpi::comm_rank(comm_) << "] entering on_apply() for iter " << solver_->iter() << std::endl;
+   return param_id;
+}
+
+
+
+
+
+template<typename Dtype>
+void MPI_layerwise_async_const_CPU<Dtype>::shuffle_vector(int *array_ptr, const int num_elements) {
   if (num_elements > 2) {
     for (int i=0; i<(num_elements-2); i++) {
       std::uniform_int_distribution<int> random_element(i,(comm_size_ -1));
@@ -160,7 +207,7 @@ void MPI_subgroup_nonblocking_CPU<Dtype>::shuffle_vector(int *array_ptr, const i
 
 
 template<typename Dtype>
-MPI_subgroup_nonblocking_CPU<Dtype>::~MPI_subgroup_nonblocking_CPU() {
+MPI_layerwise_async_const_CPU<Dtype>::~MPI_layerwise_async_const_CPU() {
 }
 
 
@@ -173,7 +220,7 @@ MPI_subgroup_nonblocking_CPU<Dtype>::~MPI_subgroup_nonblocking_CPU() {
 //    tag for this exchange so that there's no chance of this exchange being confused with any other
 
 template<typename Dtype>
-void MPI_subgroup_nonblocking_CPU<Dtype>::mpi_avg_3(Dtype * real_buffer,
+void MPI_layerwise_async_const_CPU<Dtype>::mpi_avg_3(Dtype * real_buffer,
                                   Dtype * temp_buffer,
                                   const size_t pcount,
                                   const int root_node,
@@ -373,7 +420,7 @@ void MPI_subgroup_nonblocking_CPU<Dtype>::mpi_avg_3(Dtype * real_buffer,
 //    tag for this exchange so that there's no chance of this exchange being confused with any other
 
 template<typename Dtype>
-void MPI_subgroup_nonblocking_CPU<Dtype>::mpi_avg_2(Dtype * real_buffer,
+void MPI_layerwise_async_const_CPU<Dtype>::mpi_avg_2(Dtype * real_buffer,
                                   Dtype * temp_buffer,
                                   const size_t pcount,
                                   const int root_node,
@@ -473,13 +520,11 @@ void MPI_subgroup_nonblocking_CPU<Dtype>::mpi_avg_2(Dtype * real_buffer,
 
 
 
-template<typename Dtype>
- void MPI_subgroup_nonblocking_CPU<Dtype>::on_start() {}
-
 
 template<typename Dtype>
-void MPI_subgroup_nonblocking_CPU<Dtype>::on_gradients_ready() {
+void MPI_layerwise_async_const_CPU<Dtype>::on_gradients_ready() {
   DLOG(INFO) << "on_gradients_ready()";
+   std::clog << "Node [" << caffe::mpi::comm_rank(comm_) << "] entering on_gradients_ready() for iter " << solver_->iter() << std::endl;
   // first calculate gradients with the data we already have,
   // _then_ receive prior data and gradients, _then_ average and sum
 
@@ -541,7 +586,7 @@ void MPI_subgroup_nonblocking_CPU<Dtype>::on_gradients_ready() {
       //LOG(INFO) << "Reading prior buddies' data" << std::endl;
       int error = MPI_Waitall(prior_stage_size, prior_data_request, present_status);
       if (error != MPI_SUCCESS) {
-        std::clog << "Error doing MPI_Waitall in on_start()" << std::endl;
+        std::clog << "Error doing MPI_Waitall in on_gradients_ready()" << std::endl;
       }
 
       // merge current data with prior_buddies' earlier data
@@ -659,7 +704,7 @@ void MPI_subgroup_nonblocking_CPU<Dtype>::on_gradients_ready() {
 }
 
 template<typename Dtype>
-void MPI_subgroup_nonblocking_CPU<Dtype>::on_post_apply() {
+void MPI_layerwise_async_const_CPU<Dtype>::on_post_apply() {
   if (solver_->iter() >= initial_allreduce_iterations_) {
     current_stage_++;
 
@@ -686,22 +731,22 @@ void MPI_subgroup_nonblocking_CPU<Dtype>::on_post_apply() {
 
 
 template<typename Dtype>
-void MPI_subgroup_nonblocking_CPU<Dtype>::Run() {
-  LOG(INFO)<< "Starting Optimization - MPI_subgroup_nonblocking_CPU";
+void MPI_layerwise_async_const_CPU<Dtype>::Run() {
+  LOG(INFO)<< "Starting Optimization - MPI_layerwise_async_const_CPU";
 
   // Run root solver on current thread
   solver_->Solve();
 }
 
 template<typename Dtype>
-void MPI_subgroup_nonblocking_CPU<Dtype>::Step(int iters) {
+void MPI_layerwise_async_const_CPU<Dtype>::Step(int iters) {
   //LOG(INFO)<< "Stepping Optimization";
 
   // Run root solver on current thread
   solver_->Step(iters);
 }
 
-INSTANTIATE_CLASS(MPI_subgroup_nonblocking_CPU);
+INSTANTIATE_CLASS(MPI_layerwise_async_const_CPU);
 
 }  // namespace caffe
 

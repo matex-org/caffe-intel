@@ -66,9 +66,9 @@ class SGDSolver : public Solver<Dtype> {
   // TEW - expose history for momentum sharing
   vector<shared_ptr<Blob<Dtype>>> history_;
 
- protected:
+ public:
   void PreSolve();
-  Dtype GetLearningRate();
+  virtual Dtype GetLearningRate();
   virtual void ApplyUpdate();
   virtual void ApplyUpdate(int param_id);
   virtual void Normalize(int param_id);

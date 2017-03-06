@@ -18,8 +18,13 @@ namespace caffe {
 
 // Constructor
 template<typename Dtype>
-MPISyncCPU<Dtype>::MPISyncCPU(shared_ptr<Solver<Dtype> > root_solver, const int rgroup_bits, const bool randomize_subgroups)
-    : CPUParams<Dtype>(root_solver),
+MPISyncCPU<Dtype>::MPISyncCPU(shared_ptr<Solver<Dtype> > root_solver,
+                              const int rgroup_bits,
+                              const bool randomize_subgroups,
+                              const uint64_t initial_allreduce_iterations,
+                              const int64_t num_subgroup_iterations_per_allreduce_block,
+                              const int64_t num_allreduce_iterations_per_allreduce_block)
+    :CPUParams<Dtype>(root_solver),
   rgroup_bits_(rgroup_bits),
 //#ifdef USE_MPI
   comm_(caffe::mpi::comm_dup()),
@@ -57,7 +62,11 @@ MPISyncCPU<Dtype>::MPISyncCPU(shared_ptr<Solver<Dtype> > root_solver, const int 
       current_map_index_(0),
       my_rnd_gen_(std::mt19937(1492)), // for now, hard-code seed, later take as param
       subcount_(0),
-      randomize_subgroups_(randomize_subgroups)
+      randomize_subgroups_(randomize_subgroups),
+      initial_allreduce_iterations_(initial_allreduce_iterations),
+      num_subgroup_iterations_per_allreduce_block_(num_subgroup_iterations_per_allreduce_block),
+      num_allreduce_iterations_per_allreduce_block_(num_allreduce_iterations_per_allreduce_block)
+
 {
   std::clog << "Initializing with rgroup bits = " << rgroup_bits_ << std::endl;
 
@@ -118,6 +127,9 @@ MPISyncCPU<Dtype>::MPISyncCPU(shared_ptr<Solver<Dtype> > root_solver, const int 
 
 
   caffe::mpi::bcast(data_, size_, 0, comm_);
+
+
+
 
 #else
   NO_MPI;
@@ -454,17 +466,17 @@ void MPISyncCPU<Dtype>::mpi_avg_2(Dtype * real_buffer,
 
 template<typename Dtype>
  void MPISyncCPU<Dtype>::on_start() {
-   const int virtual_id = reverse_map_[current_map_index_][comm_rank_];
+  if (solver_->iter() >= initial_allreduce_iterations_) {
+    const int virtual_id = reverse_map_[current_map_index_][comm_rank_];
 
+    if (rgroup_bits_ > 0) {
+      std::vector<std::vector<int>> peerlist(nodegroups.get_stagelist(virtual_id));
+      std::vector<int> virtual_buddies(peerlist[current_stage_]);
+      std::vector<int> buddies(virtual_buddies.size());
+      for (int i = 0; i < virtual_buddies.size(); i++) {
+        buddies[i] = forward_map_[current_map_index_][virtual_buddies[i]];
+      }
 
-   if (rgroup_bits_ > 0) {
-     std::vector<std::vector<int>> peerlist(nodegroups.get_stagelist(virtual_id));
-     std::vector<int> virtual_buddies(peerlist[current_stage_]);
-     std::vector<int> buddies(virtual_buddies.size());
-     for (int i=0; i<virtual_buddies.size(); i++) {
-       buddies[i] = forward_map_[current_map_index_][virtual_buddies[i]];
-     }
-     
 /*
      // copy internal momentum history into mergebuffer_ array in preparation
      size_t poffset=0;
@@ -487,11 +499,11 @@ template<typename Dtype>
      }
 */
 
-     // do merging
-     if (buddies.size() ==2) {
-       // merge data between 2 nodes using mergebuffer2_ as temp space
-       mpi_avg_2((Dtype *) data_, (Dtype *) &mergebuffer2_[0], size_,
-                 buddies[0], buddies[1], (current_stage_ + (0x1 << 6)));
+      // do merging
+      if (buddies.size() == 2) {
+        // merge data between 2 nodes using mergebuffer2_ as temp space
+        mpi_avg_2((Dtype *) data_, (Dtype *) &mergebuffer2_[0], size_,
+                  buddies[0], buddies[1], (current_stage_ + (0x1 << 6)));
 /*
        // merge history (packed into mergebuffer_) between 2 nodes
        // using mergebuffer2_ as temp space
@@ -499,10 +511,10 @@ template<typename Dtype>
                  buddies[0], buddies[1], (current_stage_ + (0x1<<7)));
 */
 
-     } else if (buddies.size()==3) {
-       // merge data between 3 nodes
-       mpi_avg_3((Dtype *) data_, (Dtype *) &mergebuffer2_[0], size_,
-                 buddies[0], buddies[1], buddies[2], (current_stage_ + (0x1 << 6)));
+      } else if (buddies.size() == 3) {
+        // merge data between 3 nodes
+        mpi_avg_3((Dtype *) data_, (Dtype *) &mergebuffer2_[0], size_,
+                  buddies[0], buddies[1], buddies[2], (current_stage_ + (0x1 << 6)));
 /*
        // merge history (packed into mergebuffer_) between 3 nodes
        // using mergebuffer2_ as temp space
@@ -510,18 +522,18 @@ template<typename Dtype>
                  buddies[0], buddies[1], buddies[2], (current_stage_ + (0x1<<7)));
 */
 
-     } else {
-       // merge data between some other number of nodes
-       const Dtype scalefactor = (static_cast<Dtype>(1.0) / static_cast<Dtype>(buddies.size()));
+      } else {
+        // merge data between some other number of nodes
+        const Dtype scalefactor = (static_cast<Dtype>(1.0) / static_cast<Dtype>(buddies.size()));
 
-       MPI_Allreduce((Dtype *) data_, (Dtype *) &mergebuffer2_[0], size_,
-                     ((sizeof(Dtype) == 4) ? MPI_FLOAT : MPI_DOUBLE),
-                     MPI_SUM, subcomm_[current_stage_]);
+        MPI_Allreduce((Dtype *) data_, (Dtype *) &mergebuffer2_[0], size_,
+                      ((sizeof(Dtype) == 4) ? MPI_FLOAT : MPI_DOUBLE),
+                      MPI_SUM, subcomm_[current_stage_]);
 
-       caffe_scal<Dtype>(size_, scalefactor, (Dtype *) &mergebuffer2_[0]);
-       for (size_t i = 0; i < size_; i++) {
-         ((Dtype *) data_)[i] = ((Dtype *) (&mergebuffer2_[0]))[i];
-       }
+        caffe_scal<Dtype>(size_, scalefactor, (Dtype *) &mergebuffer2_[0]);
+        for (size_t i = 0; i < size_; i++) {
+          ((Dtype *) data_)[i] = ((Dtype *) (&mergebuffer2_[0]))[i];
+        }
 
 /*
        // merge history between some other number of nodes
@@ -534,7 +546,7 @@ template<typename Dtype>
          ((Dtype *)&mergebuffer_[0])[i] = ((Dtype *)(&mergebuffer2_[0]))[i];
        }
 */
-     }
+      }
 
 ////////////////////////////////
 /*
@@ -552,68 +564,12 @@ template<typename Dtype>
         poffset = (poffset + pnum);
       }
 */
-     // do _not_ increment group stage counter here; wait until after on_post_apply()
-   } else {
+      // do _not_ increment group stage counter here; wait until after on_post_apply()
+    } else {
+      // may not need or want this reduction
 
-     // may not need or want this reduction
-     if (comm_size_ > 1) {
-
-/*
-       // do all-reduce of data across all nodes
-       const Dtype scalefactor = (static_cast<Dtype>(1.0) / static_cast<Dtype>(comm_size_));
-       MPI_Allreduce((Dtype *)data_, (Dtype *)&mergebuffer2_[0],  size_,
-                     ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
-                     MPI_SUM, comm_);
-       caffe_scal<Dtype>(size_, scalefactor, (Dtype *)&mergebuffer2_[0]);
-       for (size_t i=0; i<size_; i++) {
-         ((Dtype *)data_)[i] = ((Dtype *)(&mergebuffer2_[0]))[i];
-       }
-
-
-       // copy internal momentum history into mergebuffer_ array in preparation
-       size_t poffset=0;
-       const vector<Blob < Dtype>*>&net_params = solver_->net_->learnable_params();
-
-       for (int param_id = 0;
-            param_id < solver_->net_->learnable_params().size();
-            ++param_id) {
-         const size_t pnum = net_params[param_id]->count();
-         Dtype *ptr = (Dtype *)(history_[param_id]->cpu_data());
-         for (int j=0; j<pnum; j++) {
-           mergebuffer_[j+poffset] = ptr[j];
-         }
-         poffset = (poffset + pnum);
-       }
-
-       if (poffset != size_) {
-         std::clog << "*** Error - history is wrong. ***" << std::endl;
-         exit(1);
-       }
-
-
-       // do the history Allreduce
-       MPI_Allreduce((Dtype *)&mergebuffer_[0], (Dtype *)&mergebuffer2_[0],  size_,
-                     ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
-                     MPI_SUM, comm_);
-       caffe_scal<Dtype>(size_, scalefactor, (Dtype *)&mergebuffer2_[0]);
-
-
-       // copy merged momentum history from mergebuffer2_ back
-       // into the internal data structures
-       poffset = 0;
-       for (int param_id = 0;
-            param_id < solver_->net_->learnable_params().size();
-            ++param_id) {
-         const size_t pnum = net_params[param_id]->count();
-         Dtype *ptr = history_[param_id]->mutable_cpu_data();
-         for (int j = 0; j < pnum; j++) {
-           ptr[j] = mergebuffer2_[j + poffset];
-         }
-         poffset = (poffset + pnum);
-       }
-*/
-     } // if comm_size_ > 1
-   }
+    }
+  }
  }
 
 
@@ -626,221 +582,212 @@ template<typename Dtype>
    // Sum gradients
 //  caffe::mpi::allreduce(diff_, size_, MPI_SUM, comm_);
 
-/*
-  if ((comm_rank_ == 0) || (comm_rank_== 8) || (comm_rank_== 4)) {
-      std::clog << "[" << comm_rank_ << "] pre-merge diffs: ";
-      for (int i=0; i<10; i++) {
-        std::clog << ((Dtype *)diff_)[i] << " ";
-      }
-      std::clog << std::endl;
-  }
-*/
+   // initial warm-up case
+   if (solver_->iter() < initial_allreduce_iterations_) {
+     if (comm_size_ > 1) {
+       MPI_Allreduce((Dtype *) diff_, (Dtype *) &mergebuffer_[0], size_,
+                     ((sizeof(Dtype) == 4) ? MPI_FLOAT : MPI_DOUBLE),
+                     MPI_SUM, comm_);
 
-  const int virtual_id = reverse_map_[current_map_index_][comm_rank_];
-  if (rgroup_bits_ > 0) {
-    std::vector<std::vector<int>> peerlist(nodegroups.get_stagelist(virtual_id));
-    std::vector<int> virtual_buddies(peerlist[current_stage_]);
-    std::vector<int> buddies(virtual_buddies.size());
-    for (int i=0; i<virtual_buddies.size(); i++) {
-      buddies[i] = forward_map_[current_map_index_][virtual_buddies[i]];
-    }
-
-
-    if (buddies.size() == 2) {
-      // merge data between 2 nodes using mergebuffer2_ as temp space
-      mpi_avg_2((Dtype *) diff_, (Dtype *) &mergebuffer_[0], size_,
-                buddies[0], buddies[1], (current_stage_ + (0x1 << 8)));
-
-    } else if (buddies.size() == 3) {
-      // merge data between 3 nodes
-      mpi_avg_3((Dtype *) diff_, (Dtype *) &mergebuffer_[0], size_,
-                buddies[0], buddies[1], buddies[2], (current_stage_ + (0x1 << 8)));
-
-    } else {
-      // merge data between some other number of nodes
-      const Dtype scalefactor = (static_cast<Dtype>(1.0) / static_cast<Dtype>(buddies.size()));
-
-      MPI_Allreduce((Dtype *) diff_, (Dtype *) &mergebuffer_[0], size_,
-                    ((sizeof(Dtype) == 4) ? MPI_FLOAT : MPI_DOUBLE),
-                    MPI_SUM, subcomm_[current_stage_]);
-
-      caffe_scal<Dtype>(size_, scalefactor, (Dtype *) &mergebuffer_[0]);
-      for (size_t i = 0; i < size_; i++) {
-        ((Dtype *) diff_)[i] = ((Dtype *) (&mergebuffer_[0]))[i];
-      }
-
-    }
-
- // Sum gradients
+       const Dtype scalefactor = (static_cast<Dtype>(1.0) / static_cast<Dtype>(comm_size_));
+       caffe_scal<Dtype>(size_, scalefactor, (Dtype *) &mergebuffer_[0]);
+       for (size_t i = 0; i < size_; i++) {
+         ((Dtype *) diff_)[i] = ((Dtype *) (&mergebuffer_[0]))[i];
+       }
+     }
    } else {
-    if (comm_size_ > 1) {
-      MPI_Allreduce((Dtype *) diff_, (Dtype *) &mergebuffer_[0], size_,
-                    ((sizeof(Dtype) == 4) ? MPI_FLOAT : MPI_DOUBLE),
-                    MPI_SUM, comm_);
 
-      const Dtype scalefactor = (static_cast<Dtype>(1.0) / static_cast<Dtype>(comm_size_));
-      caffe_scal<Dtype>(size_, scalefactor, (Dtype *) &mergebuffer_[0]);
-      for (size_t i = 0; i < size_; i++) {
-        ((Dtype *) diff_)[i] = ((Dtype *) (&mergebuffer_[0]))[i];
-      }
-    }
-  }
+     const int virtual_id = reverse_map_[current_map_index_][comm_rank_];
+     if (rgroup_bits_ > 0) {
+       std::vector<std::vector<int>> peerlist(nodegroups.get_stagelist(virtual_id));
+       std::vector<int> virtual_buddies(peerlist[current_stage_]);
+       std::vector<int> buddies(virtual_buddies.size());
+       for (int i = 0; i < virtual_buddies.size(); i++) {
+         buddies[i] = forward_map_[current_map_index_][virtual_buddies[i]];
+       }
+
+       if (buddies.size() == 2) {
+         // merge data between 2 nodes using mergebuffer2_ as temp space
+         mpi_avg_2((Dtype *) diff_, (Dtype *) &mergebuffer_[0], size_,
+                   buddies[0], buddies[1], (current_stage_ + (0x1 << 8)));
+
+       } else if (buddies.size() == 3) {
+         // merge data between 3 nodes
+         mpi_avg_3((Dtype *) diff_, (Dtype *) &mergebuffer_[0], size_,
+                   buddies[0], buddies[1], buddies[2], (current_stage_ + (0x1 << 8)));
+
+       } else {
+         // merge data between some other number of nodes
+         const Dtype scalefactor = (static_cast<Dtype>(1.0) / static_cast<Dtype>(buddies.size()));
+
+         MPI_Allreduce((Dtype *) diff_, (Dtype *) &mergebuffer_[0], size_,
+                       ((sizeof(Dtype) == 4) ? MPI_FLOAT : MPI_DOUBLE),
+                       MPI_SUM, subcomm_[current_stage_]);
+
+         caffe_scal<Dtype>(size_, scalefactor, (Dtype *) &mergebuffer_[0]);
+         for (size_t i = 0; i < size_; i++) {
+           ((Dtype *) diff_)[i] = ((Dtype *) (&mergebuffer_[0]))[i];
+         }
+
+       }
+
+       // Sum gradients
+     } else {
+       if (comm_size_ > 1) {
+         MPI_Allreduce((Dtype *) diff_, (Dtype *) &mergebuffer_[0], size_,
+                       ((sizeof(Dtype) == 4) ? MPI_FLOAT : MPI_DOUBLE),
+                       MPI_SUM, comm_);
+
+         const Dtype scalefactor = (static_cast<Dtype>(1.0) / static_cast<Dtype>(comm_size_));
+         caffe_scal<Dtype>(size_, scalefactor, (Dtype *) &mergebuffer_[0]);
+         for (size_t i = 0; i < size_; i++) {
+           ((Dtype *) diff_)[i] = ((Dtype *) (&mergebuffer_[0]))[i];
+         }
+       }
+     }
 
 #else
-   NO_MPI;
+     NO_MPI;
 #endif
 
+   }
  }
-
 
 template<typename Dtype>
 void MPISyncCPU<Dtype>::on_post_apply() {
-/*
-  const Dtype scalefactor = (static_cast<Dtype>(1.0) /
-                             static_cast<Dtype>(subcomm_size_[current_stage_]));
-  SGDSolver<Dtype>* sgd_solver = dynamic_cast<SGDSolver<Dtype>*>(solver_.get());
+  if (solver_->iter() >= initial_allreduce_iterations_) {
+    if (rgroup_bits_ > 0) {
 
-  if ((comm_rank_ == 0) || (comm_rank_== 8) || (comm_rank_== 4)) {
-    std::clog << "[" << comm_rank_ << "] on_post_apply(), stage "
-      << current_stage_
-      << " iteration " << sgd_solver->iter() << " size: " << size_
-      << std::endl;
-  }
-  */
+      /*
+
+          std::vector<int> buddies(peerlist_[current_stage_]);
+
+        // copy internal momentum history into mergebuffer_ array in preparation
+        size_t poffset=0;
+        const vector<Blob < Dtype>*>&net_params = solver_->net_->learnable_params();
+
+        for (int param_id = 0;
+             param_id < solver_->net_->learnable_params().size();
+             ++param_id) {
+          const size_t pnum = net_params[param_id]->count();
+          Dtype *ptr = (Dtype *)(history_[param_id]->cpu_data());
+          for (int j=0; j<pnum; j++) {
+            mergebuffer_[j+poffset] = ptr[j];
+          }
+          poffset = (poffset + pnum);
+        }
+
+        if (poffset != size_) {
+          std::clog << "*** Error - history is wrong. ***" << std::endl;
+          exit(1);
+        }
+
+        // do merging
+        if (buddies.size() ==2) {
+          // merge data between 2 nodes using mergebuffer2_ as temp space
+          mpi_avg_2((Dtype *) data_, (Dtype *) &mergebuffer2_[0], size_,
+                    buddies[0], buddies[1], (current_stage_ + (0x1 << 6)));
+
+          // merge history (packed into mergebuffer_) between 2 nodes
+          // using mergebuffer2_ as temp space
+          mpi_avg_2((Dtype *)&mergebuffer_[0], (Dtype *)&mergebuffer2_[0], size_,
+                    buddies[0], buddies[1], (current_stage_ + (0x1<<7)));
 
 
-  if (rgroup_bits_ > 0) {
+        } else if (buddies.size()==3) {
+          // merge data between 3 nodes
+          mpi_avg_3((Dtype *) data_, (Dtype *) &mergebuffer2_[0], size_,
+                    buddies[0], buddies[1], buddies[2], (current_stage_ + (0x1 << 6)));
 
-  /*
+          // merge history (packed into mergebuffer_) between 3 nodes
+          // using mergebuffer2_ as temp space
+          mpi_avg_3((Dtype *)&mergebuffer_[0], (Dtype *)&mergebuffer2_[0], size_,
+                    buddies[0], buddies[1], buddies[2], (current_stage_ + (0x1<<7)));
 
-      std::vector<int> buddies(peerlist_[current_stage_]);
 
-    // copy internal momentum history into mergebuffer_ array in preparation
-    size_t poffset=0;
-    const vector<Blob < Dtype>*>&net_params = solver_->net_->learnable_params();
+        } else {
+          // merge data between some other number of nodes
+          const Dtype scalefactor = (static_cast<Dtype>(1.0) / static_cast<Dtype>(buddies.size()));
 
-    for (int param_id = 0;
-         param_id < solver_->net_->learnable_params().size();
-         ++param_id) {
-      const size_t pnum = net_params[param_id]->count();
-      Dtype *ptr = (Dtype *)(history_[param_id]->cpu_data());
-      for (int j=0; j<pnum; j++) {
-        mergebuffer_[j+poffset] = ptr[j];
+          MPI_Allreduce((Dtype *)data_, (Dtype *)&mergebuffer2_[0],  size_,
+                        ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
+                        MPI_SUM, subcomm_[current_stage_]);
+
+          caffe_scal<Dtype>(size_, scalefactor, (Dtype *)&mergebuffer2_[0]);
+          for (size_t i=0; i<size_; i++) {
+            ((Dtype *)data_)[i] = ((Dtype *)(&mergebuffer2_[0]))[i];
+          }
+
+
+          // merge history between some other number of nodes
+          MPI_Allreduce((Dtype *)&mergebuffer_[0], (Dtype *)&mergebuffer2_[0],  size_,
+                        ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
+                        MPI_SUM, subcomm_[current_stage_]);
+
+          caffe_scal<Dtype>(size_, scalefactor, (Dtype *)&mergebuffer2_[0]);
+          for (size_t i=0; i<size_; i++) {
+            ((Dtype *)&mergebuffer_[0])[i] = ((Dtype *)(&mergebuffer2_[0]))[i];
+          }
+        }
+
+    ////////////////////////////////
+
+        // copy merged momentum history from mergebuffer_ back
+        // into the internal data structures
+        poffset = 0;
+        for (int param_id = 0;
+             param_id < solver_->net_->learnable_params().size();
+             ++param_id) {
+          const size_t pnum = net_params[param_id]->count();
+          Dtype *ptr = history_[param_id]->mutable_cpu_data();
+          for (int j = 0; j < pnum; j++) {
+            ptr[j] = mergebuffer_[j + poffset];
+          }
+          poffset = (poffset + pnum);
+        }
+
+        */
+
+
+      current_stage_++;
+      if (current_stage_ == comm_stages_) {
+        current_stage_ = 0;
+        const int next_map_index = 1 - current_map_index_;
+        for (int i = 0; i < comm_size_; i++) {
+          forward_map_[next_map_index][i] = forward_map_[current_map_index_][i];
+          reverse_map_[next_map_index][i] = reverse_map_[current_map_index_][i];
+        }
+        if (randomize_subgroups_) {
+          shuffle_vector((int *) &forward_map_[next_map_index][0], comm_size_);
+          for (int i = 0; i < comm_size_; i++) {
+            reverse_map_[next_map_index][forward_map_[next_map_index][i]] = i;
+          }
+        }
+        current_map_index_ = next_map_index;
       }
-      poffset = (poffset + pnum);
-    }
 
-    if (poffset != size_) {
-      std::clog << "*** Error - history is wrong. ***" << std::endl;
-      exit(1);
-    }
-
-    // do merging
-    if (buddies.size() ==2) {
-      // merge data between 2 nodes using mergebuffer2_ as temp space
-      mpi_avg_2((Dtype *) data_, (Dtype *) &mergebuffer2_[0], size_,
-                buddies[0], buddies[1], (current_stage_ + (0x1 << 6)));
-
-      // merge history (packed into mergebuffer_) between 2 nodes
-      // using mergebuffer2_ as temp space
-      mpi_avg_2((Dtype *)&mergebuffer_[0], (Dtype *)&mergebuffer2_[0], size_,
-                buddies[0], buddies[1], (current_stage_ + (0x1<<7)));
-
-
-    } else if (buddies.size()==3) {
-      // merge data between 3 nodes
-      mpi_avg_3((Dtype *) data_, (Dtype *) &mergebuffer2_[0], size_,
-                buddies[0], buddies[1], buddies[2], (current_stage_ + (0x1 << 6)));
-
-      // merge history (packed into mergebuffer_) between 3 nodes
-      // using mergebuffer2_ as temp space
-      mpi_avg_3((Dtype *)&mergebuffer_[0], (Dtype *)&mergebuffer2_[0], size_,
-                buddies[0], buddies[1], buddies[2], (current_stage_ + (0x1<<7)));
+      // add forward/reverse mapping stuff here too.
+      //
 
 
     } else {
-      // merge data between some other number of nodes
-      const Dtype scalefactor = (static_cast<Dtype>(1.0) / static_cast<Dtype>(buddies.size()));
-
-      MPI_Allreduce((Dtype *)data_, (Dtype *)&mergebuffer2_[0],  size_,
-                    ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
-                    MPI_SUM, subcomm_[current_stage_]);
-
-      caffe_scal<Dtype>(size_, scalefactor, (Dtype *)&mergebuffer2_[0]);
-      for (size_t i=0; i<size_; i++) {
-        ((Dtype *)data_)[i] = ((Dtype *)(&mergebuffer2_[0]))[i];
-      }
-
-
-      // merge history between some other number of nodes
-      MPI_Allreduce((Dtype *)&mergebuffer_[0], (Dtype *)&mergebuffer2_[0],  size_,
-                    ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
-                    MPI_SUM, subcomm_[current_stage_]);
-
-      caffe_scal<Dtype>(size_, scalefactor, (Dtype *)&mergebuffer2_[0]);
-      for (size_t i=0; i<size_; i++) {
-        ((Dtype *)&mergebuffer_[0])[i] = ((Dtype *)(&mergebuffer2_[0]))[i];
-      }
-    }
-
-////////////////////////////////
-
-    // copy merged momentum history from mergebuffer_ back
-    // into the internal data structures
-    poffset = 0;
-    for (int param_id = 0;
-         param_id < solver_->net_->learnable_params().size();
-         ++param_id) {
-      const size_t pnum = net_params[param_id]->count();
-      Dtype *ptr = history_[param_id]->mutable_cpu_data();
-      for (int j = 0; j < pnum; j++) {
-        ptr[j] = mergebuffer_[j + poffset];
-      }
-      poffset = (poffset + pnum);
-    }
-
-    */
-
-
-    current_stage_++;
-    if (current_stage_ == comm_stages_) {
-      current_stage_=0;
-      const int next_map_index = 1 - current_map_index_;
-      for (int i=0; i<comm_size_; i++) {
-        forward_map_[next_map_index][i] = forward_map_[current_map_index_][i];
-        reverse_map_[next_map_index][i] = reverse_map_[current_map_index_][i];
-      }
-      if (randomize_subgroups_) {
-        shuffle_vector((int *) &forward_map_[next_map_index][0], comm_size_);
-        for (int i=0; i<comm_size_; i++) {
-          reverse_map_[next_map_index][forward_map_[next_map_index][i]] = i;
+      /*
+      // may not need or want this reduction
+      if (comm_size_ > 1) {
+        // do all-reduce of data across all nodes
+        const Dtype scalefactor = (static_cast<Dtype>(1.0) / static_cast<Dtype>(comm_size_));
+        MPI_Allreduce((Dtype *)data_, (Dtype *)&mergebuffer2_[0],  size_,
+                      ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
+                      MPI_SUM, comm_);
+        caffe_scal<Dtype>(size_, scalefactor, (Dtype *)&mergebuffer2_[0]);
+        for (size_t i=0; i<size_; i++) {
+          ((Dtype *)data_)[i] = ((Dtype *)(&mergebuffer2_[0]))[i];
         }
       }
-      current_map_index_ = next_map_index;
+      */
+
     }
-
-    // add forward/reverse mapping stuff here too.
-    //
-
-
-  } else {
-    /*
-    // may not need or want this reduction
-    if (comm_size_ > 1) {
-      // do all-reduce of data across all nodes
-      const Dtype scalefactor = (static_cast<Dtype>(1.0) / static_cast<Dtype>(comm_size_));
-      MPI_Allreduce((Dtype *)data_, (Dtype *)&mergebuffer2_[0],  size_,
-                    ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
-                    MPI_SUM, comm_);
-      caffe_scal<Dtype>(size_, scalefactor, (Dtype *)&mergebuffer2_[0]);
-      for (size_t i=0; i<size_; i++) {
-        ((Dtype *)data_)[i] = ((Dtype *)(&mergebuffer2_[0]))[i];
-      }
-    }
-    */
-
   }
-
 
 }
 

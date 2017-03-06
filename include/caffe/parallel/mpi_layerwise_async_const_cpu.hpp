@@ -1,5 +1,5 @@
-#ifndef CAFFE_PARALLEL_MPI_SUBGROUP_NONBLOCKING_CPU_HPP_
-#define CAFFE_PARALLEL_MPI_SUBGROUP_NONBLOCKING_CPU_HPP_
+#ifndef CAFFE_PARALLEL_MPI_LAYERWISE_ASYNC_CONST_CPU_HPP_
+#define CAFFE_PARALLEL_MPI_LAYERWISE_ASYNC_CONST_CPU_HPP_
 
 #include <boost/date_time/posix_time/posix_time.hpp>
 
@@ -17,7 +17,7 @@ namespace caffe {
 
 // subgroup, deferred x 1 data parallelism using subgroup exchanges between remote CPUs.
 template<typename Dtype>
-class MPI_subgroup_nonblocking_CPU : public CPUParams<Dtype>, public Solver<Dtype>::Callback {
+class MPI_layerwise_async_const_CPU : public CPUParams<Dtype>, public Solver<Dtype>::Callback {
  protected:
    int rgroup_bits_;
 //#ifdef USE_MPI
@@ -46,15 +46,13 @@ class MPI_subgroup_nonblocking_CPU : public CPUParams<Dtype>, public Solver<Dtyp
   std::vector<int> my_group_;
   friend class SGDSolver<Dtype>;
   friend class Solver<Dtype>;
-
-  explicit MPI_subgroup_nonblocking_CPU(shared_ptr<Solver<Dtype> > root_solver,
-                                        int rgroup_bits,
-                                        const bool randomize_subgroups,
-                                        const uint64_t initial_allreduce_iterations,
-                                        const int64_t num_subgroup_iterations_per_allreduce_block,
-                                        const int64_t num_allreduce_iterations_per_allreduce_block
+  explicit MPI_layerwise_async_const_CPU (shared_ptr<Solver<Dtype> > root_solver,
+                                          const bool randomize_subgroups,
+                                          const uint64_t initial_allreduce_iterations,
+                                          const int64_t num_subgroup_iterations_per_allreduce_block,
+                                          const int64_t num_allreduce_iterations_per_allreduce_block
   );
-  virtual ~MPI_subgroup_nonblocking_CPU();
+  virtual ~MPI_layerwise_async_const_CPU();
 
   inline const shared_ptr<Solver<Dtype> >& solver() const {
     return solver_;
@@ -76,10 +74,17 @@ class MPI_subgroup_nonblocking_CPU : public CPUParams<Dtype>, public Solver<Dtyp
 
  protected:
   void on_start();
+  void on_gradients_ready(int param_id);
   void on_gradients_ready();
+  int on_apply(int param_id);
   void on_post_apply();
 
   shared_ptr<Solver<Dtype> > solver_;
+
+  const vector<Blob<Dtype>*> &params_;
+  Timer timer_;
+  double time_;
+
 
   using Params<Dtype>::size_;
   using Params<Dtype>::data_;

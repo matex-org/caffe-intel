@@ -282,6 +282,10 @@ void Solver<Dtype>::Step(int iters) {
   int average_loss = this->param_.average_loss();
   losses_.clear();
   smoothed_loss_ = 0;
+  iteration_timer_.Start();
+  float lapse_total = 0;
+
+  net_->SetSolver(this);
 
   while (iter_ < stop_iter) {
     if (param_.test_interval() && iter_ % param_.test_interval() == 0
@@ -316,8 +320,12 @@ void Solver<Dtype>::Step(int iters) {
     // average the loss across iterations for smoothed reporting
     UpdateSmoothedLoss(loss, start_iter, average_loss);
     if (display) {
-#ifdef USE_MPI
+      float lapse = iteration_timer_.Seconds();
+      float per_s = (iter_ - iterations_last_) / (lapse ? lapse : 1);
+      lapse_total += lapse;
+      float total_per_s = iter_ / lapse_total;
 
+#ifdef USE_MPI
      int num_ranks=0;
      MPI_Comm_size(MPI_COMM_WORLD, &num_ranks);
      const Dtype scale_factor = 1.0 / static_cast<Dtype>(num_ranks);
@@ -335,11 +343,15 @@ void Solver<Dtype>::Step(int iters) {
       LOG_IF(INFO, Caffe::root_solver())
              << caffe::internode::mpi_get_current_proc_rank_as_string()
              << " Iteration " << iter_ << " of " 
-             << stop_iter << ", smoothed_loss_ = " << smoothed_loss_;
+             << stop_iter << ", smoothed_loss_ = " << smoothed_loss_
+             << ", " << total_per_s << " iter/s avg";
+
 #else
       LOG_IF(INFO, Caffe::root_solver()) << "Iteration " << iter_
           << ", loss = " << smoothed_loss_;
 #endif
+      iteration_timer_.Start();
+      iterations_last_ = iter_;
       const vector<Blob<Dtype>*>& result = net_->output_blobs();
       int score_index = 0;
       for (int j = 0; j < result.size(); ++j) {

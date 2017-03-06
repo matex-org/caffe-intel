@@ -42,7 +42,15 @@ class MPISyncCPU : public CPUParams<Dtype>, public Solver<Dtype>::Callback {
   friend class SGDSolver<Dtype>;
   friend class Solver<Dtype>;
 
-  explicit MPISyncCPU(shared_ptr<Solver<Dtype> > root_solver, int rgroup_bits, const bool randomize_subgroups);
+  explicit MPISyncCPU(shared_ptr<Solver<Dtype> > root_solver,
+                      int rgroup_bits,
+                      const bool randomize_subgroups,
+                      const uint64_t initial_allreduce_iterations,
+                      const int64_t num_subgroup_iterations_per_allreduce_block,
+                      const int64_t num_allreduce_iterations_per_allreduce_block
+
+
+  );
   virtual ~MPISyncCPU();
 
   inline const shared_ptr<Solver<Dtype> >& solver() const {
@@ -89,7 +97,10 @@ class MPISyncCPU : public CPUParams<Dtype>, public Solver<Dtype>::Callback {
  private:
    size_t subcount_;
    const bool randomize_subgroups_;
- };
+   const uint64_t initial_allreduce_iterations_;
+   const int64_t num_subgroup_iterations_per_allreduce_block_;
+   const int64_t num_allreduce_iterations_per_allreduce_block_;
+};
 
 }  // namespace caffe
 
