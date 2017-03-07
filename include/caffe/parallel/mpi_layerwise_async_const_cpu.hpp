@@ -19,14 +19,14 @@ namespace caffe {
 template<typename Dtype>
 class MPI_layerwise_async_const_CPU : public CPUParams<Dtype>, public Solver<Dtype>::Callback {
  protected:
-   int rgroup_bits_;
 //#ifdef USE_MPI
    MPI_Comm comm_;
 
 // #endif
    int comm_size_;
    int comm_rank_;
-   int node_rank_;
+   const int node_rank_;
+   const int rgroup_bits_;
 
    // subgroup storage
    Groups nodegroups;
@@ -35,12 +35,21 @@ class MPI_layerwise_async_const_CPU : public CPUParams<Dtype>, public Solver<Dty
    int current_stage_;
    std::vector<Dtype> data_send_buffer_;
    std::vector<Dtype> diff_send_buffer_;
+
+   std::vector<MPI_Status> send_status_;
+   std::vector<MPI_Status> receive_status_;
+
+   std::vector<MPI_Request> send_request_;
+   std::vector<MPI_Request> receive_request_;
+
+
    std::vector<Dtype> mergebuffer_;
    std::vector<Dtype> prior_data_;
    std::vector<Dtype> prior_diff_;
    MPI_Request prior_data_request[2];
    MPI_Request prior_gradient_request[2];
-
+   size_t gradient_index_count_;
+   size_t apply_index_count_;
 
   public:
   std::vector<int> my_group_;
@@ -69,8 +78,8 @@ class MPI_layerwise_async_const_CPU : public CPUParams<Dtype>, public Solver<Dty
   void mpi_avg_2(Dtype * real_buffer, Dtype * temp_buffer, size_t count,
                  int root_node, int remote_node, int tag);
 
-  void mpi_avg_3(Dtype * real_buffer, Dtype * temp_buffer, size_t pcount,
-                 int root_node, int remote_node1, int remote_node2, int tag);
+ // void mpi_avg_3(Dtype * real_buffer, Dtype * temp_buffer, size_t pcount,
+ //                int root_node, int remote_node1, int remote_node2, int tag);
 
  protected:
   void on_start();

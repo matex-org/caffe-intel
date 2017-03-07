@@ -1,0 +1,37 @@
+net: "runs_puma/Alexnet_Quicksolver_Batchsize_256/Layerwise_current_constant/04_models/train_batch256_val_batch50.prototxt"
+solver_mode: CPU
+snapshot_prefix: "runs_puma/Alexnet_Quicksolver_Batchsize_256/Layerwise_current_constant/04_models/"
+
+# How many forward passes (test iterations) per test_interval
+test_iter: 500
+
+# Carry out testing every 1000 training iterations.
+test_interval: 1000
+
+test_initialization: false
+
+# Maximum number of iterations before stopping the training
+max_iter: 5000
+#max_iter: 60000
+
+#
+# The learning rate policy
+# drop the learning rate in step sizes indicated by the gamma parameter
+lr_policy: "exp"
+
+# how much the learning rate changes each time we reach the next "step"
+gamma: 0.999964
+
+# number of iterations before going to next "step" of training
+stepsize: 100000
+
+# The base learning rate, momentum and the weight decay of network
+base_lr: 0.02
+momentum: 0.9
+weight_decay: 0.0005
+
+
+# Display every 50 iterations
+display: 50
+
+
