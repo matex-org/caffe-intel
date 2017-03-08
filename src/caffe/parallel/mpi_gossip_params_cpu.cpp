@@ -57,15 +57,14 @@ class MPIGossipParamsCPU<Dtype>::Reducer : public InternalThread {
 #ifdef USE_MPI
           timer_comm_.Start();
           // exchange data
-#if 0
+#if 1
           caffe::mpi::sendrecv(
               (const Dtype*)blob->cpu_diff(), blob->count(), sync_->pair_, 1234,
               recvdiff, blob->count(), sync_->pair_, 1234, comm);
           caffe::mpi::sendrecv(
               (const Dtype*)blob->cpu_data(), blob->count(), sync_->pair_, 1234,
               recvdata, blob->count(), sync_->pair_, 1234, comm);
-#endif
-#if 1
+#else
           vector<MPI_Request> requests(4);
           caffe::mpi::irecv(requests[0], recvdiff,
               blob->count(), sync_->pair_, 2222, comm);
@@ -77,15 +76,7 @@ class MPIGossipParamsCPU<Dtype>::Reducer : public InternalThread {
               blob->count(), sync_->pair_, 3333, comm);
           caffe::mpi::waitall(requests);
 #endif
-#if 0
-          caffe::mpi::allreduce_copy((const Dtype*)blob->cpu_diff(),
-              recvdiff, blob->count(), MPI_SUM, comm);
-#endif
-          // average local data and diff into secondary buffers
-#if 1
-          caffe_cpu_axpby(blob->count(), Dtype(0.5), blob->cpu_diff(), Dtype(0.5), recvdiff);
-          caffe_cpu_axpby(blob->count(), Dtype(0.5), blob->cpu_data(), Dtype(0.5), recvdata);
-#endif
+          // postpone average local data and diff into secondary buffers
           time_per_param_[param_id] += timer_comm_.MilliSeconds();
           time_in_comm_ += timer_comm_.MilliSeconds();
 #else       
@@ -182,10 +173,6 @@ MPIGossipParamsCPU<Dtype>::MPIGossipParamsCPU(
     reducers[i] = new Reducer(this, i);
     reducers[i]->StartInternalThread();
   }
-
-#if 0
-  solver_->set_scale_on_apply(Dtype(1.0 / comm_size_));
-#endif
 #else
   NO_MPI;
 #endif
@@ -241,15 +228,19 @@ int MPIGossipParamsCPU<Dtype>::on_apply(int param_id) {
   DLOG(INFO) << "on_apply(param_id)";
   int who_did_the_work = param_all_[param_id]->pop("waiting in apply");
   Blob<Dtype> *blob = params_[param_id];
+
+  // average pairwise exhange
+  caffe_cpu_axpby(blob->count(), Dtype(0.5), blob->cpu_diff(), Dtype(0.5), param_diffs_[param_id]);
+  caffe_cpu_axpby(blob->count(), Dtype(0.5), blob->cpu_data(), Dtype(0.5), param_datas_[param_id]);
+
+  // swap diff and data pointers with reduction pointers
   Dtype *swap;
   swap = blob->mutable_cpu_diff();
   blob->diff()->set_cpu_data(param_diffs_[param_id]);
   param_diffs_[param_id] = swap;
-#if 1
   swap = blob->mutable_cpu_data();
   blob->data()->set_cpu_data(param_datas_[param_id]);
   param_datas_[param_id] = swap;
-#endif
   return param_id;
 }
 
