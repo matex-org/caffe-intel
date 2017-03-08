@@ -69,6 +69,19 @@ void send(const double *buf, int count, int dest=0, int tag=1234, MPI_Comm comm=
 void recv(float *buf, int count, int source=0, int tag=1234, MPI_Comm comm=MPI_COMM_NULL);
 void recv(double *buf, int count, int source=0, int tag=1234, MPI_Comm comm=MPI_COMM_NULL);
 
+void sendrecv(const float *sendbuf, int sendcount, int dest, int sendtag,
+    float *recvbuf, int recvcount, int source, int recvtag,
+    MPI_Comm comm=MPI_COMM_NULL);
+void sendrecv(const double *sendbuf, int sendcount, int dest, int sendtag,
+    double *recvbuf, int recvcount, int source, int recvtag,
+    MPI_Comm comm=MPI_COMM_NULL);
+
+void isend(MPI_Request &request, const float *buf, int count, int dest=0, int tag=1234, MPI_Comm comm=MPI_COMM_NULL);
+void isend(MPI_Request &request, const double *buf, int count, int dest=0, int tag=1234, MPI_Comm comm=MPI_COMM_NULL);
+
+void irecv(MPI_Request &request, float *buf, int count, int source=0, int tag=1234, MPI_Comm comm=MPI_COMM_NULL);
+void irecv(MPI_Request &request, double *buf, int count, int source=0, int tag=1234, MPI_Comm comm=MPI_COMM_NULL);
+
 #else
 
 int dummy();

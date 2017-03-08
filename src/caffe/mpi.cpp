@@ -398,6 +398,77 @@ void recv(double *buffer, int count, int source, int tag, MPI_Comm comm) {
   }
 }
 
+void sendrecv(const float *sendbuf, int sendcount, int dest, int sendtag,
+    float *recvbuf, int recvcount, int source, int recvtag,
+    MPI_Comm comm)
+{
+  if (MPI_COMM_NULL == comm) {
+    comm = get_comm_default();
+  }
+
+  if (MPI_SUCCESS != MPI_Sendrecv(sendbuf, sendcount, MPI_FLOAT, dest, sendtag,
+        recvbuf, recvcount, MPI_FLOAT, source, recvtag,
+        comm, MPI_STATUS_IGNORE)) {
+    throw std::runtime_error("MPI_Sendrecv failed (float)");
+  }
+}
+
+void sendrecv(const double *sendbuf, int sendcount, int dest, int sendtag,
+    double *recvbuf, int recvcount, int source, int recvtag,
+    MPI_Comm comm)
+{
+  if (MPI_COMM_NULL == comm) {
+    comm = get_comm_default();
+  }
+
+  if (MPI_SUCCESS != MPI_Sendrecv(sendbuf, sendcount, MPI_DOUBLE, dest, sendtag,
+        recvbuf, recvcount, MPI_DOUBLE, source, recvtag,
+        comm, MPI_STATUS_IGNORE)) {
+    throw std::runtime_error("MPI_Sendrecv failed (double)");
+  }
+}
+
+void isend(MPI_Request &request, const float* buffer, int count, int dest, int tag, MPI_Comm comm) {
+  if (MPI_COMM_NULL == comm) {
+    comm = get_comm_default();
+  }
+
+  if (MPI_SUCCESS != MPI_Isend(buffer, count, MPI_FLOAT, dest, tag, comm, &request)) {
+    throw std::runtime_error("MPI_Isend failed (float)");
+  }
+}
+
+void isend(MPI_Request &request, const double* buffer, int count, int dest, int tag, MPI_Comm comm) {
+  if (MPI_COMM_NULL == comm) {
+    comm = get_comm_default();
+  }
+
+  if (MPI_SUCCESS != MPI_Isend(buffer, count, MPI_DOUBLE, dest, tag, comm, &request)) {
+    throw std::runtime_error("MPI_Isend failed (double)");
+  }
+}
+
+void irecv(MPI_Request &request, float *buffer, int count, int source, int tag, MPI_Comm comm) {
+  if (MPI_COMM_NULL == comm) {
+    comm = get_comm_default();
+  }
+
+  if (MPI_SUCCESS != MPI_Irecv(buffer, count, MPI_FLOAT, source, tag, comm, &request)) {
+    throw std::runtime_error("MPI_Irecv failed (float)");
+  }
+}
+
+void irecv(MPI_Request &request, double *buffer, int count, int source, int tag, MPI_Comm comm) {
+  if (MPI_COMM_NULL == comm) {
+    comm = get_comm_default();
+  }
+
+  if (MPI_SUCCESS != MPI_Irecv(buffer, count, MPI_DOUBLE, source, tag, comm, &request)) {
+    throw std::runtime_error("MPI_Irecv failed (double)");
+  }
+}
+
+
 #else
 
 int dummy();
