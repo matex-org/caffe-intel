@@ -13,6 +13,7 @@
 #include "caffe/caffe.hpp"
 #include "caffe/mpi.hpp"
 #include "caffe/parallel/mpi_gossip_params_cpu.hpp"
+#include "caffe/parallel/stats.h"
 #include "caffe/util/benchmark.hpp"
 
 namespace caffe {
@@ -27,14 +28,20 @@ class MPIGossipParamsCPU<Dtype>::Reducer : public InternalThread {
     Timer timer_comm_;
     double time_in_comm_;
     vector<double> time_per_param_;
+    stats_t stats_queue_;
+    stats_t stats_comm_;
 
     Reducer(MPIGossipParamsCPU<Dtype> *sync, int tid)
         : sync_(sync), tid_(tid),
         timer_queue_(), time_in_queue_(0.0),
         timer_comm_(), time_in_comm_(0.0),
-        time_per_param_()
+        time_per_param_(),
+        stats_queue_(),
+        stats_comm_()
     { 
       time_per_param_.resize(sync_->params_.size());
+      stats_clear(&stats_queue_);
+      stats_clear(&stats_comm_);
     }
 
     void InternalThreadEntry() {
@@ -57,24 +64,30 @@ class MPIGossipParamsCPU<Dtype>::Reducer : public InternalThread {
           caffe::mpi::sendrecv(
               (const Dtype*)blob->cpu_data(), blob->count(), sync_->pair_, 1234,
               recvdata, blob->count(), sync_->pair_, 1234, comm);
-#else
+#endif
+#if 1
           vector<MPI_Request> requests(4);
-          caffe::mpi::isend(requests[0], (const Dtype*)blob->cpu_diff(),
+          caffe::mpi::irecv(requests[0], recvdiff,
               blob->count(), sync_->pair_, 2222, comm);
-          caffe::mpi::isend(requests[1], (const Dtype*)blob->cpu_data(),
+          caffe::mpi::irecv(requests[1], recvdata,
               blob->count(), sync_->pair_, 3333, comm);
-          caffe::mpi::irecv(requests[2], recvdiff,
+          caffe::mpi::isend(requests[2], (const Dtype*)blob->cpu_diff(),
               blob->count(), sync_->pair_, 2222, comm);
-          caffe::mpi::irecv(requests[3], recvdata,
+          caffe::mpi::isend(requests[3], (const Dtype*)blob->cpu_data(),
               blob->count(), sync_->pair_, 3333, comm);
           caffe::mpi::waitall(requests);
 #endif
+#if 0
+          caffe::mpi::allreduce_copy((const Dtype*)blob->cpu_diff(),
+              recvdiff, blob->count(), MPI_SUM, comm);
+#endif
           // average local data and diff into secondary buffers
+#if 1
           caffe_cpu_axpby(blob->count(), Dtype(0.5), blob->cpu_diff(), Dtype(0.5), recvdiff);
           caffe_cpu_axpby(blob->count(), Dtype(0.5), blob->cpu_data(), Dtype(0.5), recvdata);
+#endif
           time_per_param_[param_id] += timer_comm_.MilliSeconds();
           time_in_comm_ += timer_comm_.MilliSeconds();
-          //caffe_scal(blob->count(), Dtype(1.0 / sync_->comm_size_), sum);
 #else       
           NO_MPI;
 #endif        
@@ -101,7 +114,7 @@ static void get_pointers(const vector<Blob<Dtype>*>& blobs,
 template<typename Dtype>
 int MPIGossipParamsCPU<Dtype>::next() {
   pair_ = comm_rank_ ^ int(pow(2,hci_));
-  LOG(INFO) << "next() returned " << pair_;
+  //LOG(INFO) << "next() for " << comm_rank_ << " returned " << pair_;
   ++hci_;
   if (hci_ > logp_) {
     hci_ = 0;
@@ -145,7 +158,7 @@ MPIGossipParamsCPU<Dtype>::MPIGossipParamsCPU(
 
   // check that comm_size_ is a power of 2
   CHECK_EQ((comm_size_ & (comm_size_ - 1)), 0);
-  logp_ = int(log2(comm_size_));
+  logp_ = int(log2(comm_size_))-1;
 
   diff_all_ = new Dtype[size_];
   caffe_set(size_, Dtype(0), diff_all_);
@@ -170,7 +183,9 @@ MPIGossipParamsCPU<Dtype>::MPIGossipParamsCPU(
     reducers[i]->StartInternalThread();
   }
 
-  //solver_->set_scale_on_apply(Dtype(1.0 / comm_size_));
+#if 0
+  solver_->set_scale_on_apply(Dtype(1.0 / comm_size_));
+#endif
 #else
   NO_MPI;
 #endif
@@ -193,12 +208,17 @@ template<typename Dtype>
 void MPIGossipParamsCPU<Dtype>::on_start() {
   DLOG(INFO) << "on_start()";
   for (int i=0; i<reducers.size(); ++i) {
-    LOG(INFO) << "reducer[" << i << "] time queue " << reducers[i]->time_in_queue_ << " time comm " << reducers[i]->time_in_comm_;
+    stats_sample_value(&reducers[i]->stats_queue_, reducers[i]->time_in_queue_);
+    stats_sample_value(&reducers[i]->stats_comm_, reducers[i]->time_in_comm_);
+    //LOG(INFO) << "reducer[" << i << "] time queue " << reducers[i]->time_in_queue_ << " time comm " << reducers[i]->time_in_comm_;
+    LOG_EVERY_N(INFO, 20) << "reducer[" << i << "] time queue " << reducers[i]->stats_queue_._mean << " time comm " << reducers[i]->stats_comm_._mean;
+#if 0
     if (solver_->iter() > 0) {
       for (int j=params_.size()-1; j >= 0; --j) {
         LOG(INFO) << j << ": " << reducers[i]->time_per_param_[j]/solver_->iter();
       }
     }
+#endif
     reducers[i]->time_in_queue_ = 0.0;
     reducers[i]->time_in_comm_ = 0.0;
   }
@@ -225,9 +245,11 @@ int MPIGossipParamsCPU<Dtype>::on_apply(int param_id) {
   swap = blob->mutable_cpu_diff();
   blob->diff()->set_cpu_data(param_diffs_[param_id]);
   param_diffs_[param_id] = swap;
+#if 1
   swap = blob->mutable_cpu_data();
   blob->data()->set_cpu_data(param_datas_[param_id]);
   param_datas_[param_id] = swap;
+#endif
   return param_id;
 }
 

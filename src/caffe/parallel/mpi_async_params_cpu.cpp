@@ -12,6 +12,7 @@
 #include "caffe/caffe.hpp"
 #include "caffe/mpi.hpp"
 #include "caffe/parallel/mpi_async_params_cpu.hpp"
+#include "caffe/parallel/stats.h"
 #include "caffe/util/benchmark.hpp"
 
 namespace caffe {
@@ -26,14 +27,20 @@ class MPIAsyncParamsCPU<Dtype>::Reducer : public InternalThread {
     Timer timer_comm_;
     double time_in_comm_;
     vector<double> time_per_param_;
+    stats_t stats_queue_;
+    stats_t stats_comm_;
 
     Reducer(MPIAsyncParamsCPU<Dtype> *sync, int tid)
         : sync_(sync), tid_(tid),
         timer_queue_(), time_in_queue_(0.0),
         timer_comm_(), time_in_comm_(0.0),
-        time_per_param_()
+        time_per_param_(),
+        stats_queue_(),
+        stats_comm_()
   { 
     time_per_param_.resize(sync->params_.size());
+    stats_clear(&stats_queue_);
+    stats_clear(&stats_comm_);
   }
 
     void InternalThreadEntry() {
@@ -164,12 +171,17 @@ template<typename Dtype>
 void MPIAsyncParamsCPU<Dtype>::on_start() {
   DLOG(INFO) << "on_start()";
   for (int i=0; i<reducers.size(); ++i) {
-    LOG(INFO) << "reducer[" << i << "] time queue " << reducers[i]->time_in_queue_ << " time comm " << reducers[i]->time_in_comm_;
+    stats_sample_value(&reducers[i]->stats_queue_, reducers[i]->time_in_queue_);
+    stats_sample_value(&reducers[i]->stats_comm_, reducers[i]->time_in_comm_);
+    //LOG(INFO) << "reducer[" << i << "] time queue " << reducers[i]->time_in_queue_ << " time comm " << reducers[i]->time_in_comm_;
+    LOG_EVERY_N(INFO, 20) << "reducer[" << i << "] time queue " << reducers[i]->stats_queue_._mean << " time comm " << reducers[i]->stats_comm_._mean;
+#if 0
     if (solver_->iter() > 0) {
       for (int j=params_.size()-1; j >= 0; --j) {
         LOG(INFO) << j << ": " << reducers[i]->time_per_param_[j]/solver_->iter();
       }
     }
+#endif
     reducers[i]->time_in_queue_ = 0.0;
     reducers[i]->time_in_comm_ = 0.0;
   }

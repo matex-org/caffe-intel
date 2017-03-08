@@ -893,10 +893,12 @@ int main(int argc, char** argv) {
   if (argc == 2) {
     //if (FLAGS_par != "") {
       // only log info from master
+#if 1
       if (caffe::mpi::comm_rank() > 0) {
         FLAGS_minloglevel = 2;
       }
       LOG(INFO) << "MPI is initialized, disabling logging from other ranks";
+#endif
     //}
 #ifdef WITH_PYTHON_LAYER
     try {
