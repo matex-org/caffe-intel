@@ -321,6 +321,7 @@ void Solver<Dtype>::Step(int iters) {
       lapse_total += lapse;
       float total_per_s = iter_ / lapse_total;
 #ifdef USE_MPI
+#if 0
      int num_ranks=0;
      MPI_Comm_size(MPI_COMM_WORLD, &num_ranks);
      const Dtype scale_factor = 1.0 / static_cast<Dtype>(num_ranks);
@@ -333,6 +334,7 @@ void Solver<Dtype>::Step(int iters) {
                  ((sizeof(Dtype) >> 3) ? MPI_DOUBLE : MPI_FLOAT),
                   MPI_SUM, MPI_COMM_WORLD );
     smoothed_loss_ = global_smoothed_loss * scale_factor;
+#endif
 
       LOG_IF(INFO, Caffe::root_solver())
           << caffe::internode::mpi_get_current_proc_rank_as_string()
