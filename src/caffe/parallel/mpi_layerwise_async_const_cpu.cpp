@@ -290,6 +290,8 @@ void MPI_layerwise_async_const_CPU<Dtype>::background_task(const int num_learnab
 
       const size_t count = blob->count();
       const size_t offset = (reinterpret_cast<size_t>(param_data) - reinterpret_cast<size_t>(params_[0]->cpu_data())) / sizeof(Dtype);
+      MPI_Status status;
+
 /*      std::clog << "Node [" << background_comm_rank << "] "
                 << " For gradient_ready parameter " 
                 << current_layer 
@@ -328,44 +330,56 @@ void MPI_layerwise_async_const_CPU<Dtype>::background_task(const int num_learnab
         //          buddies[0], buddies[1], (current_stage + (0x1 << 6)));
 
         // Exchange diffs
-        MPI_Status status_array[2];
-        MPI_Request requests[2];
         int error;
 
-        error = MPI_Irecv((&diff_send_buffer_[offset]),
-                          count,
-                          ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
-                          remote_node,
-                          (current_stage * (0x1 << 6))+current_layer,
-                          background_comm,
-                          &requests[0]);
-        if (error != MPI_SUCCESS) {
-          std::clog << "Error doing MPI_Irecv " << std::endl;
-          fflush(stderr);
-          exit(99);
+        if (remote_node == buddies[0]) {
+          error = MPI_Ssend((void *)param_diff_const, count, 
+                            ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
+                            remote_node,
+                            (current_stage * (0x1 << 6))+current_layer,
+                            background_comm);
+          if (error != MPI_SUCCESS) {
+            std::clog << "Error doing MPI_Ssend " << std::endl;
+            fflush(stderr);
+            exit(99);
+          }
+
+          error = MPI_Recv((&diff_send_buffer_[offset]),
+                            count,
+                            ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
+                            remote_node,
+                            (current_stage * (0x1 << 6))+current_layer,
+                            background_comm, &status);
+          if (error != MPI_SUCCESS) {
+            std::clog << "Error doing MPI_Irecv " << std::endl;
+            fflush(stderr);
+            exit(99);
+          }
+        } else {
+          error = MPI_Recv((&diff_send_buffer_[offset]),
+                            count,
+                            ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
+                            remote_node,
+                            (current_stage * (0x1 << 6))+current_layer,
+                            background_comm, &status);
+          if (error != MPI_SUCCESS) {
+            std::clog << "Error doing MPI_Irecv " << std::endl;
+            fflush(stderr);
+            exit(99);
+          }
+
+
+          error = MPI_Ssend((void *)param_diff_const, count, 
+                            ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
+                            remote_node,
+                            (current_stage * (0x1 << 6))+current_layer,
+                            background_comm);
+          if (error != MPI_SUCCESS) {
+            std::clog << "Error doing MPI_Ssend " << std::endl;
+            fflush(stderr);
+            exit(99);
+          }
         }
-
-
-        error = MPI_Isend((void *)param_diff_const, count, 
-                          ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
-                          remote_node,
-                          (current_stage * (0x1 << 6))+current_layer,
-                          background_comm,
-                          &requests[1]);
-        if (error != MPI_SUCCESS) {
-          std::clog << "Error doing MPI_Ssend " << std::endl;
-          fflush(stderr);
-          exit(99);
-        }
-
-
-        error = MPI_Waitall(2, requests, status_array);
-        if (error != MPI_SUCCESS) {
-          std::clog << "Error doing MPI_Waitall " << std::endl;
-          fflush(stderr);
-          exit(99);
-        }
- 
 
 /*
         int error;
@@ -417,40 +431,58 @@ void MPI_layerwise_async_const_CPU<Dtype>::background_task(const int num_learnab
           exit(1);
         }
 */
-        error = MPI_Irecv((&data_send_buffer_[offset]),
-                          count,
-                          ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
-                          remote_node,
-                          (current_stage * (0x1 << 7))+current_layer,
-                          background_comm,
-                          &requests[0]);
-        if (error != MPI_SUCCESS) {
-          std::clog << "Error doing MPI_Irecv " << std::endl;
-          fflush(stderr);
-          exit(99);
+        if (remote_node == buddies[0]) {
+          error = MPI_Ssend((void *)param_data, count, 
+                            ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
+                            remote_node,
+                            (current_stage * (0x1 << 7))+current_layer,
+                            background_comm); 
+          if (error != MPI_SUCCESS) {
+            std::clog << "Error doing MPI_Ssend " << std::endl;
+            fflush(stderr);
+            exit(99);
+          }
+
+          error = MPI_Recv((&data_send_buffer_[offset]),
+                            count,
+                            ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
+                            remote_node,
+                            (current_stage * (0x1 << 7))+current_layer,
+                            background_comm, &status);
+          if (error != MPI_SUCCESS) {
+            std::clog << "Error doing MPI_Irecv " << std::endl;
+            fflush(stderr);
+            exit(99);
+          }
+
+
+
+        } else {
+          error = MPI_Recv((&data_send_buffer_[offset]),
+                            count,
+                            ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
+                            remote_node,
+                            (current_stage * (0x1 << 7))+current_layer,
+                            background_comm, &status);
+          if (error != MPI_SUCCESS) {
+            std::clog << "Error doing MPI_Irecv " << std::endl;
+            fflush(stderr);
+            exit(99);
+          }
+
+
+          error = MPI_Ssend((void *)param_data, count, 
+                            ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
+                            remote_node,
+                            (current_stage * (0x1 << 7))+current_layer,
+                            background_comm); 
+          if (error != MPI_SUCCESS) {
+            std::clog << "Error doing MPI_Ssend " << std::endl;
+            fflush(stderr);
+            exit(99);
+          }
+
         }
-
-
-        error = MPI_Isend((void *)param_data, count, 
-                          ((sizeof(Dtype) ==4) ? MPI_FLOAT : MPI_DOUBLE),
-                          remote_node,
-                          (current_stage * (0x1 << 7))+current_layer,
-                          background_comm, 
-                          &requests[1]);
-        if (error != MPI_SUCCESS) {
-          std::clog << "Error doing MPI_Ssend " << std::endl;
-          fflush(stderr);
-          exit(99);
-        }
-
-
-        error = MPI_Waitall(2, requests, status_array);
-        if (error != MPI_SUCCESS) {
-          std::clog << "Error doing MPI_Waitall " << std::endl;
-          fflush(stderr);
-          exit(99);
-        }
-
 
 
         std::clog << "Node [" << background_comm_rank << "] "
@@ -462,7 +494,7 @@ void MPI_layerwise_async_const_CPU<Dtype>::background_task(const int num_learnab
         const size_t limit = offset + count;
 
         // Average data and diffs, but don't move data yet
-        for (size_t i = offset; i < limit; i++) {
+/*        for (size_t i = offset; i < limit; i++) {
           const Dtype temp = (data_send_buffer_[i] + data_[i]) * (Dtype)0.5;
           const Dtype temp2 = (diff_send_buffer_[i] + diff_[i]) * (Dtype)0.5;
           data_send_buffer_[i] = temp;
@@ -472,6 +504,7 @@ void MPI_layerwise_async_const_CPU<Dtype>::background_task(const int num_learnab
                   << " merging of layer " 
                   << current_layer << " done. " << std::endl;
         fflush(stderr);
+*/
 
         gradient_done_[current_layer]=1;
 

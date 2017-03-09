@@ -1,6 +1,6 @@
 net: "runs_puma/Alexnet_Quicksolver_Batchsize_256/Layerwise_current_constant/04_models/train_batch256_val_batch50.prototxt"
 solver_mode: CPU
-snapshot_prefix: "runs_puma/Alexnet_Quicksolver_Batchsize_256/Layerwise_current_constant/04_models/"
+snapshot_prefix: "runs_puma/Alexnet_Quicksolver_Batchsize_256/Layerwise_current_constant/04_models/quick256_"
 
 # How many forward passes (test iterations) per test_interval
 test_iter: 500
@@ -11,7 +11,8 @@ test_interval: 1000
 test_initialization: false
 
 # Maximum number of iterations before stopping the training
-max_iter: 5000
+max_iter: 1001
+#max_iter: 5000
 #max_iter: 60000
 
 #
@@ -32,6 +33,6 @@ weight_decay: 0.0005
 
 
 # Display every 50 iterations
-display: 50
+display:50
 
 

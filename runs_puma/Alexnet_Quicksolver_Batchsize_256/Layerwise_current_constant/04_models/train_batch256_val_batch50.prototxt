@@ -13,7 +13,7 @@ layer {
     mean_file: "/lustre/d3n000/imagenet_mean.binaryproto"
   }
   data_param {
-    source: "/lustre/d3n000/ilsvrc12_train_lmdb_0-9.nc"
+    source: "/lustre/d3n000/ilsvrc12_train_lmdb_0.nc"
     batch_size: 64
   }
 }
