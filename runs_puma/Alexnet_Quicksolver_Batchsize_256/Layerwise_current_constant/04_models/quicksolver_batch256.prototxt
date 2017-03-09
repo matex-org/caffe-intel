@@ -1,6 +1,6 @@
 net: "runs_puma/Alexnet_Quicksolver_Batchsize_256/Layerwise_current_constant/04_models/train_batch256_val_batch50.prototxt"
 solver_mode: CPU
-snapshot_prefix: "runs_puma/Alexnet_Quicksolver_Batchsize_256/Layerwise_current_constant/04_models/quick256_"
+snapshot_prefix: "runs_puma/Alexnet_Quicksolver_Batchsize_256/Layerwise_current_constant/04_models/quick256_4"
 
 # How many forward passes (test iterations) per test_interval
 test_iter: 500

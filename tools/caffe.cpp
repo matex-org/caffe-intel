@@ -56,6 +56,7 @@ namespace bp = boost::python;
 #include "caffe/parallel/mpi_sync_cpu.hpp"
 #include "caffe/parallel/mpi_subgroup_nonblocking_cpu.hpp"
 #include "caffe/parallel/mpi_layerwise_async_const_cpu.hpp"
+#include "caffe/parallel/mpi_layerwise_async_rotate_cpu.hpp"
 #include "caffe/training_utils.hpp"
 #include "caffe/util/signal_handler.h"
 
@@ -373,7 +374,14 @@ int train() {
         async.Run();
       }
     } else if (FLAGS_par == "MPI_Layerwise_Const_CPU") {
+      caffe::MPI_layerwise_async_const_CPU<float> async(solver,
+                                                  FLAGS_randomize_subgroups,
+	                                          FLAGS_initial_allreduce_iters,
+                                                  FLAGS_num_subgroup_iters,
+                                                  FLAGS_num_allreduce_iters);
+      async.Run();
 
+    } else if (FLAGS_par == "MPI_Layerwise_Rotate_CPU") {
       caffe::MPI_layerwise_async_const_CPU<float> async(solver,
                                                   FLAGS_randomize_subgroups,
 	                                          FLAGS_initial_allreduce_iters,
