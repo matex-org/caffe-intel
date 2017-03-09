@@ -11,8 +11,7 @@ test_interval: 1000
 test_initialization: false
 
 # Maximum number of iterations before stopping the training
-max_iter: 1001
-#max_iter: 5000
+max_iter: 5000
 #max_iter: 60000
 
 #

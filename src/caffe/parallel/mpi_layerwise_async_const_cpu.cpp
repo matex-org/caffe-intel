@@ -195,48 +195,25 @@ void MPI_layerwise_async_const_CPU<Dtype>::on_gradients_ready(int param_id) {
             << " using slots " << gradient_index_count_ << " to " << (gradient_index_count_ + blob->count() -1)
             << std::endl;
 */
-  // Would insert trigger for background operation here, and set atomic flag for when part(param_id) is done
 
-  // Do immediate-mode transfer, not background 
   if (solver_->iter() >= initial_allreduce_iterations_) {
 
+    // make sure prior iterations' work for this param_id is completed (it should be...)
     if (gradient_done_[param_id] != 0) {
       size_t waitcount=0;
       while (gradient_done_[param_id] != 0) {waitcount++;}
       std::clog << "Node [" << caffe::mpi::comm_rank(comm_) << "] in on_gradients_ready("
                 << "param_id=" << param_id
-                << ") for iter " << solver_->iter() << " had waitcount " << waitcount << " until gradient_done_ finished resetting" << std::endl;
+                << ") for iter " << solver_->iter() 
+                << " had waitcount " << waitcount 
+                << " until gradient_done_ finished resetting" << std::endl;
       fflush(stderr);
     }
 
-    // Tell background task to start transferring
-    gradient_ready_[param_id]=1;  // atomic variable transition from 1 to 0 enables copy/averaging task
+    // Tell background task to start transferring/averaging for parameter param_id
     apply_done_[param_id]=0; 
-
-   /*
-    const int virtual_id = reverse_map_[current_map_index_][comm_rank_];
-
-    std::vector<std::vector<int>> peerlist(nodegroups.get_stagelist(virtual_id));
-    std::vector<int> virtual_buddies(peerlist[current_stage_]);
-    std::vector<int> buddies(virtual_buddies.size());
-    for (int i = 0; i < virtual_buddies.size(); i++) {
-      buddies[i] = forward_map_[current_map_index_][virtual_buddies[i]];
-    }
-
-    if (buddies.size() == 2) {
-      // blocking merge diffs between 2 nodes using mergebuffer_ as temp space
-      mpi_avg_2(param_diff, (Dtype *) &mergebuffer_[gradient_index_count_], blob->count(),
-                buddies[0], buddies[1], (current_stage_ + (0x1 << 6)));
-
-    } else {
-      std::cerr << "Error - expecting buddies.size() to be 2 but was " << buddies.size() << std::endl;
-      exit(1);
-    }   
-    */
-
-
+    gradient_ready_[param_id]=1; 
   }
-
   
 }
 
@@ -258,22 +235,17 @@ void MPI_layerwise_async_const_CPU<Dtype>::background_task(const int num_learnab
   fflush(stderr);
   while (!stopping) {
     current_layer = (num_learnable_layers - 1); 
-    // current layer is "current_layer"
-
 
     const int virtual_id = reverse_map_[current_map_index_][background_comm_rank];
 
     std::vector<std::vector<int>> peerlist(nodegroups.get_stagelist(virtual_id));
-
     std::vector<int> virtual_buddies(peerlist[current_stage]);
     std::vector<int> buddies(virtual_buddies.size());
     for (int i = 0; i < virtual_buddies.size(); i++) {
       buddies[i] = forward_map_[current_map_index_][virtual_buddies[i]];
     }
 
-    int remote_node;
-
-
+    MPI_Status status;
 
     // gradients
     while ((!stopping) && (current_layer >= 0)) { 
@@ -289,41 +261,20 @@ void MPI_layerwise_async_const_CPU<Dtype>::background_task(const int num_learnab
       const Dtype *param_data = blob->cpu_data();
 
       const size_t count = blob->count();
-      const size_t offset = (reinterpret_cast<size_t>(param_data) - reinterpret_cast<size_t>(params_[0]->cpu_data())) / sizeof(Dtype);
-      MPI_Status status;
+      const size_t offset = (reinterpret_cast<size_t>(param_data) - 
+                             reinterpret_cast<size_t>(params_[0]->cpu_data())) / sizeof(Dtype);
 
-/*      std::clog << "Node [" << background_comm_rank << "] "
-                << " For gradient_ready parameter " 
-                << current_layer 
-                << " offset is " << offset 
-                << " and count is " << count
-                << " while size_ is " << size_
-                << std::endl;
-*/
       if (buddies.size() == 2) {
-   
+/*   
         std::clog << "Node [" << background_comm_rank << "] "
                   << " - exchange of param_id " << current_layer << " is between " 
                   << buddies[0] << " and " << buddies[1] << std::endl;
         fflush(stderr);
+*/
 
-        if (buddies[0] == background_comm_rank) {
-          // I am root
-          remote_node = buddies[1];
-        } else {
-          remote_node = buddies[0];
-        }
-
-        std::clog << "Node [" << background_comm_rank << "] "
-                  << " For gradient_ready parameter " 
-                  << current_layer 
-                  << " offset is " << offset 
-                  << " and count is " << count
-                  << " while size_ is " << size_
-                  << ", exchanging diff with node " << remote_node
-                  << std::endl;
-        fflush(stderr);
-
+        const int remote_node = ((buddies[0] == background_comm_rank)
+                                 ? buddies[1]
+                                 : buddies[0]);
 
         // blocking merge diffs between 2 nodes using mergebuffer_ as temp space
         //mpi_avg_2(param_diff, (Dtype *) &mergebuffer_[offset], count,
@@ -403,6 +354,7 @@ void MPI_layerwise_async_const_CPU<Dtype>::background_task(const int num_learnab
         }
 */
 
+/*
         std::clog << "Node [" << background_comm_rank << "] "
                   << " send/receive layer " 
                   << current_layer 
@@ -410,6 +362,7 @@ void MPI_layerwise_async_const_CPU<Dtype>::background_task(const int num_learnab
                   << ". Now exchanging data" 
                   << std::endl;
         fflush(stderr);
+*/
 
         // Exchange data
 /*        error = MPI_Sendrecv((void *)param_data, count, 
@@ -455,8 +408,6 @@ void MPI_layerwise_async_const_CPU<Dtype>::background_task(const int num_learnab
             exit(99);
           }
 
-
-
         } else {
           error = MPI_Recv((&data_send_buffer_[offset]),
                             count,
@@ -485,31 +436,23 @@ void MPI_layerwise_async_const_CPU<Dtype>::background_task(const int num_learnab
         }
 
 
-        std::clog << "Node [" << background_comm_rank << "] "
-                  << " send/receive layer " 
-                  << current_layer 
-                  << " data_ exchange completed with node " << remote_node
-                  << std::endl;
-        fflush(stderr);
         const size_t limit = offset + count;
 
         // Average data and diffs, but don't move data yet
-/*        for (size_t i = offset; i < limit; i++) {
+        for (size_t i = offset; i < limit; i++) {
           const Dtype temp = (data_send_buffer_[i] + data_[i]) * (Dtype)0.5;
           const Dtype temp2 = (diff_send_buffer_[i] + diff_[i]) * (Dtype)0.5;
           data_send_buffer_[i] = temp;
           diff_[i]=temp2;
         }
-        std::clog << "Node [" << background_comm_rank << "] "
-                  << " merging of layer " 
-                  << current_layer << " done. " << std::endl;
-        fflush(stderr);
-*/
+
 
         gradient_done_[current_layer]=1;
 
       } else {
-        std::cerr << "Error - expecting buddies.size() to be 2 but was " << buddies.size() << std::endl;
+        std::cerr << "Error - expecting buddies.size() to be 2 but was " 
+                  << buddies.size() 
+                  << std::endl;
         fflush(stderr);
         exit(9);
       }   
@@ -518,7 +461,8 @@ void MPI_layerwise_async_const_CPU<Dtype>::background_task(const int num_learnab
     }; // while - on_gradients_ready(current_level) 
 
 
-    // on_apply(param_id) part - let foreground thread do the data apply; we've done background gradient apply already
+    // on_apply(param_id) part - let foreground thread do the data apply; 
+    // we've done background gradient apply already
     current_layer = (num_learnable_layers - 1); 
 
     while ((!stopping) && (current_layer >= 0)) { 
@@ -531,12 +475,17 @@ void MPI_layerwise_async_const_CPU<Dtype>::background_task(const int num_learnab
       }
     }; // while for applies 
 
+
+    // are we finished with the iteration, or stopping?
     if (!stopping) {
       local_iter++;
       // put remapping parts here rather than in the on_post_apply() section
+/* 
       std::clog << "Node [" << background_comm_rank << "] "
                 << "Background iter " << local_iter << " completed." << std::endl;
       fflush(stderr);
+*/
+
       current_stage++;
 
       if (current_stage == comm_stages_) {
@@ -562,12 +511,15 @@ void MPI_layerwise_async_const_CPU<Dtype>::background_task(const int num_learnab
   } // while not stopping
 
   std::clog << "Node [" << background_comm_rank << "] "
-            << "Background task got stop signal after completing " << local_iter << " iterations " << std::endl;
+            << "Background task got stop signal after completing " 
+            << local_iter 
+            << " iterations " << std::endl;
   fflush(stderr);
 
   background_running =0;
   return;
 }
+
 
 
 template<typename Dtype>
@@ -580,37 +532,28 @@ int MPI_layerwise_async_const_CPU<Dtype>::on_apply(int param_id) {
   Blob<Dtype> *blob = params_[param_id];
   Dtype *param_data = blob->mutable_cpu_data();
   const size_t count = blob->count();
-  const size_t offset = (reinterpret_cast<size_t>(param_data) - reinterpret_cast<size_t>(params_[0]->cpu_data())) / sizeof(Dtype);
+  const size_t offset = (reinterpret_cast<size_t>(param_data) - 
+                        reinterpret_cast<size_t>(params_[0]->cpu_data())) / sizeof(Dtype);
 
-  // If (and only if) clip_gradients < 0 then we could put wait( part(param_id) complete) here so that background 
-  // transmission done.  ? whether we actually can update _data_ (param_id)  before this point or not ?
+  // If (and only if) clip_gradients < 0 then we could put wait( part(param_id) complete) 
+  // here so that background  transmission done.  ? whether we actually can update _data_ (param_id)  before this point or not ?
 
   if (solver_->iter() >= initial_allreduce_iterations_) {
-
      // spin-wait until gradients averaged and data copied
      if (!gradient_done_[param_id]) {
-       std::clog << "Node [" << caffe::mpi::comm_rank(comm_) << "] in on_apply("
-                 << " waiting for gradient_done_ for param_id=" << param_id
-                 << ") on iter " << solver_->iter() << std::endl;
-       fflush(stderr);
      
        size_t waitcount=0;
        while (!gradient_done_[param_id]) {waitcount++;};
-        std::clog << "Node [" << caffe::mpi::comm_rank(comm_) << "] in on_apply("
-                  << "param_id=" << param_id
-                  << ") for iter " << solver_->iter() << " had waitcount " << waitcount << std::endl;
-        fflush(stderr);
-    } else {
        std::clog << "Node [" << caffe::mpi::comm_rank(comm_) << "] in on_apply("
-                 << " param_id=" << param_id
-                 << ")  had no wait for gradient_done_ on iter " << solver_->iter() << std::endl;
+                 << "param_id=" << param_id
+                 << ") for iter " << solver_->iter() 
+                 << " had waitcount " << waitcount << std::endl;
        fflush(stderr);
-    }
+     }
 
-    // todo: use new_data_ instead and double-buffer pointers rather than bulk copying
-    std::memcpy(&data_[offset], (Dtype *)&data_send_buffer_[offset], (count * sizeof(Dtype)));
-    apply_done_[param_id]=1; 
-
+     // todo: use new_data_ instead and double-buffer pointers rather than bulk copying
+     std::memcpy(&data_[offset], (Dtype *)&data_send_buffer_[offset], (count * sizeof(Dtype)));
+     apply_done_[param_id]=1; 
   }
 
   return param_id;
@@ -635,9 +578,7 @@ void MPI_layerwise_async_const_CPU<Dtype>::shuffle_vector(int *array_ptr, const 
 template<typename Dtype>
 MPI_layerwise_async_const_CPU<Dtype>::~MPI_layerwise_async_const_CPU() {
   stopping =1;
-  std::clog << "Signalling background task." << std::endl;
   while (background_running) {};
-  std::clog << "Background task ending." << std::endl;
   background_thread_.join();
   std::clog << "Background task ended." << std::endl;
 }
