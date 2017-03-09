@@ -11,8 +11,8 @@ source ./env_caffe.sh
 #SBATCH -e stderr.alexnet.quicksolver.layerwise_const.4models.5cores.batch256.txt
 #SBATCH -p all
 mpiexec \
-	-genv MV2_VBUF_TOTAL_SIZE=6144 \
-        -genv MV2_IBA_EAGER_THRESHOLD=6144 \
+	-genv MV2_VBUF_TOTAL_SIZE=536862720 \
+        -genv MV2_IBA_EAGER_THRESHOLD=8192 \
         -genv OMP_NUM_THREADS=5 \
         -genv MKL_NUM_THREADS=5 \
         --wdir ${WORKING_DIR}  \

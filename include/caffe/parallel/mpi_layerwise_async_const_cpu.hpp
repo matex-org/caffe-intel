@@ -3,7 +3,11 @@
 
 #include <boost/date_time/posix_time/posix_time.hpp>
 
+#include <cstdio>
+
 #include <vector>
+#include <atomic>
+#include <thread>
 
 #include "caffe/common.hpp"
 #include "caffe/mpi.hpp"
@@ -27,6 +31,9 @@ class MPI_layerwise_async_const_CPU : public CPUParams<Dtype>, public Solver<Dty
    int comm_rank_;
    const int node_rank_;
    const int rgroup_bits_;
+   const vector<Blob<Dtype>*> &params_;
+
+   const size_t num_layers_;
 
    // subgroup storage
    Groups nodegroups;
@@ -36,14 +43,14 @@ class MPI_layerwise_async_const_CPU : public CPUParams<Dtype>, public Solver<Dty
    std::vector<Dtype> data_send_buffer_;
    std::vector<Dtype> diff_send_buffer_;
 
-   std::vector<MPI_Status> send_status_;
-   std::vector<MPI_Status> receive_status_;
-
-   std::vector<MPI_Request> send_request_;
-   std::vector<MPI_Request> receive_request_;
-
 
    std::vector<Dtype> mergebuffer_;
+   std::vector<std::vector<Dtype>> new_data_;
+
+   std::vector<std::atomic<int>> gradient_ready_;
+   std::vector<std::atomic<int>> gradient_done_;
+   std::vector<std::atomic<int>> apply_done_;
+
    std::vector<Dtype> prior_data_;
    std::vector<Dtype> prior_diff_;
    MPI_Request prior_data_request[2];
@@ -70,6 +77,8 @@ class MPI_layerwise_async_const_CPU : public CPUParams<Dtype>, public Solver<Dty
   void Run();
   void Step(int iters);
 
+  void background_task(const int num_learnable_layers);
+
   std::vector<MPI_Comm> subcomm_;
   std::vector<MPI_Comm> subcomm2_;
   std::vector<int> subcomm_size_;
@@ -81,6 +90,8 @@ class MPI_layerwise_async_const_CPU : public CPUParams<Dtype>, public Solver<Dty
  // void mpi_avg_3(Dtype * real_buffer, Dtype * temp_buffer, size_t pcount,
  //                int root_node, int remote_node1, int remote_node2, int tag);
 
+
+
  protected:
   void on_start();
   void on_gradients_ready(int param_id);
@@ -90,7 +101,6 @@ class MPI_layerwise_async_const_CPU : public CPUParams<Dtype>, public Solver<Dty
 
   shared_ptr<Solver<Dtype> > solver_;
 
-  const vector<Blob<Dtype>*> &params_;
   Timer timer_;
   double time_;
 
@@ -106,7 +116,7 @@ class MPI_layerwise_async_const_CPU : public CPUParams<Dtype>, public Solver<Dty
   // use for remapping logical rank to physical
   std::vector<std::vector<int>> forward_map_;
   std::vector<std::vector<int>> reverse_map_;
-  int current_map_index_;
+  std::atomic<int> current_map_index_;
   std::mt19937 my_rnd_gen_;
 
   void shuffle_vector(int *array_ptr, const int num_elements);
@@ -117,6 +127,11 @@ class MPI_layerwise_async_const_CPU : public CPUParams<Dtype>, public Solver<Dty
    const uint64_t initial_allreduce_iterations_;
    const int64_t num_subgroup_iterations_per_allreduce_block_;
    const int64_t num_allreduce_iterations_per_allreduce_block_;
+
+ public:
+  std::atomic<int> background_running;
+  std::atomic<int> stopping;
+  std::thread background_thread_;
  };
 
 }  // namespace caffe

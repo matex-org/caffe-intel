@@ -35,7 +35,10 @@ class MPI_subgroup_nonblocking_CPU : public CPUParams<Dtype>, public Solver<Dtyp
    int current_stage_;
    std::vector<Dtype> data_send_buffer_;
    std::vector<Dtype> diff_send_buffer_;
+
    std::vector<Dtype> mergebuffer_;
+
+
    std::vector<Dtype> prior_data_;
    std::vector<Dtype> prior_diff_;
    MPI_Request prior_data_request[2];
