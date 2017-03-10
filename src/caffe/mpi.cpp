@@ -5,13 +5,20 @@
 #include <stdexcept>
 #include <unistd.h> // for gethostid()
 #include "caffe/mpi.hpp"
+#include "caffe/util/benchmark.hpp"
+#include "caffe/util/io.hpp"
 
 namespace caffe {
+double allreducecopy_time=0.0;
+double allreduce_time=0.0;
+double bcast_time=0.0;
+long unsigned int allreduce_data=0;
 namespace mpi {
 
 #ifdef USE_MPI
 
 MPI_Comm default_comm_ = MPI_COMM_WORLD;
+Timer comm_timer;
 
 MPI_Comm get_comm_default() {
   return default_comm_;
@@ -59,6 +66,9 @@ void finalize() {
   if (MPI_SUCCESS != MPI_Finalize()) {
     throw std::runtime_error("MPI_Finalize failed");
   }
+  LOG(INFO) << "ALLREDUCE_COPY Time:" << allreducecopy_time << " s";
+  LOG(INFO) << "ALLREDUCE Time:" << allreduce_time << " s";
+  LOG(INFO) << "BCAST Time:" << bcast_time << " s";
 }
 
 int query_thread() {
@@ -200,10 +210,12 @@ void allreduce_copy(const float& sendbuf, float& recvbuf, MPI_Op op,
     comm = get_comm_default();
   }
 
+  comm_timer.Start();
   if (MPI_SUCCESS != MPI_Allreduce((void*)&sendbuf, &recvbuf, 1,
               MPI_FLOAT, op, comm)) {
     throw std::runtime_error("MPI_Allreduce failed (allreduce_copy 1 float)");
   }
+  allreducecopy_time += comm_timer.Seconds();
 }
 
 void allreduce_copy(const double& sendbuf, double& recvbuf, MPI_Op op,
@@ -212,10 +224,12 @@ void allreduce_copy(const double& sendbuf, double& recvbuf, MPI_Op op,
     comm = get_comm_default();
   }
 
+  comm_timer.Start();
   if (MPI_SUCCESS != MPI_Allreduce((void*)&sendbuf, &recvbuf, 1,
               MPI_DOUBLE, op, comm)) {
     throw std::runtime_error("MPI_Allreduce failed (allreduce_copy 1 double)");
   }
+  allreducecopy_time += comm_timer.Seconds();
 }
 
 void allreduce_copy(const float* sendbuf, float* recvbuf, int count,
@@ -224,10 +238,12 @@ void allreduce_copy(const float* sendbuf, float* recvbuf, int count,
     comm = get_comm_default();
   }
 
+  comm_timer.Start();
   if (MPI_SUCCESS != MPI_Allreduce((void*)sendbuf, recvbuf, count,
               MPI_FLOAT, op, comm)) {
     throw std::runtime_error("MPI_Allreduce failed (allreduce_copy float)");
   }
+  allreducecopy_time += comm_timer.Seconds();
 }
 
 void allreduce_copy(const double* sendbuf, double* recvbuf, int count,
@@ -236,10 +252,12 @@ void allreduce_copy(const double* sendbuf, double* recvbuf, int count,
     comm = get_comm_default();
   }
 
+  comm_timer.Start();
   if (MPI_SUCCESS != MPI_Allreduce((void*)sendbuf, recvbuf, count,
               MPI_DOUBLE, op, comm)) {
     throw std::runtime_error("MPI_Allreduce failed (allreduce_copy double)");
   }
+  allreducecopy_time += comm_timer.Seconds();
 }
 
 void allreduce(float& buffer, MPI_Op op, MPI_Comm comm) {
@@ -247,10 +265,13 @@ void allreduce(float& buffer, MPI_Op op, MPI_Comm comm) {
     comm = get_comm_default();
   }
 
+  comm_timer.Start();
   if (MPI_SUCCESS != MPI_Allreduce(MPI_IN_PLACE, &buffer, 1,
               MPI_FLOAT, op, comm)) {
     throw std::runtime_error("MPI_Allreduce failed (allreduce 1 float)");
   }
+  allreduce_data+=4;
+  allreduce_time += comm_timer.Seconds();
 }
 
 void allreduce(double& buffer, MPI_Op op, MPI_Comm comm) {
@@ -258,10 +279,13 @@ void allreduce(double& buffer, MPI_Op op, MPI_Comm comm) {
     comm = get_comm_default();
   }
 
+  comm_timer.Start();
   if (MPI_SUCCESS != MPI_Allreduce(MPI_IN_PLACE, &buffer, 1,
               MPI_DOUBLE, op, comm)) {
     throw std::runtime_error("MPI_Allreduce failed (allreduce 1 double)");
   }
+  allreduce_data+=8;
+  allreduce_time += comm_timer.Seconds();
 }
 
 void allreduce(float* buffer, int count, MPI_Op op, MPI_Comm comm) {
@@ -269,10 +293,14 @@ void allreduce(float* buffer, int count, MPI_Op op, MPI_Comm comm) {
     comm = get_comm_default();
   }
 
+  comm_timer.Start();
   if (MPI_SUCCESS != MPI_Allreduce(MPI_IN_PLACE, buffer, count,
               MPI_FLOAT, op, comm)) {
     throw std::runtime_error("MPI_Allreduce failed (allreduce float)");
   }
+  std::cout << count << std::endl;
+  allreduce_data+=4*count;
+  allreduce_time += comm_timer.Seconds();
 }
 
 void allreduce(double* buffer, int count, MPI_Op op, MPI_Comm comm) {
@@ -280,10 +308,13 @@ void allreduce(double* buffer, int count, MPI_Op op, MPI_Comm comm) {
     comm = get_comm_default();
   }
 
+  comm_timer.Start();
   if (MPI_SUCCESS != MPI_Allreduce(MPI_IN_PLACE, buffer, count,
               MPI_DOUBLE, op, comm)) {
     throw std::runtime_error("MPI_Allreduce failed (allreduce double)");
   }
+  allreduce_data+=8*count;
+  allreduce_time += comm_timer.Seconds();
 }
 
 void bcast(float* buffer, int count, int root, MPI_Comm comm) {
@@ -291,9 +322,11 @@ void bcast(float* buffer, int count, int root, MPI_Comm comm) {
     comm = get_comm_default();
   }
 
+  comm_timer.Start();
   if (MPI_SUCCESS != MPI_Bcast(buffer, count, MPI_FLOAT, root, comm)) {
     throw std::runtime_error("MPI_Bcast failed");
   }
+  bcast_time += comm_timer.Seconds();
 }
 
 void bcast(double* buffer, int count, int root, MPI_Comm comm) {
@@ -301,9 +334,11 @@ void bcast(double* buffer, int count, int root, MPI_Comm comm) {
     comm = get_comm_default();
   }
 
+  comm_timer.Start();
   if (MPI_SUCCESS != MPI_Bcast(buffer, count, MPI_DOUBLE, root, comm)) {
     throw std::runtime_error("MPI_Bcast failed");
   }
+  bcast_time += comm_timer.Seconds();
 }
 
 #else

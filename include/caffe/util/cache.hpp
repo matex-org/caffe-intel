@@ -4,6 +4,7 @@
 #include <vector>
 #include <iostream>
 #include <fstream>
+#include <boost/atomic.hpp>
 
 #include "caffe/blob.hpp"
 #include "caffe/data_transformer.hpp"
@@ -34,9 +35,10 @@ class Cache
   class Cache * next;
   string disk_location;
   bool prefetch;
+  bool full_replace;
   int size;
   int refill_start;
-  int used;
+  mutable boost::atomic<int> used;
   int eviction_rate;
   int current_shuffle_count;
   bool ignoreAccuracy;

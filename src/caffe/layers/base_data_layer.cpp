@@ -125,7 +125,7 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
   #else
     else if(param.data_param().cache(j).type() == CacheParameter::DISK)
     {
-      caches_[i-1] = (ptr) DiskCache<Dtype>;
+      caches_[i-1] = new DiskCache<Dtype>;
       caches_[i-1]->size = param.data_param().cache(j).size();
       caches_[i-1]->create( new Batch<Dtype>[1], thread_safe );
     }

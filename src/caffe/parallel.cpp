@@ -67,6 +67,7 @@ Params<Dtype>::Params(shared_ptr<Solver<Dtype> > root_solver)
     : size_(total_size<Dtype>(root_solver->net()->learnable_params())),
       data_(),
       diff_() {
+      std::cout << "kkk" << size_ << std::endl;
 }
 
 template<typename Dtype>
