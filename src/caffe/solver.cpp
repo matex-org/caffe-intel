@@ -326,6 +326,8 @@ void Solver<Dtype>::Step(int iters) {
   int new_iter_size = param_.iter_size(); // 4
   std::size_t batch_iter_count = 0;
   bool batch_h_update = false;
+  // bool all_reduce_onceData = false;
+  // bool all_reduce_onceHistory = false;
   Dtype lastLoss = 0;
   int temp = 0;
   int randomThres;
@@ -392,6 +394,9 @@ void Solver<Dtype>::Step(int iters) {
 
 #ifdef ADAPTIVE_BATCH
   if(batch_iter_count < 1) {
+    // all_reduce_onceData = false;
+    // all_reduce_onceHistory = false;
+
     if(hieuristic_OptType == "RANDOM") {
       batch_apply_iter = NewBatchSize<batchOptionRan>::get(randomThres,gen);
       DLOG(INFO) << "BATCHAPPLYITER value:" << batch_apply_iter;
@@ -417,19 +422,29 @@ void Solver<Dtype>::Step(int iters) {
       batch_apply_iter =
         NewBatchSize<batchOptionRatioCToC>::get(CToCThres, currentCToC);
     }
+    else if(hieuristic_OptType == "FIXEDSTEP") {
+      batch_apply_iter = *itrB;
+      DLOG(INFO) << "BATCHAPPLYITER (FIXED STEP) value:" << batch_apply_iter;
+      ++itrB;
+      if(itrB == tempBatchSizes.end())
+       itrB = tempBatchSizes.begin();
+    }
 
     batch_iter_count = batch_apply_iter;
   #ifdef USE_MPI
     MPI_Bcast(&batch_apply_iter, 1, MPI_INT, 0, MPI_COMM_WORLD);
   #endif
   }
-  
-#endif
+  DLOG(INFO) << "BATCH_ITER_COUNT :" << batch_iter_count << " BATCHAPPLYITER VAL " << batch_apply_iter << " IterVal:" << iter_;
+#endif /* ADAPTIVE_BATCH */
 
     for (int i = 0; i < callbacks_.size(); ++i) {
 #ifdef ADAPTIVE_BATCH
-      if((iter_ % batch_apply_iter) == 0)
+      // if(((iter_ % batch_apply_iter) == 0) && !all_reduce_onceData) {
+      if((iter_ % batch_apply_iter) == 0) {
         callbacks_[i]->on_start(iter_);
+        // all_reduce_onceData = true;
+      }
 #else
       callbacks_[i]->on_start();
 #endif
@@ -445,7 +460,7 @@ void Solver<Dtype>::Step(int iters) {
     Dtype loss = forward_backward_(new_iter_size);
 
     if(deltaLosses_.size() < 21) {
-      deltaLosses_.push_front(lastLoss - loss);  
+      deltaLosses_.push_front(lastLoss - loss);
     }
     else {
       deltaLosses_.pop_back();
@@ -503,9 +518,10 @@ void Solver<Dtype>::Step(int iters) {
     if (!param().disabled_update()) {
       if((iter_ > 0)
         && ((iter_ % batch_apply_iter) == 0)) {
+        // && !all_reduce_onceHistory) {
           batch_h_update = true; // false: force no AllReduce(history)
         DLOG(INFO) << "ApplyUpdate(History) called. ";
-
+        // all_reduce_onceHistory = true;
       }
       else { batch_h_update = false; }
       ApplyUpdate(batch_h_update);
