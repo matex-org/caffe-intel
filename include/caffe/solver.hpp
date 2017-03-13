@@ -116,33 +116,33 @@ struct NewBatchSize {
       Dtype deltaAvg1 = 0;
       for (int i = 0; i < 10; ++i)
         deltaAvg1 += deltaLosses[i];
-      deltaAvg1 = deltaAvg1/10;
+      deltaAvg1 = deltaAvg1/(0.5 * deltaLosses.size());
       
       Dtype deltaAvg2 = 0;
       for (int i = 10; i < 20; ++i)
         deltaAvg2 += deltaLosses[i];
-      deltaAvg2 = deltaAvg2/10;
+      deltaAvg2 = deltaAvg2/(0.5 * deltaLosses.size());
 
       // Dtype trendAvg = (deltaAvg1 + deltaAvg2)/ 2;
       Dtype trendDiff = deltaAvg1 - deltaAvg2; 
+      Dtype trendAcc = (deltaAvg1 - deltaAvg2)/deltaLosses.size();
 
-      if( (trendDiff > 0) && trendDiff > lossThres) {
+      // if( (trendDiff > 0) && trendDiff > lossThres) {
+      if( (trendAcc > 0) && trendAcc > lossThres) {
         return (batchApplyIter + 1); // fixed increment size;  
       }
-      else if ((trendDiff > 0) && trendDiff <= lossThres ){
+      //else if ((trendDiff > 0) && trendDiff <= lossThres ){
+      else if ((trendAcc > 0) 
+              // && (trendAcc <= lossThres 
+                  && trendAcc > (0.9 * lossThres)){
         return batchApplyIter; // continue with same batch size;
       }
       else {
-        if(batchApplyIter > 1) {
-          return (batchApplyIter - 1); // decrease batch size; 
-        }
+        // if(batchApplyIter > 1) {
+          //return (batchApplyIter - 1); // decrease batch size; 
+        //}
+        return 1;
       }
-    // }
-    // else {
-    //   return 1; 
-    // }
-
-    // return batchApplyIter;
   }
 };
 #endif

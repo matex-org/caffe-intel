@@ -437,44 +437,56 @@ void Solver<Dtype>::Step(int iters) {
   }
   DLOG(INFO) << "BATCH_ITER_COUNT :" << batch_iter_count << " BATCHAPPLYITER VAL " << batch_apply_iter << " IterVal:" << iter_;
 #endif /* ADAPTIVE_BATCH */
+  Timer total_timer, comm_timer;
+  double total_time = 0, comm_time = 0;
+  // total_timer.Start();
+  comm_timer.Start();
 
-    for (int i = 0; i < callbacks_.size(); ++i) {
+  for (int i = 0; i < callbacks_.size(); ++i) {
 #ifdef ADAPTIVE_BATCH
-      // if(((iter_ % batch_apply_iter) == 0) && !all_reduce_onceData) {
-      if((iter_ % batch_apply_iter) == 0) {
-        callbacks_[i]->on_start(iter_);
-        // all_reduce_onceData = true;
-      }
-#else
-      callbacks_[i]->on_start();
-#endif
+    // if(((iter_ % batch_apply_iter) == 0) && !all_reduce_onceData) {
+    if((iter_ % batch_apply_iter) == 0) {
+      callbacks_[i]->on_start(iter_);
+      // all_reduce_onceData = true;
     }
-    const bool display = param_.display() && iter_ % param_.display() == 0;
-    net_->set_debug_info(display && param_.debug_info());
+#else
+    callbacks_[i]->on_start();
+#endif
+  }
+  double temp_ctime = 0;
+  temp_ctime += comm_timer.MilliSeconds();
+  comm_time += temp_ctime;
+  total_time += temp_ctime;
+  // comm_timer.Stop();
+  const bool display = param_.display() && iter_ % param_.display() == 0;
+  net_->set_debug_info(display && param_.debug_info());
 
-    Timer iter_timer;
-    double iter_time = 0;
-    iter_timer.Start();
+  Timer iter_timer;
+  double iter_time = 0;
+  iter_timer.Start();
 
 #ifdef ADAPTIVE_BATCH
-    Dtype loss = forward_backward_(new_iter_size);
+  Dtype loss = forward_backward_(new_iter_size);
 
-    if(deltaLosses_.size() < 21) {
-      deltaLosses_.push_front(lastLoss - loss);
-    }
-    else {
-      deltaLosses_.pop_back();
-      deltaLosses_.push_front(lastLoss - loss);
-    }
-    lastLoss = loss;
+  if(deltaLosses_.size() < 21) {
+    deltaLosses_.push_front(lastLoss - loss);
+  }
+  else {
+    deltaLosses_.pop_back();
+    deltaLosses_.push_front(lastLoss - loss);
+  }
+  lastLoss = loss;
 #else
-    Dtype loss = forward_backward_();
+  Dtype loss = forward_backward_();
 #endif
 
-    iter_time += iter_timer.MilliSeconds();
+  double temp_time = 0;
+  temp_time += iter_timer.MilliSeconds();
+  iter_time += temp_time;
+  total_time += temp_time;
 
     // average the loss across iterations for smoothed reporting
-    UpdateSmoothedLoss(loss, start_iter, average_loss);
+  UpdateSmoothedLoss(loss, start_iter, average_loss);
     if (display) {
 #ifdef USE_MPI
       LOG_IF(INFO, Caffe::root_solver())
@@ -515,6 +527,7 @@ void Solver<Dtype>::Step(int iters) {
     iter_timer.Start();
 
 #ifdef ADAPTIVE_BATCH
+// comm_timer.Start();
     if (!param().disabled_update()) {
       if((iter_ > 0)
         && ((iter_ % batch_apply_iter) == 0)) {
@@ -526,6 +539,7 @@ void Solver<Dtype>::Step(int iters) {
       else { batch_h_update = false; }
       ApplyUpdate(batch_h_update);
     }
+// comm_time += comm_timer.MilliSeconds();
 #else
     // if((iter_ > 0)
     //     && ((iter_ % batch_ongradients_iter) == 0)) {
@@ -543,8 +557,12 @@ void Solver<Dtype>::Step(int iters) {
         #endif
      }
 #endif
-
-    iter_time += iter_timer.MilliSeconds();
+    
+    temp_time = 0;
+    temp_time += iter_timer.MilliSeconds();
+    iter_time += temp_time;
+    comm_time += temp_time;
+    total_time += temp_time;
 
 #ifdef CAFFE_PER_LAYER_TIMINGS
     if (MLSL::GetNodeId() == 0)
@@ -555,6 +573,9 @@ void Solver<Dtype>::Step(int iters) {
   #ifdef USE_MPI
     if(rank == 0)
       LOG(INFO) << "iter " << iter_ << ", forward_backward_update_time: " << iter_time << " ms";
+      LOG(INFO) << "iter " << iter_ << ", communication_time: " << comm_time << " ms";
+      LOG(INFO) << "iter " << iter_ << ", total_time: " << total_time << " ms";
+
   #endif
 #endif
 
