@@ -49,6 +49,7 @@ void allreduce(float* buffer, int count,
 void allreduce(double* buffer, int count,
         MPI_Op op=MPI_SUM, MPI_Comm comm=MPI_COMM_NULL);
 
+void bcast(int* buffer, int count, int root=0, MPI_Comm comm=MPI_COMM_NULL);
 void bcast(float* buffer, int count, int root=0, MPI_Comm comm=MPI_COMM_NULL);
 void bcast(double* buffer, int count, int root=0, MPI_Comm comm=MPI_COMM_NULL);
 

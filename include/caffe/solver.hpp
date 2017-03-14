@@ -47,6 +47,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "caffe/util/benchmark.hpp"
 
 #ifdef ADAPTIVE_BATCH
+#include "caffe/mpi.hpp"
+#include <assert.h>
 #include <queue>
 #include <type_traits>
 #include <random>
@@ -98,12 +100,77 @@ struct NewBatchSize {
   // Ratio Communication/Computation. 
   // Data-History approach has Mininum 2 communication if computation is 1.
   template<typename U = Option, 
-    typename = typename std::enable_if<std::is_same<
-                        U, AdaptiveBatchOption::RatioCToC>::value, U>::type>
-  static int get(float CToCThres, float currentCToC) {
-    int new_batchsize = 0; 
+    typename = 
+      typename std::enable_if<std::is_same<
+                  U, AdaptiveBatchOption::RatioCToC>::value, U>::type,
+      typename Dtype>
+  static int get( std::deque<Dtype>& deltaLosses
+                , std::deque<double>& commTimes
+                , std::deque<double>& commCompTimes
+                , float lossThres
+                , float CToCThres
+                // , float currentCToC
+                , int& batchApplyIter
+                 ) {
+    // std::assert(commTimes.size() == commCompTimes.size());
+    // int new_batchsize = 0; 
     //if()
-    return new_batchsize;
+    // return new_batchsize;
+
+    // Communication to (communication + computation) ratio
+    // Sum of most recent of the last 20 recorded values;
+    double sumComm = 0, sumCommComp = 0;
+    for (auto c : commTimes)
+      sumComm += c;
+
+    for (auto c2 : commCompTimes)
+      sumCommComp += c2;
+
+    double CToCRatio = sumComm / sumCommComp;
+    
+    // Second half
+    Dtype deltaAvg1 = 0;
+      for (int i = 0; i < 10; ++i)
+        deltaAvg1 += deltaLosses[i];
+      deltaAvg1 = deltaAvg1/(0.5 * deltaLosses.size());
+    // First half
+    Dtype deltaAvg2 = 0;
+    for (int i = 10; i < 20; ++i)
+      deltaAvg2 += deltaLosses[i];
+    deltaAvg2 = deltaAvg2/(0.5 * deltaLosses.size());
+
+    // Dtype trendAvg = (deltaAvg1 + deltaAvg2)/ 2;
+    Dtype trendDiff = deltaAvg2 - deltaAvg1; 
+    Dtype trendAcc = (deltaAvg2 - deltaAvg1)/deltaLosses.size();
+
+    // if( (trendDiff > 0) && trendDiff > lossThres) {
+    if( (trendAcc > 0) 
+      && (trendAcc > lossThres)
+      && (CToCRatio > CToCThres)
+      ) {
+      return batchApplyIter + 4; // fixed increment size;  
+    }
+    //else if ((trendDiff > 0) && trendDiff <= lossThres ){
+    else if ((trendAcc > 0) 
+            // && (trendAcc <= lossThres 
+              && (trendAcc > (0.9 * lossThres))
+              && (CToCRatio > CToCThres)
+              ){
+      return batchApplyIter + 1; // continue with same batch size;
+    }
+    else if ((trendAcc > 0) 
+            // && (trendAcc <= lossThres 
+              && (trendAcc > (0.9 * lossThres))
+              && (CToCRatio < CToCThres)
+              ){
+      return batchApplyIter; // continue with same batch size;
+    }
+    else {
+      // if(batchApplyIter > 1) {
+        //return (batchApplyIter - 1); // decrease batch size; 
+      //}
+      return 1;
+    }
   }
 
   template<typename U = Option, 
@@ -124,8 +191,8 @@ struct NewBatchSize {
       deltaAvg2 = deltaAvg2/(0.5 * deltaLosses.size());
 
       // Dtype trendAvg = (deltaAvg1 + deltaAvg2)/ 2;
-      Dtype trendDiff = deltaAvg1 - deltaAvg2; 
-      Dtype trendAcc = (deltaAvg1 - deltaAvg2)/deltaLosses.size();
+      Dtype trendDiff = deltaAvg2 - deltaAvg1; 
+      Dtype trendAcc = (deltaAvg2 - deltaAvg1)/deltaLosses.size();
 
       // if( (trendDiff > 0) && trendDiff > lossThres) {
       if( (trendAcc > 0) && trendAcc > lossThres) {
@@ -298,6 +365,8 @@ class Solver {
 #ifdef ADAPTIVE_BATCH
   int newitersize_;
   std::deque<Dtype> deltaLosses_;
+  std::deque<double> commTimes_;
+  std::deque<double> commCompTimes_;
 #endif 
 
   // The root solver that holds root nets (actually containing shared layers)

@@ -56,7 +56,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #ifdef ADAPTIVE_BATCH
 #include <cstdlib>
-#include <mpi.h>
+#include "caffe/mpi.hpp"
+// #include <mpi.h>
+
 #include <math.h> // temp
 #endif
 
@@ -378,6 +380,8 @@ void Solver<Dtype>::Step(int iters) {
   // std::size_t lossesHistorySize = 20;
 #endif
 
+  Timer total_timer, comm_timer;
+
   while (iter_ < stop_iter) {
     if (param_.test_interval() && iter_ % param_.test_interval() == 0
         && (iter_ > 0 || param_.test_initialization())
@@ -392,6 +396,8 @@ void Solver<Dtype>::Step(int iters) {
       }
     }
 
+    // initialize/rest to null every iteration;
+    double total_time = 0, comm_time = 0, temp_ctime = 0;
 #ifdef ADAPTIVE_BATCH
   if(batch_iter_count < 1) {
     // all_reduce_onceData = false;
@@ -408,19 +414,42 @@ void Solver<Dtype>::Step(int iters) {
       int last_batchApplyIter = batch_apply_iter;
       DLOG(INFO) << "lastBatchApplyIter : ------------" << last_batchApplyIter;
       // batch_apply_iter = *itrB;
-      if((deltaLosses_.size() > 20) && (iter_ > 300))
-      {
-        batch_apply_iter = NewBatchSize<batchOptionLR>::get(deltaLosses_
-        , lossThres, last_batchApplyIter);
+      // BroadCast New Iter by Rank 0
+      if (rank == 0) {
+        if((iter_ > 300) && (deltaLosses_.size() > 20))
+        {
+          batch_apply_iter = NewBatchSize<batchOptionLR>::get(deltaLosses_
+          , lossThres, last_batchApplyIter);
+        }
       }
-      // ++itrB;
-      // if(itrB == tempBatchSizes.end())
-      //  itrB = tempBatchSizes.begin();
+      comm_timer.Start();
+      caffe::mpi::bcast(&batch_apply_iter, 1, 0, MPI_COMM_WORLD);
+      temp_ctime = comm_timer.MilliSeconds();
+      comm_time += temp_ctime;
+      total_time += temp_ctime;
+
     }
-    else if(hieuristic_OptType == "RATIOCTOC") {
+    else if(hieuristic_OptType == "RATIOCTOC") { // ratio comm to comp. 
       //TODO: Need to revisit
-      batch_apply_iter =
-        NewBatchSize<batchOptionRatioCToC>::get(CToCThres, currentCToC);
+      int last_batchApplyIter = batch_apply_iter;
+      if (rank == 0){
+        if((iter_ > 300) && (commTimes_.size() >= 20)) {
+          batch_apply_iter = NewBatchSize<batchOptionRatioCToC>::get(
+            deltaLosses_
+            , commTimes_
+            , commCompTimes_
+            , lossThres
+            , CToCThres
+            , last_batchApplyIter);
+        }
+      }
+    
+      comm_timer.Start();
+      caffe::mpi::bcast(&batch_apply_iter, 1, 0, MPI_COMM_WORLD);
+      temp_ctime = comm_timer.MilliSeconds();
+      comm_time += temp_ctime;
+      total_time += temp_ctime;
+
     }
     else if(hieuristic_OptType == "FIXEDSTEP") {
       batch_apply_iter = *itrB;
@@ -437,9 +466,8 @@ void Solver<Dtype>::Step(int iters) {
   }
   DLOG(INFO) << "BATCH_ITER_COUNT :" << batch_iter_count << " BATCHAPPLYITER VAL " << batch_apply_iter << " IterVal:" << iter_;
 #endif /* ADAPTIVE_BATCH */
-  Timer total_timer, comm_timer;
-  double total_time = 0, comm_time = 0;
-  // total_timer.Start();
+  
+  // Timing for on start
   comm_timer.Start();
 
   for (int i = 0; i < callbacks_.size(); ++i) {
@@ -453,7 +481,7 @@ void Solver<Dtype>::Step(int iters) {
     callbacks_[i]->on_start();
 #endif
   }
-  double temp_ctime = 0;
+  temp_ctime = 0;
   temp_ctime += comm_timer.MilliSeconds();
   comm_time += temp_ctime;
   total_time += temp_ctime;
@@ -571,10 +599,27 @@ void Solver<Dtype>::Step(int iters) {
 
 #ifdef ADAPTIVE_BATCH
   #ifdef USE_MPI
-    if(rank == 0)
+    if(rank == 0) {
       LOG(INFO) << "iter " << iter_ << ", forward_backward_update_time: " << iter_time << " ms";
       LOG(INFO) << "iter " << iter_ << ", communication_time: " << comm_time << " ms";
       LOG(INFO) << "iter " << iter_ << ", total_time: " << total_time << " ms";
+    }
+
+    if(commTimes_.size() < 20) {
+      commTimes_.push_front(comm_time);
+    }
+    else {
+      commTimes_.pop_back();
+      commTimes_.push_front(comm_time);
+    }
+
+    if(commCompTimes_.size() < 20) {
+      commCompTimes_.push_front(total_time);
+    }
+    else {
+      commCompTimes_.pop_back();
+      commCompTimes_.push_front(total_time);
+    }
 
   #endif
 #endif
