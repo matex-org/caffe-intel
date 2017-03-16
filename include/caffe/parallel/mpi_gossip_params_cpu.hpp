@@ -16,7 +16,7 @@ template<typename Dtype>
 class MPIGossipParamsCPU : public CPUParams<Dtype>, public Solver<Dtype>::Callback {
  public:
   explicit MPIGossipParamsCPU(shared_ptr<Solver<Dtype> > root_solver,
-          int comm_threads);
+          int comm_threads, bool cube, bool avgdata, bool rotate, bool batchwise);
   virtual ~MPIGossipParamsCPU();
 
   inline const shared_ptr<Solver<Dtype> >& solver() const {
@@ -36,13 +36,19 @@ class MPIGossipParamsCPU : public CPUParams<Dtype>, public Solver<Dtype>::Callba
   void on_gradients_ready(int param_id);
   int on_apply(int param_id);
 
-  int next();
+  void next();
+  void next_cube();
+  void next_cube_rotate();
+  void next_diffuse();
+  void next_diffuse_rotate();
 
+  int comm_rank_orig_;
   int comm_rank_;
   int comm_size_;
   int logp_;
   int hci_;
-  int pair_;
+  int send_pair_;
+  int recv_pair_;
   shared_ptr<Solver<Dtype> > solver_;
   const vector<Blob<Dtype>*>& params_;
   BlockingQueue<int> param_solo_;
@@ -55,6 +61,10 @@ class MPIGossipParamsCPU : public CPUParams<Dtype>, public Solver<Dtype>::Callba
   Dtype *data_all_;
   vector<Dtype*> param_diffs_;
   vector<Dtype*> param_datas_;
+  bool cube_;
+  bool avgdata_;
+  bool rotate_;
+  bool batchwise_;
 
   using Params<Dtype>::size_;
   using Params<Dtype>::data_;

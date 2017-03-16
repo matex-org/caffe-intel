@@ -118,6 +118,10 @@ DEFINE_string(engine, "",
     "Optional; Engine sequence in format: engine:subengine_1,subengine_2,...");
 DEFINE_string(par, "",
     "Optional; parallelization strategy, e.g., MPISyncCPU");
+DEFINE_bool(cube, true, "for MPIGossipParamsCPU, use hypercube");
+DEFINE_bool(avgdata, true, "for MPIGossipParamsCPU, average the params also");
+DEFINE_bool(rotate, true, "for MPIGossipParamsCPU, rotate comm partner");
+DEFINE_bool(batchwise, true, "for MPIGossipParamsCPU, update pair each batch (true) or layer (false)");
 
 // A simple registry for caffe commands.
 typedef int (*BrewFunction)();
@@ -371,7 +375,12 @@ int train() {
       sync.Run();
     }
     else if (FLAGS_par == "MPIGossipParamsCPU") {
-      caffe::MPIGossipParamsCPU<float> sync(solver, FLAGS_comm_threads);
+      caffe::MPIGossipParamsCPU<float> sync(solver,
+          FLAGS_comm_threads,
+          FLAGS_cube,
+          FLAGS_avgdata,
+          FLAGS_rotate,
+          FLAGS_batchwise);
       sync.Run();
     }
     else if (FLAGS_par == "MPIGossipParamsCPU2") {
