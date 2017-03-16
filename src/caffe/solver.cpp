@@ -56,11 +56,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #ifdef ADAPTIVE_BATCH
 #include <cstdlib>
-#include "caffe/mpi.hpp"
 // #include <mpi.h>
-
 #include <math.h> // temp
 #endif
+#include "caffe/mpi.hpp"
+
 
 namespace caffe {
 
@@ -319,12 +319,13 @@ void Solver<Dtype>::Step(int iters) {
   losses_.clear();
   smoothed_loss_ = 0;
 
-#ifdef ADAPTIVE_BATCH
-  // std::size_t batch_icnt;
  #ifdef USE_MPI
   int rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
  #endif
+
+#ifdef ADAPTIVE_BATCH
+  // std::size_t batch_icnt;
   int new_iter_size = param_.iter_size(); // 4
   std::size_t batch_iter_count = 0;
   bool batch_h_update = false;
@@ -378,7 +379,7 @@ void Solver<Dtype>::Step(int iters) {
 #else
   int batch_ongradients_iter = 1;
   // std::size_t lossesHistorySize = 20;
-#endif
+#endif /* ADAPTIVE_BATCH */
 
   Timer total_timer, comm_timer;
 
@@ -412,14 +413,17 @@ void Solver<Dtype>::Step(int iters) {
     }
     else if (hieuristic_OptType == "LOSSRATE") {
       int last_batchApplyIter = batch_apply_iter;
-      DLOG(INFO) << "lastBatchApplyIter : ------------" << last_batchApplyIter;
+      DLOG(INFO) << "lastBatchApplyIter (LOSSRATE): ------------" << last_batchApplyIter;
       // batch_apply_iter = *itrB;
       // BroadCast New Iter by Rank 0
       if (rank == 0) {
         if((iter_ > 300) && (deltaLosses_.size() > 20))
         {
-          batch_apply_iter = NewBatchSize<batchOptionLR>::get(deltaLosses_
-          , lossThres, last_batchApplyIter);
+          batch_apply_iter = NewBatchSize<batchOptionLR>::get(
+            deltaLosses_
+          , lossThres
+          , last_batchApplyIter
+          , iter_);
         }
       }
       comm_timer.Start();
@@ -440,7 +444,9 @@ void Solver<Dtype>::Step(int iters) {
             , commCompTimes_
             , lossThres
             , CToCThres
-            , last_batchApplyIter);
+            , last_batchApplyIter
+            , iter_
+            );
         }
       }
     
@@ -479,7 +485,7 @@ void Solver<Dtype>::Step(int iters) {
     }
 #else
     callbacks_[i]->on_start();
-#endif
+#endif /* ADAPTIVE_BATCH */
   }
   temp_ctime = 0;
   temp_ctime += comm_timer.MilliSeconds();
@@ -506,7 +512,7 @@ void Solver<Dtype>::Step(int iters) {
   lastLoss = loss;
 #else
   Dtype loss = forward_backward_();
-#endif
+#endif /* ADAPTIVE_BATCH */
 
   double temp_time = 0;
   temp_time += iter_timer.MilliSeconds();
@@ -597,14 +603,15 @@ void Solver<Dtype>::Step(int iters) {
         LOG(INFO) << "iter " << iter_ << ", forward_backward_update_time: " << iter_time << " ms";
 #endif
 
-#ifdef ADAPTIVE_BATCH
-  #ifdef USE_MPI
+#ifdef USE_MPI
     if(rank == 0) {
       LOG(INFO) << "iter " << iter_ << ", forward_backward_update_time: " << iter_time << " ms";
       LOG(INFO) << "iter " << iter_ << ", communication_time: " << comm_time << " ms";
       LOG(INFO) << "iter " << iter_ << ", total_time: " << total_time << " ms";
     }
+#endif
 
+#ifdef ADAPTIVE_BATCH
     if(commTimes_.size() < 20) {
       commTimes_.push_front(comm_time);
     }
@@ -620,8 +627,6 @@ void Solver<Dtype>::Step(int iters) {
       commCompTimes_.pop_back();
       commCompTimes_.push_front(total_time);
     }
-
-  #endif
 #endif
 
     // Increment the internal iter_ counter -- its value should always indicate

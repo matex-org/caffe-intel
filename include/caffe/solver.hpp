@@ -47,12 +47,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "caffe/util/benchmark.hpp"
 
 #ifdef ADAPTIVE_BATCH
-#include "caffe/mpi.hpp"
 #include <assert.h>
 #include <queue>
 #include <type_traits>
 #include <random>
 #endif
+#include <glog/logging.h>
+#include "caffe/mpi.hpp"
 
 namespace caffe {
 
@@ -111,6 +112,7 @@ struct NewBatchSize {
                 , float CToCThres
                 // , float currentCToC
                 , int& batchApplyIter
+                , int& currentIterPos
                  ) {
     // std::assert(commTimes.size() == commCompTimes.size());
     // int new_batchsize = 0; 
@@ -177,7 +179,8 @@ struct NewBatchSize {
     typename = typename std::enable_if<std::is_same<
                         U, AdaptiveBatchOption::LossRate>::value, U>::type,
     typename Dtype>
-  static int get(std::deque<Dtype>& deltaLosses, float lossThres, int& batchApplyIter) {
+  static int get(std::deque<Dtype>& deltaLosses, float lossThres
+                , int& batchApplyIter,int& currentIterPos) {
     // if(deltaLosses.size() > 1)
     // {
       Dtype deltaAvg1 = 0;
@@ -193,6 +196,8 @@ struct NewBatchSize {
       // Dtype trendAvg = (deltaAvg1 + deltaAvg2)/ 2;
       Dtype trendDiff = deltaAvg2 - deltaAvg1; 
       Dtype trendAcc = (deltaAvg2 - deltaAvg1)/deltaLosses.size();
+
+      LOG(INFO) << "iter " << currentIterPos << " trendAcc " << trendAcc << "Loss Thres" << lossThres;
 
       // if( (trendDiff > 0) && trendDiff > lossThres) {
       if( (trendAcc > 0) && trendAcc > lossThres) {
