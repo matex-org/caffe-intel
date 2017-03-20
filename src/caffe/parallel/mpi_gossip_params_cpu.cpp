@@ -202,10 +202,10 @@ template<typename Dtype>
 void MPIGossipParamsCPU<Dtype>::next_cube_rotate() {
   if (hci_ > logp_) {
     hci_ = 0;
-    comm_rank_ = (comm_rank_+2) % comm_size_;
+    comm_rank_ = (comm_rank_+1) % comm_size_;
   }
   send_pair_ = comm_rank_ ^ int(pow(2,hci_));
-  recv_pair_ = send_pair_;
+  recv_pair_ = MPI_ANY_SOURCE;
   ++hci_;
 }
 
@@ -229,7 +229,7 @@ template<typename Dtype>
 void MPIGossipParamsCPU<Dtype>::next_diffuse_rotate() {
   if (hci_ > logp_) {
     hci_ = 0;
-    comm_rank_ = (comm_rank_+2) % comm_size_;
+    comm_rank_ = (comm_rank_+1) % comm_size_;
   }
   recv_pair_ = comm_rank_ + int(pow(2,hci_));
   send_pair_ = comm_rank_ - int(pow(2,hci_));
@@ -239,6 +239,7 @@ void MPIGossipParamsCPU<Dtype>::next_diffuse_rotate() {
   if (send_pair_ < 0) {
     send_pair_ = send_pair_ + comm_size_;
   }
+  recv_pair_ = MPI_ANY_SOURCE;
   ++hci_;
 }
 
