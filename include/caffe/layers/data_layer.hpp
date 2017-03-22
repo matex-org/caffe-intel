@@ -66,7 +66,7 @@ class DataLayer : public BasePrefetchingDataLayer<Dtype> {
   virtual inline int MaxTopBlobs() const { return 2; }
 
  protected:
-  virtual void load_batch(Batch<Dtype>* batch);
+  virtual void load_batch(Batch<Dtype>* batch, bool in_thread);
 
   DataReader reader_;
 };

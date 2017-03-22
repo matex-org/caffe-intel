@@ -222,6 +222,8 @@ USE_LEVELDB ?= 1
 USE_LMDB ?= 1
 USE_PNETCDF ?= 1
 USE_OPENCV ?= 1
+USE_REMOTE_INDEX ?= 1
+USE_REMOTE_INDEX_SFTP ?= 1
 
 ifeq ($(USE_LEVELDB), 1)
 	LIBRARIES += leveldb snappy
@@ -231,6 +233,9 @@ ifeq ($(USE_LMDB), 1)
 endif
 ifeq ($(USE_PNETCDF), 1)
 	LIBRARIES += pnetcdf
+endif
+ifeq ($(USE_REMOTE_INDEX_SFTP), 1)
+	LIBRARIES += ssh
 endif
 ifeq ($(USE_OPENCV), 1)
 	LIBRARIES += opencv_core opencv_highgui opencv_imgproc 
@@ -428,6 +433,12 @@ endif
 endif
 ifeq ($(USE_PNETCDF), 1)
 	COMMON_FLAGS += -DUSE_PNETCDF
+endif
+ifeq ($(USE_REMOTE_INDEX), 1)
+	COMMON_FLAGS += -DUSE_REMOTE_INDEX
+endif
+ifeq ($(USE_REMOTE_INDEX_SFTP), 1)
+	COMMON_FLAGS += -DUSE_REMOTE_INDEX_SFTP
 endif
 
 # CPU-only configuration

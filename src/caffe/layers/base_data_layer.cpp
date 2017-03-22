@@ -103,7 +103,7 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
     {
       caches_[i-1] = new MemoryCache<Dtype>;
       caches_[i-1]->size = param.data_param().cache(j).size();
-      caches_[i-1]->create( new Batch<Dtype>[caches_[i-1]->size], thread_safe );
+      caches_[i-1]->create( new Batch<Dtype>[caches_[i-1]->size], new bool[caches_[i-1]->size], thread_safe );
     }
   #ifdef KNL
     else if(param.data_param().cache(j).type() == CacheParameter::HBM)
@@ -112,7 +112,8 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
       caches_[i-1] = new (ptr) MemoryCache<Dtype>;
       caches_[i-1]->size = param.data_param().cache(j).size();
       ptr = hbw_malloc(sizeof(Batch<Dtype>)*caches_[i-1]->size);
-      caches_[i-1]->create( new (ptr) Batch<Dtype>[caches_[i-1]->size], thread_safe );
+      bool * ptr2 = (bool *)hbw_malloc(sizeof(bool)*caches_[i-1]->size);
+      caches_[i-1]->create( new (ptr) Batch<Dtype>[caches_[i-1]->size], ptr2, thread_safe );
     }
     else if(param.data_param().cache(j).type() == CacheParameter::DISK)
     {
@@ -120,14 +121,15 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
       caches_[i-1] = new (ptr) DiskCache<Dtype>;
       caches_[i-1]->size = param.data_param().cache(j).size();
       ptr = hbw_malloc(sizeof(Batch<Dtype>));
-      caches_[i-1]->create( new (ptr) Batch<Dtype>[1], thread_safe );
+      bool * ptr2 = (bool *)hbw_malloc(sizeof(bool)*caches_[i-1]->size);
+      caches_[i-1]->create( new (ptr) Batch<Dtype>[1], ptr2, thread_safe );
     }
   #else
     else if(param.data_param().cache(j).type() == CacheParameter::DISK)
     {
       caches_[i-1] = new DiskCache<Dtype>;
       caches_[i-1]->size = param.data_param().cache(j).size();
-      caches_[i-1]->create( new Batch<Dtype>[1], thread_safe );
+      caches_[i-1]->create( new Batch<Dtype>[1], new bool[caches_[i-1]->size], thread_safe );
     }
   #endif
     else
@@ -135,7 +137,7 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
       LOG(INFO) << "Cache Type not supported";
       exit(1);
     }
-    if(i-1==cache_size_)
+    if(i-1==cache_size_-1)
       caches_[i-1]->next = NULL; 
     else  
       caches_[i-1]->next = caches_[i]; 
@@ -196,7 +198,7 @@ void BasePrefetchingDataLayer<Dtype>::LayerSetUp(
   this->data_transformer_->InitRand();
 
   for (int i = 0; i < cache_size_; ++i) {
-    caches_[i]->fill();
+    caches_[i]->fill(false);
   }
   // Only if GPU mode on then we use background threads
   //if (Caffe::mode() == Caffe::GPU) {
@@ -253,7 +255,7 @@ template <typename Dtype>
 void BasePrefetchingDataLayer<Dtype>::GetBatch() {
   try {
       Batch<Dtype>* batch = prefetch_free_.pop();
-      load_batch(batch);
+      load_batch(batch, false);
       prefetch_full_.push(batch);
   } catch (boost::thread_interrupted&) {
     // Interrupted exception is expected on shutdown

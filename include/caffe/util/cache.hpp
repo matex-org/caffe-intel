@@ -32,10 +32,11 @@ template <typename Dtype>
 class Cache
 {
   public:
+  volatile bool * dirty;
   class Cache * next;
   string disk_location;
   bool prefetch;
-  bool full_replace;
+  volatile bool full_replace;
   int size;
   int refill_start;
   mutable boost::atomic<int> used;
@@ -50,11 +51,11 @@ class Cache
   //void (BasePrefetchingDataLayer<Dtype>::*refill_policy)(int);  
   //void (BasePrefetchingDataLayer<Dtype>::*thread_refill_policy)(int);  
   //void (Cache<Dtype>::*refill_policy)(Cache<Dtype> * next_cache);  
-  virtual void create( void * ptr, bool thread_safe ) { };
+  virtual void create( void * ptr, bool * ptr2, bool thread_safe ) { };
   virtual bool empty() { return false; };
   virtual Batch<Dtype> * pop() { return NULL; };
   virtual void shuffle (){}
-  virtual void fill() {};
+  virtual void fill(bool in_cache) {};
   virtual void refill(Cache<Dtype> * next_cache) {};
   virtual void reshape(vector<int> * top_shape, vector<int> * label_shape) {};
   virtual void mutate_data(bool labels) {};
@@ -68,11 +69,11 @@ class MemoryCache : public Cache <Dtype>
   Batch<Dtype> * cache;
   BlockingQueue<Batch<Dtype>*> cache_full;
   void shuffle_cache(Batch<Dtype>* batch1, int batchPos1, Batch<Dtype>*  batch2, int batchPos2);
-  virtual void create( void * ptr, bool thread_safe );
+  virtual void create( void * ptr, bool * ptr2,bool thread_safe );
   virtual bool empty();
   virtual Batch<Dtype> * pop();
   virtual void shuffle ();
-  virtual void fill();
+  virtual void fill(bool in_cache);
   virtual void refill(Cache<Dtype> * next_cache);
   virtual void reshape(vector<int> * top_shape, vector<int> * label_shape);
   virtual void mutate_data(bool labels);
@@ -89,10 +90,10 @@ class DiskCache : public Cache <Dtype>
   Batch<Dtype> * cache_buffer;
   unsigned int current_offset;
   void shuffle_cache(int batch1, int batchPos1, int  batch2, int batchPos2, int image_count, int data_count, int label_count);
-  virtual void create( void * ptr, bool thread_safe);
+  virtual void create( void * ptr, bool * ptr2, bool thread_safe);
   virtual bool empty();
   virtual Batch<Dtype> * pop();
-  virtual void fill();
+  virtual void fill(bool in_cache);
   virtual void shuffle ();
   virtual void refill(Cache<Dtype> * next_cache);
   virtual void reshape(vector<int> * top_shape, vector<int> * label_shape);

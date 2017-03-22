@@ -51,8 +51,10 @@ class Timer {
   virtual void Start();
   virtual void Stop();
   virtual float MilliSeconds();
+  virtual float MilliSecondsCont();
   virtual float MicroSeconds();
   virtual float Seconds();
+  virtual float SecondsCont();
 
   inline bool initted() { return initted_; }
   inline bool running() { return running_; }

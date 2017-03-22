@@ -114,7 +114,7 @@ class BasePrefetchingDataLayer :
   bool prefetch;
   void refill_cache(int current_cache);
   virtual void InternalThreadEntry();
-  virtual void load_batch(Batch<Dtype>* batch) = 0;
+  virtual void load_batch(Batch<Dtype>* batch, bool in_thread) = 0;
 
   virtual void GetBatch();
   void rate_replace_policy(int next_cache);

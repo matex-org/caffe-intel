@@ -137,8 +137,31 @@ float Timer::MilliSeconds() {
   return elapsed_milliseconds_;
 }
 
+float Timer::MilliSecondsCont() {
+  if (!has_run_at_least_once()) {
+    LOG(WARNING) << "Timer has never been run before reading time.";
+    return 0;
+  }
+  stop_cpu_ = boost::posix_time::microsec_clock::local_time();
+  if (Caffe::mode() == Caffe::GPU) {
+#ifndef CPU_ONLY
+    CUDA_CHECK(cudaEventElapsedTime(&elapsed_milliseconds_, start_gpu_,
+                                    stop_gpu_));
+#else
+      NO_GPU;
+#endif
+  } else {
+    elapsed_milliseconds_ = (stop_cpu_ - start_cpu_).total_milliseconds();
+  }
+  return elapsed_milliseconds_;
+}
+
 float Timer::Seconds() {
   return MilliSeconds() / 1000.;
+}
+
+float Timer::SecondsCont() {
+  return MilliSecondsCont() / 1000.;
 }
 
 void Timer::Init() {

@@ -196,6 +196,7 @@ void DataTransformer<Dtype>::Transform(const Datum& datum,
           top_index = (c * height + h) * width + w;
         }
         if (has_uint8) {
+          //LOG(INFO) << "Index: " << data_index;
           datum_element =
             static_cast<Dtype>(static_cast<uint8_t>(data[data_index]));
         } else {

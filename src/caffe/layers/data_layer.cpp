@@ -99,7 +99,7 @@ void DataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bottom,
 
 // This function is called on prefetch thread
 template<typename Dtype>
-void DataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
+void DataLayer<Dtype>::load_batch(Batch<Dtype>* batch, bool in_thread) {
   CPUTimer batch_timer;
   batch_timer.Start();
   double read_time = 0;
@@ -135,7 +135,7 @@ void DataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
 
   trans_timer.Start();
 #ifdef _OPENMP
-  #pragma omp parallel if (batch_size > 1)
+  #pragma omp parallel if (!in_thread && batch_size > 1)
   #pragma omp single nowait
 #endif
   for (int item_id = 0; item_id < batch_size; ++item_id) {

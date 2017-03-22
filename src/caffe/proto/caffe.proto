@@ -739,6 +739,8 @@ message DataParameter {
   enum DB {
     LEVELDB = 0;
     LMDB = 1;
+    REMOTE_INDEX = 2;
+    REMOTE_INDEX_SFTP = 3;
   }
   // Specify the data source.
   optional string source = 1;
