@@ -235,12 +235,12 @@ void BasePrefetchingDataLayer<Dtype>::InternalThreadEntry() {
   while (!must_stop()) {
     if(cache_size_)
     {
+      //usleep(1000000);
       for(int i=cache_size_-1; i>= 0; i--)
       {
         if(caches_[i]->prefetch)
           (caches_[i]->*(caches_[i]->refill_policy))(1);
       }
-      //usleep(1000000);
     }
   }
 #ifndef CPU_ONLY
@@ -314,7 +314,8 @@ void BasePrefetchingDataLayer<Dtype>::rate_replace_policy(int next_cache)
 template <typename Dtype>
 void BasePrefetchingDataLayer<Dtype>::Forward_cpu(
     const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top) {
-  Batch<Dtype>* batch;
+  Batch<Dtype> * batch;
+  PopBatch<Dtype> pop_batch;
   if(cache_size_)
   {
     if(!caches_[0]->prefetch && caches_[0]->empty()) //empty cache
@@ -322,7 +323,8 @@ void BasePrefetchingDataLayer<Dtype>::Forward_cpu(
       LOG(INFO) << "Local Refill "; 
       (caches_[0]->*(caches_[0]->local_refill_policy))(1);
     }
-    batch = caches_[0]->pop();
+    pop_batch = caches_[0]->pop();
+    batch = pop_batch.batch;
   }
   else
   {
@@ -349,6 +351,8 @@ void BasePrefetchingDataLayer<Dtype>::Forward_cpu(
     caffe_copy(batch->label_.count(), batch->label_.cpu_data(),
         top[1]->mutable_cpu_data());
   }
+  if(cache_size_)
+    *pop_batch.dirty = true;
   if(cache_size_ == 0 || caches_[0]->size == 0)
     prefetch_free_.push(batch);
 

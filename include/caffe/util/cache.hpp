@@ -29,6 +29,13 @@ class Batch {
 };
 
 template <typename Dtype>
+struct PopBatch 
+{
+  Batch<Dtype>* batch;
+  volatile bool * dirty;
+};
+
+template <typename Dtype>
 class Cache
 {
   public:
@@ -53,7 +60,7 @@ class Cache
   //void (Cache<Dtype>::*refill_policy)(Cache<Dtype> * next_cache);  
   virtual void create( void * ptr, bool * ptr2, bool thread_safe ) { };
   virtual bool empty() { return false; };
-  virtual Batch<Dtype> * pop() { return NULL; };
+  virtual PopBatch<Dtype> pop() { PopBatch<Dtype> nothing; return nothing; };
   virtual void shuffle (){}
   virtual void fill(bool in_cache) {};
   virtual void refill(Cache<Dtype> * next_cache) {};
@@ -71,7 +78,7 @@ class MemoryCache : public Cache <Dtype>
   void shuffle_cache(Batch<Dtype>* batch1, int batchPos1, Batch<Dtype>*  batch2, int batchPos2);
   virtual void create( void * ptr, bool * ptr2,bool thread_safe );
   virtual bool empty();
-  virtual Batch<Dtype> * pop();
+  virtual PopBatch<Dtype> pop();
   virtual void shuffle ();
   virtual void fill(bool in_cache);
   virtual void refill(Cache<Dtype> * next_cache);
@@ -92,7 +99,7 @@ class DiskCache : public Cache <Dtype>
   void shuffle_cache(int batch1, int batchPos1, int  batch2, int batchPos2, int image_count, int data_count, int label_count);
   virtual void create( void * ptr, bool * ptr2, bool thread_safe);
   virtual bool empty();
-  virtual Batch<Dtype> * pop();
+  virtual PopBatch<Dtype> pop();
   virtual void fill(bool in_cache);
   virtual void shuffle ();
   virtual void refill(Cache<Dtype> * next_cache);
