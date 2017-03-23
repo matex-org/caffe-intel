@@ -79,7 +79,9 @@ namespace caffe {
 namespace AdaptiveBatchOption {  // Should be friend class to Solver Class. 
   struct Random {}; // Random value between 1 and max_iter size.
   struct RatioCToC {}; // Ratio of communication to computation.
-  struct LossRate {}; // Rate of change of Loss > threshhold, increase batch size. 
+  struct LossRate {}; // Loss Accel > threshhold, increase batch size.
+  struct LossRateDecel {}; // Loss Accel < threshold, inc. batch. 
+  struct LossRateRange {}; // Loss Accel <> threshold,(with a range). 
 }
 
 template <typename Option>
@@ -179,7 +181,7 @@ struct NewBatchSize {
     typename = typename std::enable_if<std::is_same<
                         U, AdaptiveBatchOption::LossRate>::value, U>::type,
     typename Dtype>
-  static int get(std::deque<Dtype>& deltaLosses, float lossThres
+  static int getLR(std::deque<Dtype>& deltaLosses, float lossThres
                 , int& batchApplyIter,int& currentIterPos) {
     // if(deltaLosses.size() > 1)
     // {
@@ -197,7 +199,7 @@ struct NewBatchSize {
       Dtype trendDiff = deltaAvg2 - deltaAvg1; 
       Dtype trendAcc = (deltaAvg2 - deltaAvg1)/deltaLosses.size();
 
-      LOG(INFO) << "iter " << currentIterPos << " trendAcc " << trendAcc << "Loss Thres" << lossThres;
+      LOG(INFO) << "iter " << currentIterPos << " trendAcc " << trendAcc << "Loss Thres " << lossThres;
 
       // if( (trendDiff > 0) && trendDiff > lossThres) {
       if( (trendAcc > 0) && trendAcc > lossThres) {
@@ -207,6 +209,91 @@ struct NewBatchSize {
       else if ((trendAcc > 0) 
               // && (trendAcc <= lossThres 
                   && trendAcc > (0.9 * lossThres)){
+        return batchApplyIter; // continue with same batch size;
+      }
+      else {
+        // if(batchApplyIter > 1) {
+          //return (batchApplyIter - 1); // decrease batch size; 
+        //}
+        return 1;
+      }
+  }
+
+  template<typename U = Option, 
+    typename = typename std::enable_if<std::is_same<
+                        U, AdaptiveBatchOption::LossRateDecel>::value, U>::type,
+    typename Dtype>
+  static int getLRD(std::deque<Dtype>& deltaLosses, float lossThres
+                , int& batchApplyIter,int& currentIterPos) {
+    // if(deltaLosses.size() > 1)
+    // {
+      Dtype deltaAvg1 = 0;
+      for (int i = 0; i < 10; ++i)
+        deltaAvg1 += deltaLosses[i];
+      deltaAvg1 = deltaAvg1/(0.5 * deltaLosses.size());
+      
+      Dtype deltaAvg2 = 0;
+      for (int i = 10; i < 20; ++i)
+        deltaAvg2 += deltaLosses[i];
+      deltaAvg2 = deltaAvg2/(0.5 * deltaLosses.size());
+
+      // Dtype trendAvg = (deltaAvg1 + deltaAvg2)/ 2;
+      Dtype trendDiff = deltaAvg2 - deltaAvg1; 
+      Dtype trendDcc = (deltaAvg2 - deltaAvg1)/deltaLosses.size();
+
+      LOG(INFO) << "iter " << currentIterPos << " trendAcc " << trendDcc << "Loss Thres " << lossThres;
+
+      // if( (trendDiff > 0) && trendDiff > lossThres) {
+      if( (trendDcc < 0) && trendDcc > (-lossThres)) {
+        return (batchApplyIter + 1); // fixed increment size;  
+      }
+      //else if ((trendDiff > 0) && trendDiff <= lossThres ){
+      else if ((trendDcc < 0) 
+              // && (trendAcc <= lossThres 
+                  && trendDcc > (-1.1 * lossThres)){
+        return batchApplyIter; // continue with same batch size;
+      }
+      else {
+        // if(batchApplyIter > 1) {
+          //return (batchApplyIter - 1); // decrease batch size; 
+        //}
+        return 1;
+      }
+  }
+
+  template<typename U = Option, 
+    typename = typename std::enable_if<std::is_same<
+                        U, AdaptiveBatchOption::LossRateRange>::value, U>::type,
+    typename Dtype>
+  static int getLRR(std::deque<Dtype>& deltaLosses, float lossThres
+                , int& batchApplyIter,int& currentIterPos) {
+    // if(deltaLosses.size() > 1)
+    // {
+      Dtype deltaAvg1 = 0;
+      for (int i = 0; i < 10; ++i)
+        deltaAvg1 += deltaLosses[i];
+      deltaAvg1 = deltaAvg1/(0.5 * deltaLosses.size());
+      
+      Dtype deltaAvg2 = 0;
+      for (int i = 10; i < 20; ++i)
+        deltaAvg2 += deltaLosses[i];
+      deltaAvg2 = deltaAvg2/(0.5 * deltaLosses.size());
+
+      // Dtype trendAvg = (deltaAvg1 + deltaAvg2)/ 2;
+      Dtype trendDiff = deltaAvg2 - deltaAvg1; 
+      Dtype trendAcc = (deltaAvg2 - deltaAvg1)/deltaLosses.size();
+
+      LOG(INFO) << "iter " << currentIterPos << " trendAcc " << trendAcc << "Loss Thres " << lossThres;
+
+      // if( (trendDiff > 0) && trendDiff > lossThres) {
+      //if( (trendDcc < 0) && trendAcc > lossThres) {
+      if(trendAcc < lossThres || trendAcc > (-lossThres)) {
+        return (batchApplyIter + 1); // fixed increment size;  
+      }
+      //else if ((trendDiff > 0) && trendDiff <= lossThres ){
+      //else if ((trendAcc < 0) 
+              // && (trendAcc <= lossThres 
+      else if (trendAcc < (0.5 * lossThres) || trendAcc > (-0.5 * lossThres)){
         return batchApplyIter; // continue with same batch size;
       }
       else {

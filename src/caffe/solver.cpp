@@ -359,12 +359,16 @@ void Solver<Dtype>::Step(int iters) {
   typedef AdaptiveBatchOption::Random batchOptionRan;
   typedef AdaptiveBatchOption::LossRate batchOptionLR;
   typedef AdaptiveBatchOption::RatioCToC batchOptionRatioCToC;
+  typedef AdaptiveBatchOption::LossRateDecel batchOptionLRD;
+  typedef AdaptiveBatchOption::LossRateRange batchOptionLRR;
 
   if(hieuristic_OptType == "RANDOM") {
     randomThres =
       (hieuristic_RandomThres !=NULL) ? atoi(hieuristic_RandomThres) : 1;
   }
-  else if (hieuristic_OptType == "LOSSRATE") {
+  else if (hieuristic_OptType == "LOSSRATE" 
+            || hieuristic_OptType == "LOSSRATEDecel"
+            || hieuristic_OptType == "LOSSRATERange") {
     lossThres =
       (hieuristic_LossThres != NULL) ? atof(hieuristic_LossThres) : 1;
     DLOG(INFO) << "LossThres-------: " << lossThres << "\n";
@@ -411,6 +415,50 @@ void Solver<Dtype>::Step(int iters) {
       if(temp < randomThres)
         batch_apply_iter = (temp%2) == 0? temp/2 : 1;
     }
+    else if (hieuristic_OptType == "LOSSRATEDecel") {
+      int last_batchApplyIter = batch_apply_iter;
+      DLOG(INFO) << "lastBatchApplyIter (LOSSRATEDecel): ------------" << last_batchApplyIter;
+      // batch_apply_iter = *itrB;
+      // BroadCast New Iter by Rank 0
+      if (rank == 0) {
+        if((iter_ > 300) && (deltaLosses_.size() > 20))
+        {
+          batch_apply_iter = NewBatchSize<batchOptionLRD>::getLRD(
+            deltaLosses_
+          , lossThres
+          , last_batchApplyIter
+          , iter_);
+        }
+      }
+      comm_timer.Start();
+      caffe::mpi::bcast(&batch_apply_iter, 1, 0, MPI_COMM_WORLD);
+      temp_ctime = comm_timer.MilliSeconds();
+      comm_time += temp_ctime;
+      total_time += temp_ctime;
+
+    }
+    else if (hieuristic_OptType == "LOSSRATERange") {
+      int last_batchApplyIter = batch_apply_iter;
+      DLOG(INFO) << "lastBatchApplyIter (LOSSRATERange): ------------" << last_batchApplyIter;
+      // batch_apply_iter = *itrB;
+      // BroadCast New Iter by Rank 0
+      if (rank == 0) {
+        if((iter_ > 300) && (deltaLosses_.size() > 20))
+        {
+          batch_apply_iter = NewBatchSize<batchOptionLRR>::getLRR(
+            deltaLosses_
+          , lossThres
+          , last_batchApplyIter
+          , iter_);
+        }
+      }
+      comm_timer.Start();
+      caffe::mpi::bcast(&batch_apply_iter, 1, 0, MPI_COMM_WORLD);
+      temp_ctime = comm_timer.MilliSeconds();
+      comm_time += temp_ctime;
+      total_time += temp_ctime;
+
+    }
     else if (hieuristic_OptType == "LOSSRATE") {
       int last_batchApplyIter = batch_apply_iter;
       DLOG(INFO) << "lastBatchApplyIter (LOSSRATE): ------------" << last_batchApplyIter;
@@ -419,7 +467,7 @@ void Solver<Dtype>::Step(int iters) {
       if (rank == 0) {
         if((iter_ > 300) && (deltaLosses_.size() > 20))
         {
-          batch_apply_iter = NewBatchSize<batchOptionLR>::get(
+          batch_apply_iter = NewBatchSize<batchOptionLR>::getLR(
             deltaLosses_
           , lossThres
           , last_batchApplyIter
@@ -458,11 +506,13 @@ void Solver<Dtype>::Step(int iters) {
 
     }
     else if(hieuristic_OptType == "FIXEDSTEP") {
-      batch_apply_iter = *itrB;
-      DLOG(INFO) << "BATCHAPPLYITER (FIXED STEP) value:" << batch_apply_iter;
-      ++itrB;
-      if(itrB == tempBatchSizes.end())
-       itrB = tempBatchSizes.begin();
+      if (iter_ > 300) {
+        batch_apply_iter = *itrB;
+        DLOG(INFO) << "BATCHAPPLYITER (FIXED STEP) value:" << batch_apply_iter;
+        ++itrB;
+        if(itrB == tempBatchSizes.end())
+        itrB = tempBatchSizes.begin();
+      }
     }
 
     batch_iter_count = batch_apply_iter;
