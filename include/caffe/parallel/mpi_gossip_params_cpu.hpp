@@ -16,7 +16,7 @@ template<typename Dtype>
 class MPIGossipParamsCPU : public CPUParams<Dtype>, public Solver<Dtype>::Callback {
  public:
   explicit MPIGossipParamsCPU(shared_ptr<Solver<Dtype> > root_solver,
-          int comm_threads, bool cube, bool avgdata, bool rotate, bool batchwise);
+          int comm_threads, bool cube, bool avgdata, bool alldata, bool rotate, bool batchwise);
   virtual ~MPIGossipParamsCPU();
 
   inline const shared_ptr<Solver<Dtype> >& solver() const {
@@ -63,6 +63,7 @@ class MPIGossipParamsCPU : public CPUParams<Dtype>, public Solver<Dtype>::Callba
   vector<Dtype*> param_datas_;
   bool cube_;
   bool avgdata_;
+  bool alldata_;
   bool rotate_;
   bool batchwise_;
 

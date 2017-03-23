@@ -120,6 +120,7 @@ DEFINE_string(par, "",
     "Optional; parallelization strategy, e.g., MPISyncCPU");
 DEFINE_bool(cube, true, "for MPIGossipParamsCPU, use hypercube");
 DEFINE_bool(avgdata, true, "for MPIGossipParamsCPU, average the params also");
+DEFINE_bool(alldata, false, "for MPIGossipParamsCPU, average the params all at once");
 DEFINE_bool(rotate, true, "for MPIGossipParamsCPU, rotate comm partner");
 DEFINE_bool(batchwise, true, "for MPIGossipParamsCPU, update pair each batch (true) or layer (false)");
 
@@ -379,6 +380,7 @@ int train() {
           FLAGS_comm_threads,
           FLAGS_cube,
           FLAGS_avgdata,
+          FLAGS_alldata,
           FLAGS_rotate,
           FLAGS_batchwise);
       sync.Run();

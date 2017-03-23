@@ -47,109 +47,72 @@ class MPIGossipParamsCPU<Dtype>::Reducer : public InternalThread {
     void InternalThreadEntry() {
       try {
         while (!must_stop()) {
-          timer_queue_.Start();
-          int param_id = sync_->param_solo_.pop("solo param not yet ready");
-          time_in_queue_ += timer_queue_.MilliSeconds();
-          Blob<Dtype> *blob = sync_->params_[param_id];
-          MPI_Comm comm = sync_->comms_[param_id];
-          Dtype *recvdiff = sync_->param_diffs_[param_id];
-          Dtype *recvdata = sync_->param_datas_[param_id];
           if (!sync_->batchwise_) {
             sync_->next();
           }
-#ifdef USE_MPI
+          timer_queue_.Start();
+          int param_id = sync_->param_solo_.pop("solo param not yet ready");
+          time_in_queue_ += timer_queue_.MilliSeconds();
           timer_comm_.Start();
-          // exchange data
-#if 0
-          caffe::mpi::sendrecv(
-              (const Dtype*)blob->cpu_diff(), blob->count(), sync_->send_pair_, 1234,
-              recvdiff, blob->count(), sync_->recv_pair_, 1234, comm);
-          if (sync_->avgdata_) {
-            caffe::mpi::sendrecv(
-                (const Dtype*)blob->cpu_data(), blob->count(), sync_->send_pair_, 1234,
-                recvdata, blob->count(), sync_->recv_pair_, 1234, comm);
-          }
-#endif
-#if 1
-          if (sync_->avgdata_) {
-            vector<MPI_Request> requests(4);
-            caffe::mpi::irecv(requests[0], recvdiff,
-                blob->count(), sync_->recv_pair_, 2222, comm);
-            caffe::mpi::irecv(requests[1], recvdata,
-                blob->count(), sync_->recv_pair_, 3333, comm);
-            caffe::mpi::isend(requests[2], (const Dtype*)blob->cpu_diff(),
-                blob->count(), sync_->send_pair_, 2222, comm);
-            caffe::mpi::isend(requests[3], (const Dtype*)blob->cpu_data(),
-                blob->count(), sync_->send_pair_, 3333, comm);
+          if (-1 == param_id) {
+            MPI_Comm comm = sync_->comms_[0];
+            vector<MPI_Request> requests(2);
+            caffe::mpi::irecv(requests[0], sync_->data_all_,
+                sync_->size_, sync_->recv_pair_, 3333, comm);
+            caffe::mpi::isend(requests[1], sync_->data_,
+                sync_->size_, sync_->send_pair_, 3333, comm);
             caffe::mpi::waitall(requests);
+            time_in_comm_ += timer_comm_.MilliSeconds();
           }
           else {
-            vector<MPI_Request> requests(2);
-            caffe::mpi::irecv(requests[0], recvdiff,
-                blob->count(), sync_->recv_pair_, 2222, comm);
-            caffe::mpi::isend(requests[1], (const Dtype*)blob->cpu_diff(),
-                blob->count(), sync_->send_pair_, 2222, comm);
-            caffe::mpi::waitall(requests);
-          }
-#endif
+            Blob<Dtype> *blob = sync_->params_[param_id];
+            MPI_Comm comm = sync_->comms_[param_id];
+            Dtype *recvdiff = sync_->param_diffs_[param_id];
+            Dtype *recvdata = sync_->param_datas_[param_id];
+#ifdef USE_MPI
+            // exchange data
 #if 0
-          if (sync_->avgdata_) {
-            vector<MPI_Request> requests(4);
-            if (sync_->recv_pair_ == sync_->comm_rank_orig_) {
-              requests[0] = MPI_REQUEST_NULL;
-              (void)memcpy(recvdiff, blob->cpu_diff(), sizeof(Dtype)*blob->count());
-              requests[1] = MPI_REQUEST_NULL;
-              (void)memcpy(recvdata, blob->cpu_data(), sizeof(Dtype)*blob->count());
+            caffe::mpi::sendrecv(
+                (const Dtype*)blob->cpu_diff(), blob->count(), sync_->send_pair_, 1234,
+                recvdiff, blob->count(), sync_->recv_pair_, 1234, comm);
+            if (sync_->avgdata_ && !sync_->alldata_) {
+              caffe::mpi::sendrecv(
+                  (const Dtype*)blob->cpu_data(), blob->count(), sync_->send_pair_, 1234,
+                  recvdata, blob->count(), sync_->recv_pair_, 1234, comm);
             }
-            else {
+#endif
+#if 1
+            if (sync_->avgdata_ && !sync_->alldata_) {
+              vector<MPI_Request> requests(4);
               caffe::mpi::irecv(requests[0], recvdiff,
                   blob->count(), sync_->recv_pair_, 2222, comm);
               caffe::mpi::irecv(requests[1], recvdata,
                   blob->count(), sync_->recv_pair_, 3333, comm);
-            }
-            if (sync_->send_pair_ == sync_->comm_rank_orig_) {
-              /* do nothing */
-              requests[2] = MPI_REQUEST_NULL;
-              requests[3] = MPI_REQUEST_NULL;
-            }
-            else {
               caffe::mpi::isend(requests[2], (const Dtype*)blob->cpu_diff(),
                   blob->count(), sync_->send_pair_, 2222, comm);
               caffe::mpi::isend(requests[3], (const Dtype*)blob->cpu_data(),
                   blob->count(), sync_->send_pair_, 3333, comm);
-            }
-            caffe::mpi::waitall(requests);
-          }
-          else {
-            vector<MPI_Request> requests(2);
-            if (sync_->recv_pair_ == sync_->comm_rank_orig_) {
-              requests[0] = MPI_REQUEST_NULL;
-              (void)memcpy(recvdiff, blob->cpu_diff(), sizeof(Dtype)*blob->count());
+              caffe::mpi::waitall(requests);
             }
             else {
+              vector<MPI_Request> requests(2);
               caffe::mpi::irecv(requests[0], recvdiff,
                   blob->count(), sync_->recv_pair_, 2222, comm);
-            }
-            if (sync_->send_pair_ == sync_->comm_rank_orig_) {
-              /* do nothing */
-              requests[1] = MPI_REQUEST_NULL;
-            }
-            else {
               caffe::mpi::isend(requests[1], (const Dtype*)blob->cpu_diff(),
                   blob->count(), sync_->send_pair_, 2222, comm);
+              caffe::mpi::waitall(requests);
             }
-            caffe::mpi::waitall(requests);
-          }
 #endif
+            time_per_param_[param_id] += timer_comm_.MilliSeconds();
+            time_in_comm_ += timer_comm_.MilliSeconds();
+            timer_queue_.Start();
+            sync_->param_all_[param_id]->push(tid_);
+            time_in_queue_ += timer_queue_.MilliSeconds();
+          }
           // postpone average local data and diff into secondary buffers
-          time_per_param_[param_id] += timer_comm_.MilliSeconds();
-          time_in_comm_ += timer_comm_.MilliSeconds();
 #else       
           NO_MPI;
 #endif        
-          timer_queue_.Start();
-          sync_->param_all_[param_id]->push(tid_);
-          time_in_queue_ += timer_queue_.MilliSeconds();
         }
       } catch (boost::thread_interrupted&) {
         // Interrupted exception is expected on shutdown
@@ -249,6 +212,7 @@ MPIGossipParamsCPU<Dtype>::MPIGossipParamsCPU(
     int comm_threads,
     bool cube,
     bool avgdata,
+    bool alldata,
     bool rotate,
     bool batchwise)
   : CPUParams<Dtype>(root_solver),
@@ -270,6 +234,7 @@ MPIGossipParamsCPU<Dtype>::MPIGossipParamsCPU(
     param_datas_(),
     cube_(cube),
     avgdata_(avgdata),
+    alldata_(alldata),
     rotate_(rotate),
     batchwise_(batchwise)
 {
@@ -352,11 +317,25 @@ void MPIGossipParamsCPU<Dtype>::on_start() {
   if (batchwise_) {
     next();
   }
+  if (alldata_ && avgdata_) {
+    // tell comm thread to send all data
+    param_solo_.push(-1);
+  }
 }
 
 template<typename Dtype>
 void MPIGossipParamsCPU<Dtype>::on_gradients_ready() {
   DLOG(INFO) << "on_gradients_ready()";
+  if (avgdata_ && alldata_) {
+    // average pairwise exchange
+    caffe_cpu_axpby(size_, Dtype(0.5), data_, Dtype(0.5), data_all_);
+    // swap data pointer with reduction pointer
+    Dtype *swap;
+    swap = data_;
+    data_ = data_all_;
+    data_all_ = swap;
+    apply_buffers(params_, data_, size_, replace_cpu);
+  }
 }
 
 template<typename Dtype>
@@ -373,7 +352,7 @@ int MPIGossipParamsCPU<Dtype>::on_apply(int param_id) {
 
   // average pairwise exhange
   caffe_cpu_axpby(blob->count(), Dtype(0.5), blob->cpu_diff(), Dtype(0.5), param_diffs_[param_id]);
-  if (avgdata_) {
+  if (avgdata_ && !alldata_) {
     caffe_cpu_axpby(blob->count(), Dtype(0.5), blob->cpu_data(), Dtype(0.5), param_datas_[param_id]);
   }
 
@@ -382,7 +361,7 @@ int MPIGossipParamsCPU<Dtype>::on_apply(int param_id) {
   swap = blob->mutable_cpu_diff();
   blob->diff()->set_cpu_data(param_diffs_[param_id]);
   param_diffs_[param_id] = swap;
-  if (avgdata_) {
+  if (avgdata_ && !alldata_) {
     swap = blob->mutable_cpu_data();
     blob->data()->set_cpu_data(param_datas_[param_id]);
     param_datas_[param_id] = swap;
