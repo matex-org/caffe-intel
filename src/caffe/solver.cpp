@@ -10,7 +10,6 @@ Copyright (c) 2014, 2015, the respective contributors
 All rights reserved.
 For the list of contributors go to https://github.com/BVLC/caffe/blob/master/CONTRIBUTORS.md
 
-
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
 
@@ -55,10 +54,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <mpi.h>
 #endif /* USE_MLSL */
 
-// Double Check 
+// Double Check
 #ifdef USE_MPI
 #include "caffe/mpi.hpp"
-#endif 
+#endif
 
 namespace caffe {
 
@@ -291,7 +290,10 @@ void Solver<Dtype>::Step(int iters) {
   int average_loss = this->param_.average_loss();
   losses_.clear();
   smoothed_loss_ = 0;
-
+  
+  Timer ft_timer;
+  // Timer total_timer, comm_timer;
+  double total_time = 0, total_comm_time = 0;
   while (iter_ < stop_iter) {
     if (param_.test_interval() && iter_ % param_.test_interval() == 0
         && (iter_ > 0 || param_.test_initialization())
@@ -306,20 +308,27 @@ void Solver<Dtype>::Step(int iters) {
       }
     }
 
+    double total_step_time = 0, comm_step_time = 0, temp_time = 0; 
+
     #ifdef CAFFE_FT
     // Fault Injection
     int victim = (ft_size - 1);//(ft_rank == (ft_size - 1));
 
-    if ((ft_rank == victim) && (iter_ == 201)) {
+    if ((ft_rank == victim) && (iter_ == 21)) {
       std::cout << "Victim Rank: " << victim << std::endl;
       raise(SIGKILL);
     }
 
-    #endif 
+    #endif
 
+    ft_timer.Start();
     for (int i = 0; i < callbacks_.size(); ++i) {
       callbacks_[i]->on_start();
     }
+    temp_time = ft_timer.MilliSeconds();
+    total_step_time += temp_time;
+    comm_step_time += temp_time;
+
     const bool display = param_.display() && iter_ % param_.display() == 0;
     net_->set_debug_info(display && param_.debug_info());
 
@@ -330,6 +339,7 @@ void Solver<Dtype>::Step(int iters) {
     Dtype loss = forward_backward_();
 
     iter_time += iter_timer.MilliSeconds();
+    total_step_time += iter_time;
 
     // average the loss across iterations for smoothed reporting
     UpdateSmoothedLoss(loss, start_iter, average_loss);
@@ -379,13 +389,26 @@ void Solver<Dtype>::Step(int iters) {
       ApplyUpdate();
     }
 
-    iter_time += iter_timer.MilliSeconds();
+    temp_time = iter_timer.MilliSeconds();
+    iter_time += temp_time;
+    comm_step_time += temp_time;
+    total_step_time += temp_time;
 
 #ifdef CAFFE_PER_LAYER_TIMINGS
     if (MLSL::GetNodeId() == 0)
         LOG(INFO) << "iter " << iter_ << ", forward_backward_update_time: " << iter_time << " ms";
 #endif
-    
+  total_time += total_step_time;
+  total_comm_time += comm_step_time;
+#ifdef USE_MPI
+    if(ft_rank == 0){
+      LOG(INFO) << "iter " << iter_ << ", step_communication_time: " << comm_step_time << " ms";
+      LOG(INFO) << "iter " << iter_ << ", step_total_time: " << total_step_time << " ms";
+      LOG(INFO) << "iter " << iter_ << ", cumulative_communication_time: " << total_comm_time << " ms";
+      LOG(INFO) << "iter " << iter_ << ", cumulative_total_time: " << comm_step_time << " ms"; 
+    }
+#endif 
+
     // Increment the internal iter_ counter -- its value should always indicate
     // the number of times the weights have been updated.
     ++iter_;
