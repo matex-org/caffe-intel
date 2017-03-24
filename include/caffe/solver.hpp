@@ -10,7 +10,6 @@ Copyright (c) 2014, 2015, the respective contributors
 All rights reserved.
 For the list of contributors go to https://github.com/BVLC/caffe/blob/master/CONTRIBUTORS.md
 
-
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
 
@@ -76,18 +75,18 @@ namespace caffe {
   }
 
 #ifdef ADAPTIVE_BATCH
-namespace AdaptiveBatchOption {  // Should be friend class to Solver Class. 
+namespace AdaptiveBatchOption {  // Should be friend class to Solver Class.
   struct Random {}; // Random value between 1 and max_iter size.
   struct RatioCToC {}; // Ratio of communication to computation.
   struct LossRate {}; // Loss Accel > threshhold, increase batch size.
-  struct LossRateDecel {}; // Loss Accel < threshold, inc. batch. 
-  struct LossRateRange {}; // Loss Accel <> threshold,(with a range). 
+  struct LossRateDecel {}; // Loss Accel < threshold, inc. batch.
+  struct LossRateRange {}; // Loss Accel <> threshold,(with a range).
 }
 
 template <typename Option>
 struct NewBatchSize {
-  // Random Itersize. Input max value; min value is 1. 
-  template<typename U = Option, 
+  // Random Itersize. Input max value; min value is 1.
+  template<typename U = Option,
     typename = typename std::enable_if<std::is_same<
                         U, AdaptiveBatchOption::Random>::value, U>::type>
   static int get(int upperLimit, std::mt19937& gen) {
@@ -96,14 +95,14 @@ struct NewBatchSize {
 
     random = dist(gen);// dist(rSeed);
     DLOG(INFO) << "RANDOM_UPPER_LIMIT" << upperLimit;
-    DLOG(INFO) << "RANDOM_NUMBER GENERATED" << random; 
+    DLOG(INFO) << "RANDOM_NUMBER GENERATED" << random;
     return random;
   }
 
-  // Ratio Communication/Computation. 
+  // Ratio Communication/Computation.
   // Data-History approach has Mininum 2 communication if computation is 1.
-  template<typename U = Option, 
-    typename = 
+  template<typename U = Option,
+    typename =
       typename std::enable_if<std::is_same<
                   U, AdaptiveBatchOption::RatioCToC>::value, U>::type,
       typename Dtype>
@@ -117,7 +116,7 @@ struct NewBatchSize {
                 , int& currentIterPos
                  ) {
     // std::assert(commTimes.size() == commCompTimes.size());
-    // int new_batchsize = 0; 
+    // int new_batchsize = 0;
     //if()
     // return new_batchsize;
 
@@ -131,7 +130,7 @@ struct NewBatchSize {
       sumCommComp += c2;
 
     double CToCRatio = sumComm / sumCommComp;
-    
+
     // Second half
     Dtype deltaAvg1 = 0;
       for (int i = 0; i < 10; ++i)
@@ -144,26 +143,26 @@ struct NewBatchSize {
     deltaAvg2 = deltaAvg2/(0.5 * deltaLosses.size());
 
     // Dtype trendAvg = (deltaAvg1 + deltaAvg2)/ 2;
-    Dtype trendDiff = deltaAvg2 - deltaAvg1; 
+    Dtype trendDiff = deltaAvg2 - deltaAvg1;
     Dtype trendAcc = (deltaAvg2 - deltaAvg1)/deltaLosses.size();
 
     // if( (trendDiff > 0) && trendDiff > lossThres) {
-    if( (trendAcc > 0) 
+    if( (trendAcc > 0)
       && (trendAcc > lossThres)
       && (CToCRatio > CToCThres)
       ) {
-      return batchApplyIter + 4; // fixed increment size;  
+      return batchApplyIter + 4; // fixed increment size;
     }
     //else if ((trendDiff > 0) && trendDiff <= lossThres ){
-    else if ((trendAcc > 0) 
-            // && (trendAcc <= lossThres 
+    else if ((trendAcc > 0)
+            // && (trendAcc <= lossThres
               && (trendAcc > (0.9 * lossThres))
               && (CToCRatio > CToCThres)
               ){
       return batchApplyIter + 1; // continue with same batch size;
     }
-    else if ((trendAcc > 0) 
-            // && (trendAcc <= lossThres 
+    else if ((trendAcc > 0)
+            // && (trendAcc <= lossThres
               && (trendAcc > (0.9 * lossThres))
               && (CToCRatio < CToCThres)
               ){
@@ -171,13 +170,13 @@ struct NewBatchSize {
     }
     else {
       // if(batchApplyIter > 1) {
-        //return (batchApplyIter - 1); // decrease batch size; 
+        //return (batchApplyIter - 1); // decrease batch size;
       //}
       return 1;
     }
   }
 
-  template<typename U = Option, 
+  template<typename U = Option,
     typename = typename std::enable_if<std::is_same<
                         U, AdaptiveBatchOption::LossRate>::value, U>::type,
     typename Dtype>
@@ -189,37 +188,37 @@ struct NewBatchSize {
       for (int i = 0; i < 10; ++i)
         deltaAvg1 += deltaLosses[i];
       deltaAvg1 = deltaAvg1/(0.5 * deltaLosses.size());
-      
+
       Dtype deltaAvg2 = 0;
       for (int i = 10; i < 20; ++i)
         deltaAvg2 += deltaLosses[i];
       deltaAvg2 = deltaAvg2/(0.5 * deltaLosses.size());
 
       // Dtype trendAvg = (deltaAvg1 + deltaAvg2)/ 2;
-      Dtype trendDiff = deltaAvg2 - deltaAvg1; 
+      Dtype trendDiff = deltaAvg2 - deltaAvg1;
       Dtype trendAcc = (deltaAvg2 - deltaAvg1)/deltaLosses.size();
 
       LOG(INFO) << "iter " << currentIterPos << " trendAcc " << trendAcc << "Loss Thres " << lossThres;
 
       // if( (trendDiff > 0) && trendDiff > lossThres) {
       if( (trendAcc > 0) && trendAcc > lossThres) {
-        return (batchApplyIter + 1); // fixed increment size;  
+        return (batchApplyIter + 1); // fixed increment size;
       }
       //else if ((trendDiff > 0) && trendDiff <= lossThres ){
-      else if ((trendAcc > 0) 
-              // && (trendAcc <= lossThres 
+      else if ((trendAcc > 0)
+              // && (trendAcc <= lossThres
                   && trendAcc > (0.9 * lossThres)){
         return batchApplyIter; // continue with same batch size;
       }
       else {
         // if(batchApplyIter > 1) {
-          //return (batchApplyIter - 1); // decrease batch size; 
+          //return (batchApplyIter - 1); // decrease batch size;
         //}
         return 1;
       }
   }
 
-  template<typename U = Option, 
+  template<typename U = Option,
     typename = typename std::enable_if<std::is_same<
                         U, AdaptiveBatchOption::LossRateDecel>::value, U>::type,
     typename Dtype>
@@ -231,37 +230,37 @@ struct NewBatchSize {
       for (int i = 0; i < 10; ++i)
         deltaAvg1 += deltaLosses[i];
       deltaAvg1 = deltaAvg1/(0.5 * deltaLosses.size());
-      
+
       Dtype deltaAvg2 = 0;
       for (int i = 10; i < 20; ++i)
         deltaAvg2 += deltaLosses[i];
       deltaAvg2 = deltaAvg2/(0.5 * deltaLosses.size());
 
       // Dtype trendAvg = (deltaAvg1 + deltaAvg2)/ 2;
-      Dtype trendDiff = deltaAvg2 - deltaAvg1; 
+      Dtype trendDiff = deltaAvg2 - deltaAvg1;
       Dtype trendDcc = (deltaAvg2 - deltaAvg1)/deltaLosses.size();
 
       LOG(INFO) << "iter " << currentIterPos << " trendAcc " << trendDcc << "Loss Thres " << lossThres;
 
       // if( (trendDiff > 0) && trendDiff > lossThres) {
       if( (trendDcc < 0) && trendDcc > (-lossThres)) {
-        return (batchApplyIter + 1); // fixed increment size;  
+        return (batchApplyIter + 1); // fixed increment size;
       }
       //else if ((trendDiff > 0) && trendDiff <= lossThres ){
-      else if ((trendDcc < 0) 
-              // && (trendAcc <= lossThres 
+      else if ((trendDcc < 0)
+              // && (trendAcc <= lossThres
                   && trendDcc > (-1.1 * lossThres)){
         return batchApplyIter; // continue with same batch size;
       }
       else {
         // if(batchApplyIter > 1) {
-          //return (batchApplyIter - 1); // decrease batch size; 
+          //return (batchApplyIter - 1); // decrease batch size;
         //}
         return 1;
       }
   }
 
-  template<typename U = Option, 
+  template<typename U = Option,
     typename = typename std::enable_if<std::is_same<
                         U, AdaptiveBatchOption::LossRateRange>::value, U>::type,
     typename Dtype>
@@ -273,14 +272,14 @@ struct NewBatchSize {
       for (int i = 0; i < 10; ++i)
         deltaAvg1 += deltaLosses[i];
       deltaAvg1 = deltaAvg1/(0.5 * deltaLosses.size());
-      
+
       Dtype deltaAvg2 = 0;
       for (int i = 10; i < 20; ++i)
         deltaAvg2 += deltaLosses[i];
       deltaAvg2 = deltaAvg2/(0.5 * deltaLosses.size());
 
       // Dtype trendAvg = (deltaAvg1 + deltaAvg2)/ 2;
-      Dtype trendDiff = deltaAvg2 - deltaAvg1; 
+      Dtype trendDiff = deltaAvg2 - deltaAvg1;
       Dtype trendAcc = (deltaAvg2 - deltaAvg1)/deltaLosses.size();
 
       LOG(INFO) << "iter " << currentIterPos << " trendAcc " << trendAcc << "Loss Thres " << lossThres;
@@ -288,17 +287,17 @@ struct NewBatchSize {
       // if( (trendDiff > 0) && trendDiff > lossThres) {
       //if( (trendDcc < 0) && trendAcc > lossThres) {
       if(trendAcc < lossThres || trendAcc > (-lossThres)) {
-        return (batchApplyIter + 1); // fixed increment size;  
+        return (batchApplyIter + 1); // fixed increment size;
       }
       //else if ((trendDiff > 0) && trendDiff <= lossThres ){
-      //else if ((trendAcc < 0) 
-              // && (trendAcc <= lossThres 
+      //else if ((trendAcc < 0)
+              // && (trendAcc <= lossThres
       else if (trendAcc < (0.5 * lossThres) || trendAcc > (-0.5 * lossThres)){
         return batchApplyIter; // continue with same batch size;
       }
       else {
         // if(batchApplyIter > 1) {
-          //return (batchApplyIter - 1); // decrease batch size; 
+          //return (batchApplyIter - 1); // decrease batch size;
         //}
         return 1;
       }
@@ -368,7 +367,7 @@ class Solver {
     virtual void on_start(int i) {}
 #else
     virtual void on_start() = 0;
-#endif    
+#endif
     virtual void on_gradients_ready() = 0;
 
     template <typename T>
@@ -417,7 +416,6 @@ class Solver {
 
   void TestAll();
 
-
 #ifdef CAFFE_PER_LAYER_TIMINGS
   /* Timers for performance measurements */
   Timer timer;
@@ -459,7 +457,7 @@ class Solver {
   std::deque<Dtype> deltaLosses_;
   std::deque<double> commTimes_;
   std::deque<double> commCompTimes_;
-#endif 
+#endif
 
   // The root solver that holds root nets (actually containing shared layers)
   // in data parallelism
@@ -482,7 +480,7 @@ class Solver {
   ForwardBackwardFuncArg forward_backward_;
 #else
   ForwardBackwardFunc forward_backward_;
-#endif 
+#endif
 
   DISABLE_COPY_AND_ASSIGN(Solver);
 };
