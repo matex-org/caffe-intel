@@ -18,14 +18,14 @@ MPI_Comm wcomm, rcomm;
 MPI_Errhandler errh;
 char err_str[MPI_MAX_ERROR_STRING] = "";
 int err_strlen;
-#endif 
+#endif
 
 MPI_Comm get_comm_default() {
   #ifdef CAFFE_FT
   return wcomm;
   #else
   return default_comm_;
-  #endif 
+  #endif
 }
 
 void set_comm_default(MPI_Comm comm) {
@@ -38,7 +38,7 @@ void set_comm_default(MPI_Comm comm) {
 }
 
 void init(int *argc, char ***argv) {
-  
+
 #ifdef CAFFE_FT
   int rank = 0, size = 0, namelen = 0;
   char name[MPI_MAX_PROCESSOR_NAME];
@@ -51,7 +51,6 @@ void init(int *argc, char ***argv) {
   //MPI_Init(&argc, &argv);
   MPI_Init(argc, argv);
   FTCommunicator ftComm;
-  
 
   // MPI_Comm_dup(MPI_COMM_WORLD, &wcomm);
   duplicate_comm(&wcomm, MPI_COMM_WORLD);
@@ -69,7 +68,7 @@ void init(int *argc, char ***argv) {
   MPI_Comm_size(wcomm, &size);
   MPI_Comm_rank(wcomm, &rank);
   MPI_Get_processor_name(name, &namelen);
-  
+
   MPI_Comm_create_errhandler(verbose_errhandler, &errh);
   // MPI_Comm_dup(MPI_COMM_WORLD, &wcomm);
   std::cout << "My Rank: " << rank << ", size: " << size << "----------------!!!\n";
@@ -89,23 +88,26 @@ void init(int *argc, char ***argv) {
     std::cout << "Victim Rank: " << victim << std::endl;
     raise(SIGKILL);
   }*/
-  
+
   LOG(INFO) << "Process rank " << rank << " from number of " << size
             << " processes running on " << name;
 #else
   if (!initialized()) {
     int provided;
     if (MPI_SUCCESS != MPI_Init_thread(
-          argc, argv, MPI_THREAD_MULTIPLE, &provided)) {
+          // argc, argv, MPI_THREAD_MULTIPLE, &provided)) {
+          argc, argv, MPI_THREAD_SINGLE, &provided)) {
 
       throw std::runtime_error("MPI_Init_thread failed");
     }
   }
-  
-  if (MPI_THREAD_MULTIPLE != query_thread()) {
-    throw std::runtime_error("MPI threading level must be == MPI_THREAD_MULTIPLE");
+
+  // if (MPI_THREAD_MULTIPLE != query_thread()) {
+  //   throw std::runtime_error("MPI threading level must be == MPI_THREAD_MULTIPLE");
+  if (MPI_THREAD_SINGLE != query_thread()) {
+    throw std::runtime_error("MPI threading level must be == MPI_THREAD_SINGLE");
   }
-  
+
   if (0 != atexit(finalize)) {
     throw std::runtime_error("atexit(caffe::mpi::finalize) failed");
   }
@@ -293,12 +295,12 @@ void allreduce_copy(const double& sendbuf, double& recvbuf, MPI_Op op,
 
 void allreduce_copy(const float* sendbuf, float* recvbuf, int count,
     MPI_Op op, MPI_Comm comm) {
-  int rc; 
+  int rc;
   if (MPI_COMM_NULL == comm) {
     comm = get_comm_default();
   }
 
-  rc = MPI_Allreduce((void*)sendbuf, recvbuf, count, MPI_FLOAT, op, comm); 
+  rc = MPI_Allreduce((void*)sendbuf, recvbuf, count, MPI_FLOAT, op, comm);
   if(rc != MPI_SUCCESS)
     caffe::mpi::error_report(rc);
 
@@ -309,7 +311,7 @@ void allreduce_copy(const float* sendbuf, float* recvbuf, int count,
 
 void allreduce_copy(const double* sendbuf, double* recvbuf, int count,
     MPI_Op op, MPI_Comm comm) {
-  int rc; 
+  int rc;
   if (MPI_COMM_NULL == comm) {
     comm = get_comm_default();
   }
@@ -324,7 +326,7 @@ void allreduce_copy(const double* sendbuf, double* recvbuf, int count,
 }
 
 int allreduce(float& buffer, MPI_Op op, MPI_Comm comm) {
-  int rc, trank, tsize; 
+  int rc, trank, tsize;
   MPI_Comm test_comm;
   if (MPI_COMM_NULL == comm) {
     std::cout << "AllReduce (Float Ref): MPI_COMM_NULL \n";
@@ -338,7 +340,7 @@ int allreduce(float& buffer, MPI_Op op, MPI_Comm comm) {
     test_comm = caffe::mpi::get_working_comm();
     trank = caffe::mpi::comm_rank(test_comm);
     tsize = caffe::mpi::comm_size(test_comm);
-    DLOG(INFO) << "Communicator Fixed AllReduce (Float Ref): Rank: " 
+    DLOG(INFO) << "Communicator Fixed AllReduce (Float Ref): Rank: "
       << trank << ", Size: " << tsize;
     rc2 = MPI_Allreduce(MPI_IN_PLACE, &buffer, 1, MPI_FLOAT, op, comm);
     /*if (MPI_SUCCESS != rc2) {
@@ -368,7 +370,7 @@ int allreduce(double& buffer, MPI_Op op, MPI_Comm comm) {
     test_comm = caffe::mpi::get_working_comm();
     trank = caffe::mpi::comm_rank(test_comm);
     tsize = caffe::mpi::comm_size(test_comm);
-    DLOG(INFO) << "Communicator Fixed AllReduce (Double Ref): Rank: " 
+    DLOG(INFO) << "Communicator Fixed AllReduce (Double Ref): Rank: "
       << trank << ", Size: " << tsize;
     rc2 = MPI_Allreduce(MPI_IN_PLACE, &buffer, 1, MPI_DOUBLE, op, comm);
     /*if (MPI_SUCCESS != rc2) {
@@ -398,7 +400,7 @@ int allreduce(float* buffer, int count, MPI_Op op, MPI_Comm comm) {
     test_comm = caffe::mpi::get_working_comm();
     trank = caffe::mpi::comm_rank(test_comm);
     tsize = caffe::mpi::comm_size(test_comm);
-    DLOG(INFO) << "Communicator Fixed AllReduce (Float Ptr): Rank: " 
+    DLOG(INFO) << "Communicator Fixed AllReduce (Float Ptr): Rank: "
       << trank << ", Size: " << tsize;
     rc2 = MPI_Allreduce(MPI_IN_PLACE, buffer, count, MPI_FLOAT, op, comm);
     /*if (MPI_SUCCESS != rc2) {
@@ -417,7 +419,7 @@ int allreduce(double* buffer, int count, MPI_Op op, MPI_Comm comm) {
   int rc, trank, tsize;
   MPI_Comm test_comm;
   if (MPI_COMM_NULL == comm) {
-    std::cout << "AllReduce (Double Ptr): MPI_COMM_NULL \n";  
+    std::cout << "AllReduce (Double Ptr): MPI_COMM_NULL \n";
     comm = get_comm_default();
   }
   rc = MPI_Allreduce(MPI_IN_PLACE, buffer, count, MPI_DOUBLE, op, comm);
@@ -428,7 +430,7 @@ int allreduce(double* buffer, int count, MPI_Op op, MPI_Comm comm) {
     test_comm = caffe::mpi::get_working_comm();
     trank = caffe::mpi::comm_rank(test_comm);
     tsize = caffe::mpi::comm_size(test_comm);
-    DLOG(INFO) << "Communicator Fixed AllReduce (Double Ptr): Rank: " 
+    DLOG(INFO) << "Communicator Fixed AllReduce (Double Ptr): Rank: "
       << trank << ", Size: " << tsize;
     rc2 = MPI_Allreduce(MPI_IN_PLACE, buffer, count, MPI_DOUBLE, op, comm);
     /*if (MPI_SUCCESS != rc2) {
@@ -469,7 +471,7 @@ int mpix_comm_replace(MPI_Comm comm, MPI_Comm* newcomm)
   MPI_Group cgrp, sgrp, dgrp;
   int rc, flag, i, nc, ns, nd, nnew, crank, srank, drank;
 
-  // Shrink/remove dead process/es 
+  // Shrink/remove dead process/es
   MPIX_Comm_shrink(comm, &shrinked);
   // Set Error Handler: instantiated during MPI init
   MPI_Comm_set_errhandler(shrinked, errh);
@@ -496,15 +498,14 @@ MPI_Comm get_working_comm() {
   return wcomm;
 }
 
-// duplicate communicator 
+// duplicate communicator
 int duplicate_comm(MPI_Comm* new_comm, MPI_Comm comm)
 {
-  int rc; 
+  int rc;
   int flag;
   int temp_rank, temp_size;
   temp_size = caffe::mpi::comm_size(comm);
   DLOG(INFO) << "Here!------------comm_dup, before comm_size" << temp_size;
-  
 
   if(comm == MPI_COMM_NULL)
   {
@@ -532,9 +533,9 @@ void error_report(int err_code)
   char err_string_[MPI_MAX_ERROR_STRING];
   int err_slen_, err_code_;
 
-  err_code_ = err_code; 
+  err_code_ = err_code;
   MPI_Error_string(err_code_, err_string_, &err_slen_);
-  std::cout << "Error Report: " << err_string_ << std::endl; 
+  std::cout << "Error Report: " << err_string_ << std::endl;
 }
 
 void verbose_errhandler(MPI_Comm* comm, int* err, ...)
@@ -564,7 +565,7 @@ void verbose_errhandler(MPI_Comm* comm, int* err, ...)
   MPI_Group_size(group_f, &nf);
   MPI_Error_string(err_, err_string, &len);
   std::cout << "Rank " << rank << "/" << size << ": Notified of error "
-    << err_string << "." << nf << "found dead: {"; 
+    << err_string << "." << nf << "found dead: {";
 
   ranks_gf = (int*)malloc(nf * sizeof(int));
   ranks_gc = (int*)malloc(nf * sizeof(int));
@@ -573,7 +574,7 @@ void verbose_errhandler(MPI_Comm* comm, int* err, ...)
     ranks_gf[i] = i;
   MPI_Group_translate_ranks(group_f, nf, ranks_gf, group_c, ranks_gc);
   for(i = 0; i < nf; i++)
-    std::cout << ranks_gc[i]; 
+    std::cout << ranks_gc[i];
   std::cout << "}\n";
   //MPI_Comm_free(wcomm);
   //duplicate_comm(&wcomm, wcomm_dup);
@@ -604,13 +605,13 @@ void fix_communicator()
   wsize = caffe::mpi::comm_size(wcomm);
   DLOG(INFO) << "Working comm size (after switch): " << wsize;
   MPI_Comm_set_errhandler(wcomm, MPI_ERRORS_RETURN);
-  
+
   flag = MPIX_Comm_agree(wcomm, &flag);
   MPI_Comm_free(&rcomm);
 
   /*if (flag != MPI_SUCCESS) {
     //MPI_Comm_free(&wcomm_dup);
-    //MPI_Abort(wcomm, err_); // change error message: No agreement on new communicator. 
+    //MPI_Abort(wcomm, err_); // change error message: No agreement on new communicator.
   }*/
 }
 
@@ -737,4 +738,3 @@ int dummy();
 
 } // namespace mpi
 } // namespace caffe
-

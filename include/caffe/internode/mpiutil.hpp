@@ -10,7 +10,6 @@ Copyright (c) 2014, 2015, the respective contributors
 All rights reserved.
 For the list of contributors go to https://github.com/BVLC/caffe/blob/master/CONTRIBUTORS.md
 
-
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
 
@@ -41,11 +40,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <map>
 #include <string>
 
-#ifdef CAFFE_FT
+// #ifdef CAFFE_FT
 #include "caffe/mpi.hpp"
 #include <mpi-ext.h>
 #include <signal.h>
-#endif
+// #endif
 
 namespace caffe {
 namespace internode {
@@ -58,10 +57,7 @@ std::string mpi_get_error_string(int errorcode);
 void mpi_init(int argc, char** argv);
 void mpi_finalize();
 
-
-
 }  // namespace internode
 }  // namespace caffe
 
 #endif   // CAFFE_UTIL_MPIUTIL_H_
-

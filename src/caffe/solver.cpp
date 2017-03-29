@@ -99,12 +99,14 @@ Solver<Dtype>::Solver(const string& param_file, const Solver* root_solver)
 
 template <typename Dtype>
 void Solver<Dtype>::Init(const SolverParameter& param) {
-  #ifdef CAFFE_FT
   #ifdef USE_MPI
-  // int ft_rank, ft_size;
+  #ifdef CAFFE_FT
   MPI_Comm temp_comm = caffe::mpi::get_working_comm();
   ft_rank = caffe::mpi::comm_rank(temp_comm);
   ft_size = caffe::mpi::comm_size(temp_comm);
+  #else
+  ft_rank = caffe::mpi::comm_rank(MPI_COMM_WORLD);
+  ft_size = caffe::mpi::comm_size(MPI_COMM_WORLD);
   #endif
   #endif
 
@@ -290,7 +292,7 @@ void Solver<Dtype>::Step(int iters) {
   int average_loss = this->param_.average_loss();
   losses_.clear();
   smoothed_loss_ = 0;
-  
+
   Timer ft_timer;
   // Timer total_timer, comm_timer;
   double total_time = 0, total_comm_time = 0;
@@ -308,13 +310,13 @@ void Solver<Dtype>::Step(int iters) {
       }
     }
 
-    double total_step_time = 0, comm_step_time = 0, temp_time = 0; 
+    double total_step_time = 0, comm_step_time = 0, temp_time = 0;
 
     #ifdef CAFFE_FT
     // Fault Injection
     int victim = (ft_size - 1);//(ft_rank == (ft_size - 1));
 
-    if ((ft_rank == victim) && (iter_ == 21)) {
+    if ((ft_rank == victim) && (iter_ == 201)) {
       std::cout << "Victim Rank: " << victim << std::endl;
       raise(SIGKILL);
     }
@@ -405,9 +407,9 @@ void Solver<Dtype>::Step(int iters) {
       LOG(INFO) << "iter " << iter_ << ", step_communication_time: " << comm_step_time << " ms";
       LOG(INFO) << "iter " << iter_ << ", step_total_time: " << total_step_time << " ms";
       LOG(INFO) << "iter " << iter_ << ", cumulative_communication_time: " << total_comm_time << " ms";
-      LOG(INFO) << "iter " << iter_ << ", cumulative_total_time: " << comm_step_time << " ms"; 
+      LOG(INFO) << "iter " << iter_ << ", cumulative_total_time: " << comm_step_time << " ms";
     }
-#endif 
+#endif
 
     // Increment the internal iter_ counter -- its value should always indicate
     // the number of times the weights have been updated.

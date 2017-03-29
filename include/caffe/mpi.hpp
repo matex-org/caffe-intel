@@ -3,11 +3,11 @@
 
 #ifdef USE_MPI
 #include <mpi.h>
-#ifdef CAFFE_FT
+// #ifdef CAFFE_FT
 #include <glog/logging.h>
 #include <mpi-ext.h>
 #include <signal.h>
-#endif /*CAFFE_FT*/
+// #endif /*CAFFE_FT*/
 #endif
 
 #define NO_MPI LOG(FATAL) << "Cannot use MPI unless USE_MPI is enabled during make."
@@ -19,7 +19,7 @@ namespace mpi {
 
 #ifdef CAFFE_FT
 extern MPI_Comm wcomm, rcomm;
-#endif 
+#endif
 
 extern MPI_Comm default_comm_;
 MPI_Comm get_comm_default();
@@ -47,7 +47,7 @@ MPI_Comm working_comm, split_comm;
 //static void verbose_errhandler(MPI_Comm* comm, int* err, ...);
 };
 
-// for global working comm and recovery comm. 
+// for global working comm and recovery comm.
 extern MPI_Comm wcomm, rcomm;
 // error message
 extern char err_str[MPI_MAX_ERROR_STRING];
@@ -80,7 +80,7 @@ int allreduce(double* buffer, int count,
 
 void bcast(float* buffer, int count, int root=0, MPI_Comm comm=MPI_COMM_NULL);
 void bcast(double* buffer, int count, int root=0, MPI_Comm comm=MPI_COMM_NULL);
-#else 
+#else
 void allreduce_copy(const float& sendbuf, float& recvbuf,
         MPI_Op op=MPI_SUM, MPI_Comm comm=MPI_COMM_NULL);
 void allreduce_copy(const double& sendbuf, double& recvbuf,

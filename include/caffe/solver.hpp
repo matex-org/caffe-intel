@@ -10,7 +10,6 @@ Copyright (c) 2014, 2015, the respective contributors
 All rights reserved.
 For the list of contributors go to https://github.com/BVLC/caffe/blob/master/CONTRIBUTORS.md
 
-
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
 
@@ -153,7 +152,6 @@ class Solver {
 
   void TestAll();
 
-
 #ifdef CAFFE_PER_LAYER_TIMINGS
   /* Timers for performance measurements */
   Timer timer;
@@ -209,9 +207,9 @@ class Solver {
 
   DISABLE_COPY_AND_ASSIGN(Solver);
 
-  #ifdef CAFFE_FT
+  // #ifdef CAFFE_FT
   int ft_rank, ft_size;
-  #endif 
+  // #endif
 };
 
 /**
