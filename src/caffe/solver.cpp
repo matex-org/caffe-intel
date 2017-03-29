@@ -407,7 +407,7 @@ void Solver<Dtype>::Step(int iters) {
       LOG(INFO) << "iter " << iter_ << ", step_communication_time: " << comm_step_time << " ms";
       LOG(INFO) << "iter " << iter_ << ", step_total_time: " << total_step_time << " ms";
       LOG(INFO) << "iter " << iter_ << ", cumulative_communication_time: " << total_comm_time << " ms";
-      LOG(INFO) << "iter " << iter_ << ", cumulative_total_time: " << comm_step_time << " ms";
+      LOG(INFO) << "iter " << iter_ << ", cumulative_total_time: " << total_time << " ms";
     }
 #endif
 
