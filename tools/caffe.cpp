@@ -810,7 +810,8 @@ int main(int argc, char** argv) {
 #ifdef USE_MLSL
       caffe::internode::mlsl_finalize();
 #else /* USE_MLSL */
-      caffe::internode::mpi_finalize();
+      //caffe::internode::mpi_finalize();
+      caffe::mpi::finalize();
 #endif /* USE_MLSL */
 
       return 1;
@@ -823,7 +824,8 @@ int main(int argc, char** argv) {
 #ifdef USE_MLSL
       caffe::internode::mlsl_finalize();
 #else /* !USE_MLSL */
-      caffe::internode::mpi_finalize();
+      // caffe::internode::mpi_finalize();
+      caffe::mpi::finalize();
 #endif /* USE_MLSL */
 
   return 0;

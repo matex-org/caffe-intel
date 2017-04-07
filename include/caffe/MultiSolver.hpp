@@ -62,7 +62,11 @@ class MultiSolver {
     virtual void on_backward_start(int layer_id) = 0;
     virtual void on_gradients_ready(int layer_id) = 0;
     virtual void on_start() = 0;  // from Solver<Dtype>::Callback
+  #ifdef CAFFE_FT
+    virtual std::tuple<int, bool> on_gradients_ready() = 0; // from Solver<Dtype>::Callback
+  #else
     virtual void on_gradients_ready() = 0;  // from Solver<Dtype>::Callback
+  #endif 
 
     template <typename T>
     friend class MultiSolver;

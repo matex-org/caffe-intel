@@ -51,18 +51,27 @@ void MPISyncCPU<Dtype>::on_start() {
 }
 
 template<typename Dtype>
+#ifdef CAFFE_FT
+std::tuple<int, bool> MPISyncCPU<Dtype>::on_gradients_ready() {
+#else
 void MPISyncCPU<Dtype>::on_gradients_ready() {
+#endif
   DLOG(INFO) << "on_gradients_ready()";
 #ifdef USE_MPI
   // Sum gradients
   #ifdef CAFFE_FT
-  int rc = caffe::mpi::allreduce(diff_, size_, MPI_SUM, comm_);
-  if(rc != MPI_SUCCESS) {
+  std::tuple<int,bool> ret_val 
+      = caffe::mpi::allreduce(diff_, size_, MPI_SUM, comm_);
+  if(std::get<1>(ret_val)) {
+    comm_ = caffe::mpi::get_working_comm();
+    DLOG(INFO) << "RETVAL<1> true, MPISYNCCPU --------------" ;
+  }
+  if(std::get<0>(ret_val) != MPI_SUCCESS) { // This should not be triggered
     comm_ = caffe::mpi::get_working_comm();
     int temp_sz = caffe::mpi::comm_size(comm_);
-    DLOG(INFO) << "Corrected Communicator Size {mpi_sync_cpu}: " << temp_sz; 
+    DLOG(INFO) << "Corrected Communicator Size {mpi_sync_cpu}!!!!!: " << temp_sz; 
   }
-
+  return ret_val;
   #else
   caffe::mpi::allreduce(diff_, size_, MPI_SUM, comm_);
   #endif

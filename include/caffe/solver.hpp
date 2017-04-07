@@ -45,7 +45,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "caffe/util/benchmark.hpp"
 
+#ifdef CAFFE_FT
+#include <tuple>
+#endif 
+
 namespace caffe {
+
+  // bool fault_global_flag = false;
 
 /**
   * @brief Enumeration of actions that a client of the Solver may request by
@@ -119,7 +125,12 @@ class Solver {
   class Callback {
    protected:
     virtual void on_start() = 0;
+#ifdef CAFFE_FT
+    virtual std::tuple<int, bool> on_gradients_ready() = 0;
+#else
+//#endif 
     virtual void on_gradients_ready() = 0;
+#endif
 
     template <typename T>
     friend class Solver;

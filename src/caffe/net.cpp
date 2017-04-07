@@ -102,6 +102,14 @@ void Net<Dtype>::Init(const NetParameter& in_param) {
   CHECK(Caffe::root_solver() || root_net_)
       << "root_net_ needs to be set for all non-root solvers";
 
+#ifdef CAFFE_FT
+#ifdef USE_MPI
+  MPI_Comm temp_comm = caffe::mpi::get_working_comm();
+  rank = caffe::mpi::comm_rank(temp_comm);
+  size = caffe::mpi::comm_size(temp_comm);
+#endif
+#endif
+
   #ifdef _OPENMP
   static bool executed = false;
   if (!executed) {
@@ -196,9 +204,12 @@ void Net<Dtype>::Init(const NetParameter& in_param) {
     layer_names_.push_back(layer_param.name());
     LOG_IF(INFO, Caffe::root_solver())
         << "Creating Layer " << layer_param.name();
+    DLOG(INFO) << "Here Creating Layer!--" << layer_param.name() << ", layerID: " << layer_id ;
     bool need_backward = false;
 
     // Figure out this layer's input and output
+    DLOG(INFO) << "Input/s (blobs) size for Layer!---" 
+               << layer_param.name() << " ," << layer_param.bottom_size();
     for (int bottom_id = 0; bottom_id < layer_param.bottom_size();
          ++bottom_id) {
       const int blob_id = AppendBottom(param, layer_id, bottom_id,
@@ -207,6 +218,8 @@ void Net<Dtype>::Init(const NetParameter& in_param) {
       need_backward |= blob_need_backward_[blob_id];
     }
     int num_top = layer_param.top_size();
+    DLOG(INFO) << "Output/s (blobs) size for Layer!--------------------" 
+               << layer_param.name() << " ," << layer_param.bottom_size();
     for (int top_id = 0; top_id < num_top; ++top_id) {
       AppendTop(param, layer_id, top_id, &available_blobs, &blob_name_to_idx);
       // Collect Input layer tops as Net inputs.
@@ -276,7 +289,21 @@ void Net<Dtype>::Init(const NetParameter& in_param) {
             << layer_param.name();
       }
     } else {
+  #ifdef CAFFE_FT
+    #ifdef USE_MPI
+      DLOG(INFO) << "Before Layer SetUp called -- " << layer_id << ", rank:" 
+        << rank << ", size" << size <<", bottom_vecSize(blobs)" 
+        << bottom_vecs_[layer_id].size() << ", top_vecSize(blobs)" 
+        << top_vecs_[layer_id].size(); 
       layers_[layer_id]->SetUp(bottom_vecs_[layer_id], top_vecs_[layer_id]);
+      DLOG(INFO) << "After Layer Setup__Layer ID: -- " << layer_id << ", rank:" 
+        << rank << ", size" << size <<", bottom_vecSize(blobs)" 
+        << bottom_vecs_[layer_id].size() << ", top_vecSize(blobs)" 
+        << top_vecs_[layer_id].size();
+    #endif
+  #else
+      layers_[layer_id]->SetUp(bottom_vecs_[layer_id], top_vecs_[layer_id]);
+  #endif 
     }
     LOG_IF(INFO, Caffe::root_solver())
         << "Setting up " << layer_names_[layer_id];
@@ -494,6 +521,29 @@ void Net<Dtype>::Init(const NetParameter& in_param) {
 
   LOG_IF(INFO, Caffe::root_solver()) << "Network initialization done.";
 }
+
+#ifdef CAFFE_FT
+template <typename Dtype>
+void Net<Dtype>::ReSetUpLayer(const std::string& layer_name) {
+#ifdef USE_MPI
+  MPI_Comm temp_comm = caffe::mpi::get_working_comm();
+  rank = caffe::mpi::comm_rank(temp_comm);
+  size = caffe::mpi::comm_size(temp_comm);
+#endif /*USE_MPI*/
+  int layer_id = layer_names_index_.at(layer_name);
+  DLOG(INFO) << "After Fault - Before Layer SetUp called -- " << layer_id << ", rank:" 
+        << rank << ", size" << size <<", bottom_vecSize(blobs)" 
+        << bottom_vecs_[layer_id].size() << ", top_vecSize(blobs)" 
+        << top_vecs_[layer_id].size(); 
+  layers_[layer_id]->SetUp(bottom_vecs_[layer_id], top_vecs_[layer_id]);
+  DLOG(INFO) << "After Fault - After Layer Setup__Layer ID: -- " << layer_id << ", rank:" 
+        << rank << ", size" << size <<", bottom_vecSize(blobs)" 
+        << bottom_vecs_[layer_id].size() << ", top_vecSize(blobs)" 
+        << top_vecs_[layer_id].size();
+
+
+}
+#endif /*CAFFE_FT*/ 
 
 template <typename Dtype>
 void Net<Dtype>::FilterNet(const NetParameter& param,

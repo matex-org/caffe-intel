@@ -637,8 +637,16 @@ class SynchronousNode<Dtype>::Impl : public MultiSolver<Dtype>::Callback {
     CDLOG(INFO) << "finished forward of layer " << layer_id;
   }
 
+#ifdef CAFFE_FT
+  std::tuple<int, bool> on_gradients_ready() {
+#else
   void on_gradients_ready() {
+#endif
     CDLOG(INFO) << "finished iteration " << solver->root_solver()->iter();
+#ifdef CAFFE_FT
+  std::tuple<int,bool> dummy(0,false);
+  return dummy;
+#endif
   }
 
   void on_backward_start(int layer_id) {

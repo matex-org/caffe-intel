@@ -10,6 +10,10 @@
 #include "caffe/parallel/cpu_params.hpp"
 #include "caffe/solver.hpp"
 
+#ifdef CAFFE_FT
+#include <tuple>
+#endif
+
 namespace caffe {
 
 // Synchronous data parallelism using Allreduce between remote CPUs.
@@ -28,7 +32,11 @@ class MPISyncCPU : public CPUParams<Dtype>, public Solver<Dtype>::Callback {
 
  protected:
   void on_start();
+#ifdef CAFFE_FT
+  std::tuple<int,bool> on_gradients_ready();
+#else
   void on_gradients_ready();
+#endif 
 
 #ifdef USE_MPI
   MPI_Comm comm_;

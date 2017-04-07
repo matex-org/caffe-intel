@@ -134,7 +134,6 @@ void Solver<Dtype>::Init(const SolverParameter& param) {
 #ifdef CAFFE_PER_LAYER_TIMINGS
   InitTimers();
 #endif
-
 }
 
 template <typename Dtype>
@@ -316,7 +315,7 @@ void Solver<Dtype>::Step(int iters) {
     // Fault Injection
     int victim = (ft_size - 1);//(ft_rank == (ft_size - 1));
 
-    if ((ft_rank == victim) && (iter_ == 201)) {
+    if ((ft_rank == victim) && (iter_ == 5)) {
       std::cout << "Victim Rank: " << victim << std::endl;
       raise(SIGKILL);
     }
@@ -381,11 +380,31 @@ void Solver<Dtype>::Step(int iters) {
 #endif
 
     }
-
+ 
     iter_timer.Start();
 
     for (int i = 0; i < callbacks_.size(); ++i) {
+#ifdef CAFFE_FT
+      std::tuple<int, bool> ret_val = callbacks_[i]->on_gradients_ready();
+      if(std::get<1>(ret_val)) {
+      // if(caffe::mpi::fault_global_flag) {
+
+        // caffe::mpi::fault_global_flag = true;
+        // fault has occured
+        // MPI AllReduce other ranks as well.. 
+        // Global Faulted Variable... (to trigger read from every rank
+        net_->ReSetUpLayer("data");
+        MPI_Comm temp_comm = caffe::mpi::get_working_comm();
+        ft_rank = caffe::mpi::comm_rank(temp_comm);
+        ft_size = caffe::mpi::comm_size(temp_comm);
+        DLOG(INFO) << "ReSetUpLayer Done:--------------rank:" << ft_rank << " ,size:" << ft_size;
+        // std::get<1>(ret_val) = false;
+        // caffe::mpi::fault_global_flag = 0; 
+        //caffe::mpi::bcast(&caffe::mpi::fault_global_flag, 1, ft_rank, temp_comm);
+      }
+#else
       callbacks_[i]->on_gradients_ready();
+#endif
     }
     if (!param().disabled_update()) {
       ApplyUpdate();

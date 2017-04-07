@@ -10,6 +10,10 @@
 // #endif /*CAFFE_FT*/
 #endif
 
+#ifdef CAFFE_FT
+#include <tuple>
+#endif /*CAFFE_FT*/
+
 #define NO_MPI LOG(FATAL) << "Cannot use MPI unless USE_MPI is enabled during make."
 
 namespace caffe {
@@ -19,6 +23,12 @@ namespace mpi {
 
 #ifdef CAFFE_FT
 extern MPI_Comm wcomm, rcomm;
+// extern int fault_global_flag;
+// extern int* last_ranks_failed;
+extern int old_size;
+extern int new_size;
+extern int last_rank_failed;
+
 #endif
 
 extern MPI_Comm default_comm_;
@@ -53,10 +63,12 @@ extern MPI_Comm wcomm, rcomm;
 extern char err_str[MPI_MAX_ERROR_STRING];
 extern int err_strlen;
 
+void update_faulted_processes(int faulted_rank);
+
 int mpix_comm_replace(MPI_Comm comm, MPI_Comm* newcomm);
 MPI_Comm get_working_comm();
 int duplicate_comm(MPI_Comm* new_comm, MPI_Comm comm=MPI_COMM_NULL);
-void error_report(int err_code);
+void error_report(int err_code, MPI_Comm* comm);
 void verbose_errhandler(MPI_Comm* comm, int* err, ...);
 void fix_communicator();
 
@@ -65,19 +77,30 @@ void allreduce_copy(const float& sendbuf, float& recvbuf,
 void allreduce_copy(const double& sendbuf, double& recvbuf,
         MPI_Op op=MPI_SUM, MPI_Comm comm=MPI_COMM_NULL);
 
-int allreduce(float& recvbuf, MPI_Op op=MPI_SUM, MPI_Comm comm=MPI_COMM_NULL);
-int allreduce(double& recvbuf, MPI_Op op=MPI_SUM, MPI_Comm comm=MPI_COMM_NULL);
+// Note: Return Type: std::tuple<int, bool> (return_val_fromMPICALL, comm_repaired)
+
+// int allreduce(float& recvbuf, MPI_Op op=MPI_SUM, MPI_Comm comm=MPI_COMM_NULL);
+// int allreduce(double& recvbuf, MPI_Op op=MPI_SUM, MPI_Comm comm=MPI_COMM_NULL);
+std::tuple<int,bool> allreduce(float& recvbuf, MPI_Op op=MPI_SUM
+        , MPI_Comm comm=MPI_COMM_NULL);
+std::tuple<int, bool> allreduce(double& recvbuf, MPI_Op op=MPI_SUM
+        , MPI_Comm comm=MPI_COMM_NULL);
 
 void allreduce_copy(const float* sendbuf, float* recvbuf, int count,
         MPI_Op op=MPI_SUM, MPI_Comm comm=MPI_COMM_NULL);
 void allreduce_copy(const double* sendbuf, double* recvbuf, int count,
         MPI_Op op=MPI_SUM, MPI_Comm comm=MPI_COMM_NULL);
 
-int allreduce(float* buffer, int count,
-        MPI_Op op=MPI_SUM, MPI_Comm comm=MPI_COMM_NULL);
-int allreduce(double* buffer, int count,
-        MPI_Op op=MPI_SUM, MPI_Comm comm=MPI_COMM_NULL);
+// int allreduce(float* buffer, int count,
+//        MPI_Op op=MPI_SUM, MPI_Comm comm=MPI_COMM_NULL);
+// int allreduce(double* buffer, int count,
+//        MPI_Op op=MPI_SUM, MPI_Comm comm=MPI_COMM_NULL);
+std::tuple<int, bool> allreduce(float* buffer, int count
+        , MPI_Op op=MPI_SUM, MPI_Comm comm=MPI_COMM_NULL);
+std::tuple<int, bool> allreduce(double* buffer, int count
+        , MPI_Op op=MPI_SUM, MPI_Comm comm=MPI_COMM_NULL);
 
+void bcast(int* buffer, int count, int root=0, MPI_Comm comm=MPI_COMM_NULL);
 void bcast(float* buffer, int count, int root=0, MPI_Comm comm=MPI_COMM_NULL);
 void bcast(double* buffer, int count, int root=0, MPI_Comm comm=MPI_COMM_NULL);
 #else

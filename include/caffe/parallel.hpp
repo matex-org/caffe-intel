@@ -178,7 +178,11 @@ class P2PSync : public GPUParams<Dtype>, public Solver<Dtype>::Callback,
 
  protected:
   void on_start();
+#ifdef CAFFE_FT
+  std::tuple<int, bool> on_gradients_ready();
+#else
   void on_gradients_ready();
+#endif 
 
   void InternalThreadEntry();
 
