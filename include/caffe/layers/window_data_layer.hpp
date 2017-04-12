@@ -72,7 +72,7 @@ class WindowDataLayer : public BasePrefetchingDataLayer<Dtype> {
 
  protected:
   virtual unsigned int PrefetchRand();
-  virtual void load_batch(Batch<Dtype>* batch);
+  virtual void load_batch(Batch<Dtype>* batch, bool in_thread);
 
   shared_ptr<Caffe::RNG> prefetch_rng_;
   vector<std::pair<std::string, vector<int> > > image_database_;

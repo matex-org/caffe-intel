@@ -138,7 +138,7 @@ void ImageDataLayer<Dtype>::ShuffleImages() {
 }
 
 template <typename Dtype>
-void ImageDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
+void ImageDataLayer<Dtype>::load_batch(Batch<Dtype>* batch, bool in_thread) {
   CPUTimer batch_timer;
   batch_timer.Start();
   double read_time = 0;

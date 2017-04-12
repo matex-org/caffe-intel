@@ -32,7 +32,7 @@ class PnetCDFAllDataLayer : public BasePrefetchingDataLayer<Dtype> {
 
  protected:
   virtual void load_pnetcdf_file_data(const string& filename);
-  virtual void load_batch(Batch<Dtype>* batch);
+  virtual void load_batch(Batch<Dtype>* batch, bool in_thread);
   virtual vector<int> get_datum_shape();
   virtual size_t get_datum_size();
   virtual vector<int> infer_blob_shape();

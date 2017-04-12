@@ -373,7 +373,7 @@ void PnetCDFAllDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bott
 
 // This function is called on prefetch thread
 template<typename Dtype>
-void PnetCDFAllDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
+void PnetCDFAllDataLayer<Dtype>::load_batch(Batch<Dtype>* batch, bool in_thread) {
   CPUTimer batch_timer;
   batch_timer.Start();
   double read_time = 0;
@@ -412,7 +412,7 @@ void PnetCDFAllDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
   }
   //size_t row = current_row;
 #ifdef _OPENMP
-  #pragma omp parallel if (batch_size > 1)
+  #pragma omp parallel if (batch_size > 1 && !in_thread)
   #pragma omp single nowait
 #endif
   for (int item_id = 0; item_id < batch_size; ++item_id) {

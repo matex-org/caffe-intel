@@ -274,7 +274,7 @@ class RemoteIndexSFTPEnv
 
   int open(const string &source, int sftp_mode, int mode)
   {
-    open_session("wyvern.pnl.gov","snapcore");
+    open_session("constance.pnl.gov","land350");
     string index = source + "/index";
     string block = source + "/db";
     string key, int_string;

@@ -262,7 +262,7 @@ unsigned int WindowDataLayer<Dtype>::PrefetchRand() {
 
 // This function is called on prefetch thread
 template <typename Dtype>
-void WindowDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
+void WindowDataLayer<Dtype>::load_batch(Batch<Dtype>* batch, bool in_thread) {
   // At each iteration, sample N windows where N*p are foreground (object)
   // windows and N*(1-p) are background (non-object) windows
   CPUTimer batch_timer;
