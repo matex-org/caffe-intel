@@ -23,7 +23,7 @@ int old_size;
 // int fault_global_flag = 0;
 // [Last Comm Size, Last Rank Failed] 
 // int* last_ranks_failed;
-int last_rank_failed;
+int last_rank_failed = -1;
 
 void update_faulted_processes(int rank) {
   last_rank_failed = rank;

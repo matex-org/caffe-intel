@@ -166,18 +166,22 @@ void SGDSolver<Dtype>::ApplyUpdate(int param_id) {
 
   Normalize(param_id);
   // LOG_PARAM_BLOB(this->net_->learnable_params()[param_id], diff, param_id, "ApplyUpdate: delwt after Normalize:");
-
+  // DLOG(INFO) << "After Normalize_sgdsolver ---------";
   Regularize(param_id);
   // LOG_PARAM_BLOB(this->net_->learnable_params()[param_id], diff, param_id, "ApplyUpdate: delwt after Regularize:");
+  // DLOG(INFO) << "After Regularize_sgdsolver ---------";
 
   ComputeUpdateValue(param_id, rate);
   // LOG_PARAM_BLOB(this->net_->learnable_params()[param_id], diff, param_id, "ApplyUpdate: wtinc:");
+  // DLOG(INFO) << "After ComputeUpdateValue_sgdsolver ---------";
 
 #ifndef DISTR_WEIGHT_UPDATE
 
   // LOG_PARAM_BLOB(this->net_->learnable_params()[param_id], data, param_id, "ApplyUpdate: weight before update:");
 
   this->net_->learnable_params()[param_id]->Update();
+  // DLOG(INFO) << "After DistrWeightUpdate_sgdsolver ---------";
+
 
   // LOG_PARAM_BLOB(this->net_->learnable_params()[param_id], data, param_id, "ApplyUpdate: weight after update:");
 

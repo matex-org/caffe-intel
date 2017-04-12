@@ -531,17 +531,17 @@ void Net<Dtype>::ReSetUpLayer(const std::string& layer_name) {
   size = caffe::mpi::comm_size(temp_comm);
 #endif /*USE_MPI*/
   int layer_id = layer_names_index_.at(layer_name);
-  DLOG(INFO) << "After Fault - Before Layer SetUp called -- " << layer_id << ", rank:" 
+  DLOG(INFO) << "After Fault - Before Layer Update called -- " << layer_id << ", rank:" 
         << rank << ", size" << size <<", bottom_vecSize(blobs)" 
         << bottom_vecs_[layer_id].size() << ", top_vecSize(blobs)" 
         << top_vecs_[layer_id].size(); 
-  layers_[layer_id]->SetUp(bottom_vecs_[layer_id], top_vecs_[layer_id]);
-  DLOG(INFO) << "After Fault - After Layer Setup__Layer ID: -- " << layer_id << ", rank:" 
+  // layers_[layer_id]->SetUp(bottom_vecs_[layer_id], top_vecs_[layer_id]);
+  // Layer update here: 
+  layers_[layer_id]->Update(bottom_vecs_[layer_id], top_vecs_[layer_id]);
+  DLOG(INFO) << "After Fault - After Layer Update __Layer ID: -- " << layer_id << ", rank:" 
         << rank << ", size" << size <<", bottom_vecSize(blobs)" 
         << bottom_vecs_[layer_id].size() << ", top_vecSize(blobs)" 
         << top_vecs_[layer_id].size();
-
-
 }
 #endif /*CAFFE_FT*/ 
 

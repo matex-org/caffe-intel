@@ -305,13 +305,24 @@ public:
     LayerSetUp(bottom, top);
     Reshape(bottom, top);
     SetLossWeights(top);
-
+  
 #ifdef USE_MLSL
     this->prevLayers.resize(bottom.size());
     this->prevLayerOps.resize(bottom.size());
 #endif /* USE_MLSL */
 
   }
+
+#ifdef CAFFE_FT
+  void Update(const vector<Blob<Dtype>*>& bottom, 
+      const vector<Blob<Dtype>*>& top) {
+    InitMutex();
+    CheckBlobCounts(bottom, top);
+    LayerUpdate(bottom, top);
+    Reshape(bottom, top);
+    SetLossWeights(top); // Do we need this?? 
+  }
+#endif /*CAFFE_FT*/
 
   /**
    * @brief Does layer-specific setup: your layer should implement this function
@@ -331,6 +342,11 @@ public:
    */
   virtual void LayerSetUp(const vector<Blob<Dtype>*>& bottom,
       const vector<Blob<Dtype>*>& top) {}
+
+#ifdef CAFFE_FT
+  virtual void LayerUpdate(const vector<Blob<Dtype>*>& bottom,
+      const vector<Blob<Dtype>*>& top) {}
+#endif /*CAFFE_FT*/
 
 #ifdef USE_MLSL
 

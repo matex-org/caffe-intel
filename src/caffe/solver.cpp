@@ -409,6 +409,7 @@ void Solver<Dtype>::Step(int iters) {
     if (!param().disabled_update()) {
       ApplyUpdate();
     }
+    DLOG(INFO) << " After ApplyUpdate Solver-------------------" ;
 
     temp_time = iter_timer.MilliSeconds();
     iter_time += temp_time;
