@@ -534,7 +534,8 @@ void Net<Dtype>::ReSetUpLayer(const std::string& layer_name) {
   DLOG(INFO) << "After Fault - Before Layer Update called -- " << layer_id << ", rank:" 
         << rank << ", size" << size <<", bottom_vecSize(blobs)" 
         << bottom_vecs_[layer_id].size() << ", top_vecSize(blobs)" 
-        << top_vecs_[layer_id].size(); 
+        << top_vecs_[layer_id].size();
+  // Environment Variable to activate here 
   // layers_[layer_id]->SetUp(bottom_vecs_[layer_id], top_vecs_[layer_id]);
   // Layer update here: 
   layers_[layer_id]->Update(bottom_vecs_[layer_id], top_vecs_[layer_id]);

@@ -28,13 +28,13 @@ PnetCDFAllDataLayer<Dtype>::PnetCDFAllDataLayer(const LayerParameter& param)
     datum_shape_(),
     data_(),
     label_(),
-    data_byte_count_(0),
-    label_byte_count_(0),
+    data_char_count_(0),
+    label_int_count_(0),
 #ifdef CAFFE_FT
     padd_data_(),
     padd_label_(),
-    padd_data_byte_count_(0),
-    padd_label_byte_count_(0),
+    padd_data_char_count_(0),
+    padd_label_int_count_(0),
 #endif 
     row_mutex_(),
     comm_(),
@@ -92,7 +92,6 @@ std::tuple<int, bool> PnetCDFAllDataLayer<Dtype>::fix_comm_error(MPI_Comm* comm,
   DLOG(INFO) << "Communicator Fixed: Rank: " << trank 
       << ", Size: " << tsize;
   
-  //float xallreduce = 1.0;
   std::get<1>(retVal) = true;
   std::get<0>(retVal) =  MPI_Allreduce(MPI_IN_PLACE, x, 1, MPI_FLOAT, MPI_SUM, *comm);
   if(std::get<0>(retVal) != MPI_SUCCESS) {
@@ -261,7 +260,7 @@ void PnetCDFAllDataLayer<Dtype>::load_pnetcdf_file_data(const string& filename) 
         retval = ncmpi_get_vara_schar_all(ncid, varid, &offset[0],
             &count[0], this->data_.get());
 #endif
-        data_byte_count_ += prodcount;
+        data_char_count_ += prodcount;
         errcheck(retval);
       }
       else {
@@ -293,7 +292,7 @@ void PnetCDFAllDataLayer<Dtype>::load_pnetcdf_file_data(const string& filename) 
 #endif
           errcheck(retval);
           memcpy(this->data_.get() + data_offset, chunk.get(), newprodcount);
-          data_byte_count_ += newprodcount;
+          data_char_count_ += newprodcount;
           cur += newcount[0];
 #if STRIDED
           newoffset[0] += newcount[0]*size;
@@ -317,7 +316,7 @@ void PnetCDFAllDataLayer<Dtype>::load_pnetcdf_file_data(const string& filename) 
         retval = ncmpi_get_vara_int_all(ncid, varid, &offset[0],
             &count[0], this->label_.get());
 #endif
-        label_byte_count_ += prodcount;
+        label_int_count_ += count[0];
         errcheck(retval);
       }
       else {
@@ -348,7 +347,7 @@ void PnetCDFAllDataLayer<Dtype>::load_pnetcdf_file_data(const string& filename) 
 #endif
           errcheck(retval);
           memcpy(this->label_.get() + data_offset, chunk.get(), newprodcount);
-          label_byte_count_ += newprodcount;
+          label_int_count_ += newcount[0];
           cur += newcount[0];
 #if STRIDED
           newoffset[0] += newcount[0]*size;;
@@ -367,8 +366,8 @@ void PnetCDFAllDataLayer<Dtype>::load_pnetcdf_file_data(const string& filename) 
   retval = ncmpi_close(ncid);
   errcheck(retval);
 
-  DLOG(INFO) << "Total Data Byte Count:" << data_byte_count_;
-  DLOG(INFO) << "Total Label Byte Count:" << label_byte_count_;
+  DLOG(INFO) << "Total Data Char Count:" << data_char_count_;
+  DLOG(INFO) << "Total Label Int Count:" << label_int_count_;
 
   {
     const int batch_size = this->layer_param_.data_param().batch_size();
@@ -571,7 +570,7 @@ void PnetCDFAllDataLayer<Dtype>::reload_pnetcdf_file_data(const string& filename
           retval = ncmpi_get_vara_schar_all(ncid, varid, &offset[0],
               &count[0], this->padd_data_.get());
 #endif
-          padd_data_byte_count_ += prodcount;
+          padd_data_char_count_ += prodcount;
           errcheck(retval);
         }
         else {
@@ -603,7 +602,7 @@ void PnetCDFAllDataLayer<Dtype>::reload_pnetcdf_file_data(const string& filename
 #endif
             errcheck(retval);
             memcpy(this->padd_data_.get() + data_offset, chunk.get(),newprodcount);
-            padd_data_byte_count_ += newprodcount;
+            padd_data_char_count_ += newprodcount;
             cur += newcount[0];
 #if STRIDED
             newoffset[0] += newcount[0]*size;
@@ -616,7 +615,6 @@ void PnetCDFAllDataLayer<Dtype>::reload_pnetcdf_file_data(const string& filename
       }
       else if (NC_INT == vartype && this->output_labels_) {
         padd_max_row_ = count[0];
-        // this->padd_label_ = shared_ptr<int>(new int[max_row_]);
         this->padd_label_ = shared_ptr<int>(new int[padd_max_row_]);
 
         LOG(INFO) << "PnetCDF padd max_row_ = " << padd_max_row_;
@@ -629,7 +627,7 @@ void PnetCDFAllDataLayer<Dtype>::reload_pnetcdf_file_data(const string& filename
           retval = ncmpi_get_vara_int_all(ncid, varid, &offset[0],
               &count[0], this->padd_label_.get());
 #endif
-          padd_label_byte_count_ += prodcount;
+          padd_label_int_count_ +=  count[0];
           errcheck(retval);
         }
         else {
@@ -660,7 +658,8 @@ void PnetCDFAllDataLayer<Dtype>::reload_pnetcdf_file_data(const string& filename
 #endif
             errcheck(retval);
             memcpy(this->padd_label_.get() + data_offset, chunk.get(), newprodcount);
-            padd_label_byte_count_ += newprodcount;
+            // padd_label_byte_count_ += newprodcount;
+            padd_label_int_count_ += newcount[0];
             cur += newcount[0];
 #if STRIDED
             newoffset[0] += newcount[0]*size;;
@@ -679,8 +678,8 @@ void PnetCDFAllDataLayer<Dtype>::reload_pnetcdf_file_data(const string& filename
     retval = ncmpi_close(ncid);
     errcheck(retval);
 
-    DLOG(INFO) << "Total Padd Data Byte Count:" << padd_data_byte_count_;
-    DLOG(INFO) << "Total Padd Label Byte Count:" << padd_label_byte_count_;
+    DLOG(INFO) << "Total Padd Data Char Count:" << padd_data_char_count_;
+    DLOG(INFO) << "Total Padd Label Int Count:" << padd_label_int_count_;
 
     {
       const int batch_size = this->layer_param_.data_param().batch_size();
@@ -769,61 +768,47 @@ void PnetCDFAllDataLayer<Dtype>::DataLayerUpdate(const vector<Blob<Dtype>*>& bot
   const int batch_size = this->layer_param_.data_param().batch_size();
 
   reload_pnetcdf_file_data(this->layer_param_.data_param().source());
-  // Update the data_ and optionally label_
+
   CHECK(this->data_);
   CHECK(this->padd_data_);
   CHECK(this->label_);
   CHECK(this->padd_label_);
-  // row_mutex_.reset(new boost::mutex());
   row_mutex_->lock();
 
   DLOG(INFO) << "Checking Data, padd_data, label, padd_label" ;
-  DLOG(INFO) << "Here--------------------" ;
 
-  shared_ptr<signed char> temp_newdata = shared_ptr<signed char>(new signed char[this->data_byte_count_ + this->padd_data_byte_count_]);
+  shared_ptr<signed char> temp_newdata = shared_ptr<signed char>(new signed char[this->data_char_count_ + this->padd_data_char_count_]);
 
-  memcpy(temp_newdata.get(), this->data_.get(), this->data_byte_count_);
-  memcpy(temp_newdata.get()+this->data_byte_count_, this->padd_data_.get(), this->padd_data_byte_count_);
+  memcpy(temp_newdata.get(), this->data_.get()
+    , this->data_char_count_ * sizeof(signed char));
+  memcpy(temp_newdata.get()+this->data_char_count_, this->padd_data_.get()
+    , this->padd_data_char_count_ * sizeof(signed char));
 
   this->data_.swap(temp_newdata);
   temp_newdata.reset();
 
-  shared_ptr<int> temp_newlabel = shared_ptr<int>(new int[this->label_byte_count_ + this->padd_label_byte_count_]);
+  shared_ptr<int> temp_newlabel = shared_ptr<int>(new int[this->label_int_count_ + this->padd_label_int_count_]);
 
-  memcpy(temp_newlabel.get(), this->label_.get(), this->label_byte_count_);
-  memcpy(temp_newlabel.get() + this->label_byte_count_, this->padd_label_.get(), this->padd_label_byte_count_);
+  memcpy(temp_newlabel.get(), this->label_.get()
+    , this->label_int_count_ * sizeof(int));
+  memcpy(temp_newlabel.get() + this->label_int_count_, this->padd_label_.get(), this->padd_label_int_count_ * sizeof(int));
 
   this->label_.swap(temp_newlabel);
   temp_newlabel.reset();
 
-  /*vector<int> top_shape = infer_blob_shape();
-  this->transformed_data_.Reshape(top_shape);
-  // Reshape top[0] and prefetch_data according to the batch_size.
-  top_shape[0] = batch_size;
-  top[0]->Reshape(top_shape);
-  for (int i = 0; i < this->PREFETCH_COUNT; ++i) {
-    this->prefetch_[i].data_.Reshape(top_shape);
-  }
-  LOG(INFO) << "output data size: " << top[0]->num() << ","
-      << top[0]->channels() << "," << top[0]->height() << ","
-      << top[0]->width();
-  // label
-  if (this->output_labels_) {
-    vector<int> label_shape(1, batch_size);
-    top[1]->Reshape(label_shape);
-    for (int i = 0; i < this->PREFETCH_COUNT; ++i) {
-      this->prefetch_[i].label_.Reshape(label_shape);
-    }
-  }*/
-  
-  this->data_byte_count_ += this->padd_data_byte_count_;
-  this->label_byte_count_ += this->padd_label_byte_count_;
-  DLOG(INFO) << "Total Data Byte Count, after padd:" << this->data_byte_count_;
-  DLOG(INFO) << "Total Label Byte Count, after padd:" << this->label_byte_count_;
+  CHECK(this->max_row_);
+  CHECK(this->padd_max_row_);
+
+  this->max_row_ += this->padd_max_row_;
+  this->data_char_count_ += this->padd_data_char_count_;
+  this->label_int_count_ += this->padd_label_int_count_;
+  DLOG(INFO) << "Total Data Char Count, after padd:" << this->data_char_count_;
+  DLOG(INFO) << "Total Label Int Count, after padd:" << this->label_int_count_;
   this->padd_data_.reset();
   this->padd_label_.reset();
-  this->padd_data_byte_count_ = 0;
-  this->padd_label_byte_count_ = 0;
+  this->padd_data_char_count_ = 0;
+  this->padd_label_int_count_ = 0;
+  this->padd_max_row_ = 0;
 
   row_mutex_->unlock();
 }
