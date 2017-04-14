@@ -102,9 +102,9 @@ std::tuple<int, bool> PnetCDFAllDataLayer<Dtype>::fix_comm_error(MPI_Comm* comm,
     // std::get<0>(retVal2) = MPIX_Comm_failure_get_acked(comm_, &group_f);
     MPI_Abort(*comm, std::get<0>(retVal));
   }
-  comm_ = caffe::mpi::get_working_comm();
-  comm_rank_ = caffe::mpi::comm_rank(comm_);
-  comm_size_ = caffe::mpi::comm_size(comm_);
+  // comm_ = caffe::mpi::get_working_comm();
+  comm_rank_ = caffe::mpi::comm_rank(*comm);// comm_);
+  comm_size_ = caffe::mpi::comm_size(*comm);//comm_);
   return retVal;
 }
 #endif 
@@ -418,7 +418,8 @@ void PnetCDFAllDataLayer<Dtype>::reload_pnetcdf_file_data(const string& filename
     retVal2 = fix_comm_error(&comm_, &xallreduce);
     DLOG(INFO) << "ERROR OCCURED BEFORE FILE ACCESS";
   }
-  DLOG(INFO) << "Test AllReduce Value: " << xallreduce;            
+  DLOG(INFO) << "Test AllReduce Value: " << xallreduce;
+  // comm_ = caffe::mpi::get_working_comm();            
   retval = ncmpi_open(comm_, filename.c_str(),
           NC_NOWRITE, MPI_INFO_NULL, &ncid);
   errcheck(retval);

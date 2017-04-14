@@ -14,16 +14,22 @@ namespace mpi {
 MPI_Comm default_comm_ = MPI_COMM_WORLD;
 
 #ifdef CAFFE_FT
-MPI_Comm wcomm, rcomm;
+MPI_Comm wcomm, rcomm, first_comm = MPI_COMM_WORLD;
 MPI_Errhandler errh;
 char err_str[MPI_MAX_ERROR_STRING] = "";
 int err_strlen;
 int new_size;
 int old_size;
-// int fault_global_flag = 0;
-// [Last Comm Size, Last Rank Failed] 
-// int* last_ranks_failed;
+bool solver_completed = false;
+
+// [Last Comm Size, Last Rank Failed]
+int_pair_vectype size_rank_pair_vec;
+
 int last_rank_failed = -1;
+
+void completed(bool comp) {
+  solver_completed = comp;
+}
 
 void update_faulted_processes(int rank) {
   last_rank_failed = rank;
@@ -55,27 +61,9 @@ void init(int *argc, char ***argv) {
   char name[MPI_MAX_PROCESSOR_NAME];
 
   int rc;
-  // working comm, recovery comm;
-  // MPI_Comm wcomm,
-  //         rcomm;
-
-  //MPI_Init(&argc, &argv);
   MPI_Init(argc, argv);
   FTCommunicator ftComm;
-
-  // MPI_Comm_dup(MPI_COMM_WORLD, &wcomm);
   duplicate_comm(&wcomm, MPI_COMM_WORLD);
-  //std::cout << "Here!-------------------------------" << std::endl;
-  // ftCaffe.duplicateComm(default_comm_);
-  // int rc = duplicate_comm(mpi::default_comm_, &ftComm.working_comm);
-
-  // Error Handler for Fault Tolerance
-  // if(!rc) {
-  //   mpi::set_comm_default(ftComm.working_comm);
-  // }
-
-  // MPI_Comm_size(ftComm.working_comm, &size);
-  // MPI_Comm_rank(ftComm.working_comm, &rank);
   MPI_Comm_size(wcomm, &size);
   MPI_Comm_rank(wcomm, &rank);
   MPI_Get_processor_name(name, &namelen);
@@ -83,8 +71,7 @@ void init(int *argc, char ***argv) {
   caffe::mpi::new_size = size;
 
   MPI_Comm_create_errhandler(verbose_errhandler, &errh);
-  // MPI_Comm_dup(MPI_COMM_WORLD, &wcomm);
-  std::cout << "My Rank: " << rank << ", size: " << size << "----------------!!!\n";
+  DLOG(INFO) << "My Rank: " << rank << ", size: " << size << "----------------!!!";
 
   //MPI_Comm_set_errhandler(ftComm.working_comm, ftComm.errh);
   //MPI_Comm_set_errhandler(ftComm.working_comm, MPI_ERRORS_RETURN);
@@ -92,19 +79,7 @@ void init(int *argc, char ***argv) {
   MPI_Comm_set_errhandler(wcomm, MPI_ERRORS_RETURN);
   // MPI_Comm_set_errhandler(wcomm, errh);
 
-  // std::cout << "Here!-------------------------------2, rank:" << rank << ", size:" << size <<std::endl;
-
-  // Fault Injection
-  /*int victim = (rank == (size - 1));
-  // MPI_Comm_split(ftComm.working_comm, victim? MPI_UNDEFINED: 1, rank, &ftComm.split_comm);
-  if( rank == victim ) {
-    std::cout << "Victim Rank: " << victim << std::endl;
-    raise(SIGKILL);
-  }*/
-
-  update_faulted_processes(rank);
-
-  LOG(INFO) << "Process rank " << rank << " from number of " << size
+  DLOG(INFO) << "Process rank " << rank << " from number of " << size
             << " processes running on " << name;
 #else
   if (!initialized()) {
@@ -141,7 +116,15 @@ bool initialized() {
 
 void finalize() {
   #ifdef CAFFE_FT
-    MPI_Comm_free(&wcomm);
+    // MPI_Comm_free(&wcomm);
+    if(caffe::mpi::solver_completed) {
+      std::cout << "Force terminate processes.\n";
+      int errcode; 
+      if(MPI_SUCCESS != MPI_Abort(MPI_COMM_WORLD, errcode) ) {
+        std::cout << "MPI_Abort error code: " << errcode << "\n";
+        throw std::runtime_error("MPI_Abort failed");
+      }
+    }
   #endif
   if (MPI_SUCCESS != MPI_Finalize()) {
     throw std::runtime_error("MPI_Finalize failed");
@@ -160,7 +143,6 @@ int query_thread() {
 
 MPI_Comm comm_dup(MPI_Comm comm) {
   MPI_Comm newcomm;
-  std::cout << "Second Mpi Comm Dup Called-----------------------------\n";
 
   if (MPI_COMM_NULL == comm) {
     comm = get_comm_default();
@@ -363,18 +345,10 @@ std::tuple<int,bool> allreduce(float& buffer, MPI_Op op, MPI_Comm comm) {
       << trank << ", Size: " << tsize;
     std::get<1>(ret_val) = true;
     std::get<0>(ret_val) = MPI_Allreduce(MPI_IN_PLACE, &buffer, 1, MPI_FLOAT, op, test_comm);
-    // caffe::mpi::fault_global_flag = 1;
-    // caffe::mpi::bcast(&caffe::mpi::fault_global_flag, 1, trank, test_comm);
-    // caffe::mpi::bcast(&caffe::mpi::last_rank_failed, 1,)
-    /*if (MPI_SUCCESS != rc2) {
-      throw std::runtime_error(
-        "MPI_Allreduce failed even after fault recovery (allreduce 1 float ref)");
-    }*/
+    
     return ret_val;
   }
-  /*if (MPI_SUCCESS != rc) {
-    throw std::runtime_error("MPI_Allreduce failed (allreduce 1 float)");
-  }*/
+  
   return ret_val;
 }
 
@@ -401,18 +375,10 @@ std::tuple<int,bool> allreduce(double& buffer, MPI_Op op, MPI_Comm comm) {
       << trank << ", Size: " << tsize;
     std::get<1>(ret_val) = true;
     std::get<0>(ret_val) = MPI_Allreduce(MPI_IN_PLACE, &buffer, 1, MPI_DOUBLE, op, test_comm);
-    // caffe::mpi::fault_global_flag = 1;
-    // caffe::mpi::bcast(&caffe::mpi::fault_global_flag, 1, trank, test_comm);
-    /*if (MPI_SUCCESS != rc2) {
-      throw std::runtime_error(
-        "MPI_Allreduce failed even after fault recovery (allreduce 1 double ref)");
-    }*/
+    
     return ret_val;
   }
 
-  /*if (MPI_SUCCESS != rc) {
-    throw std::runtime_error("MPI_Allreduce failed (allreduce 1 double)");
-  }*/
   return ret_val;
 }
 
@@ -428,8 +394,7 @@ std::tuple<int, bool> allreduce(float* buffer, int count, MPI_Op op, MPI_Comm co
   
   std::get<0>(ret_val) 
       = MPI_Allreduce(MPI_IN_PLACE, buffer, count, MPI_FLOAT, op, comm);
-  // trank = caffe::mpi::comm_rank(comm);
-  // tsize = caffe::mpi::comm_size(comm);
+  
   DLOG(INFO) << "------- RETVAL int:" << std::get<0>(ret_val) << ", size" << caffe::mpi::new_size;
   if(std::get<0>(ret_val) != MPI_SUCCESS) {
     int rc2;
@@ -443,18 +408,10 @@ std::tuple<int, bool> allreduce(float* buffer, int count, MPI_Op op, MPI_Comm co
     std::get<1>(ret_val) = true;
     std::get<0>(ret_val) = MPI_Allreduce(MPI_IN_PLACE, buffer, count, MPI_FLOAT, op, test_comm);
     DLOG(INFO) << "------- RETVAL2 int:" << std::get<0>(ret_val) << ", size" << tsize;
-    // caffe::mpi::fault_global_flag = 1;
-    // caffe::mpi::bcast(&caffe::mpi::fault_global_flag, 1, trank, test_comm);
-    /*if (MPI_SUCCESS != rc2) {
-      throw std::runtime_error(
-        "MPI_Allreduce failed even after fault recovery (allreduce 1 float ptr)");
-    }*/
+    
     return ret_val;
   }
 
-  /*if (MPI_SUCCESS != rc) {
-    throw std::runtime_error("MPI_Allreduce failed (allreduce float)");
-  }*/
   return ret_val;
 }
 
@@ -481,18 +438,11 @@ std::tuple<int, bool> allreduce(double* buffer, int count, MPI_Op op, MPI_Comm c
       << trank << ", Size: " << tsize;
     std::get<1>(ret_val) = true;  
     std::get<0>(ret_val) = MPI_Allreduce(MPI_IN_PLACE, buffer, count, MPI_DOUBLE, op, test_comm);
-    // caffe::mpi::fault_global_flag = 1;
-    // caffe::mpi::bcast(&caffe::mpi::fault_global_flag, 1, trank, test_comm);
-    /*if (MPI_SUCCESS != rc2) {
-      throw std::runtime_error(
-        "MPI_Allreduce failed even after fault recovery (allreduce 1 double ptr)");
-    }*/
+    
     return ret_val;
   }
 
-  /*if (MPI_SUCCESS != rc) {
-    throw std::runtime_error("MPI_Allreduce failed (allreduce double)");
-  }*/
+  
   return ret_val;
 }
 
@@ -529,10 +479,10 @@ void bcast(double* buffer, int count, int root, MPI_Comm comm) {
 int mpix_comm_replace(MPI_Comm comm, MPI_Comm* newcomm)
 {
   MPI_Comm shrinked;
-  MPI_Group cgrp, sgrp, dgrp;
-  int rc, flag, i, nc, ns, nd, nnew, crank, srank, drank;
+  MPI_Group cgrp, sgrp, dgrp, fgrp;
+  int rc, flag, i, nc, ns, nd, nf, nnew, crank, srank, drank, frank;
 
-  int *ranks_cc, *ranks_df;
+  int *ranks_cc, *ranks_df, *ranks_ff;
 
   // Shrink/remove dead process/es
   MPIX_Comm_shrink(comm, &shrinked);
@@ -540,7 +490,9 @@ int mpix_comm_replace(MPI_Comm comm, MPI_Comm* newcomm)
   MPI_Comm_size(shrinked, &ns);
   if(ns == nc)
     return 0; 
-  MPI_Comm_group(comm, &cgrp); MPI_Comm_group(shrinked, &sgrp);
+  MPI_Comm_group(comm, &cgrp); 
+  MPI_Comm_group(shrinked, &sgrp); 
+  MPI_Comm_group(first_comm, &fgrp);
   // Diff is the failed ranks
   MPI_Group_difference(cgrp, sgrp, &dgrp); MPI_Group_size(dgrp, &nd);
 
@@ -552,14 +504,33 @@ int mpix_comm_replace(MPI_Comm comm, MPI_Comm* newcomm)
   for(i=0; i< nd; i++)
     last_rank_failed = ranks_cc[i];
 
+  MPI_Group_difference(fgrp, sgrp, &dgrp); MPI_Group_size(dgrp, &nd);
+  ranks_ff = (int*)malloc(nd * sizeof(int));
+  ranks_df = (int*)malloc(nd * sizeof(int));
+  for (i = 0; i < nd; i++)
+    ranks_df [i] = i;
+  MPI_Group_translate_ranks(dgrp, nd, ranks_df, fgrp, ranks_ff);
+  for(i=0; i< nd; i++) {
+    DLOG(INFO)<< "______Last Rank Failed: " << ranks_ff[i];
+    int last_size = ns + 1;
+    int temp_last_rank = -1;
+    bool rank_exists = false;
+    for(int j = 0; j < size_rank_pair_vec.size(); j++) {
+      if(ranks_ff[i] == size_rank_pair_vec[j].second)
+        rank_exists = true;
+    }
+    if(!rank_exists) {
+      size_rank_pair_vec.push_back(std::make_pair(last_size, ranks_ff[i]));
+    }
+  } 
 
-  // for(i=0; i<ns-(nc-nd); i++) {
-  //               if( i < nd ) MPI_Group_translate_ranks(dgrp, 1, &i, cgrp, &drank);
-  //              else drank=-1; /* still a spare */
-                /* sending their new assignment to all spares */
-                //MPI_Send(&drank, 1, MPI_INT, i+nc-nd, 1, shrinked);
-  //              std::cout << "------TEST " << i+nc-nd << "\n";
-  //}
+
+  int_pair_vectype::iterator itr;
+  for(itr = size_rank_pair_vec.begin(); itr != size_rank_pair_vec.end(); itr++) {
+    DLOG(INFO) << "Contents of SzRnkPairVec: Last Size " 
+              << (*itr).first << " Failed Rank " << (*itr).second;
+  }
+
   MPI_Comm_size(comm, &nc);
 
   std::cout << "Last Rank Failed: -----------" << last_rank_failed;
@@ -609,8 +580,6 @@ int duplicate_comm(MPI_Comm* new_comm, MPI_Comm comm)
     std::cout << "Primary Communicator is Null. ----------\n";
   }
 
-  //  rc = MPI_Comm_dup(MPI_COMM_WORLD, new_comm);
-  // else
   rc = MPI_Comm_dup(comm, new_comm);
   flag = (MPI_SUCCESS == rc);
   if(rc != MPI_SUCCESS)

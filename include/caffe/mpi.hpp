@@ -22,12 +22,18 @@ namespace mpi {
 #ifdef USE_MPI
 
 #ifdef CAFFE_FT
-extern MPI_Comm wcomm, rcomm;
+extern MPI_Comm wcomm, rcomm, first_comm;
 // extern int fault_global_flag;
 // extern int* last_ranks_failed;
 extern int old_size;
 extern int new_size;
 extern int last_rank_failed;
+extern bool solver_completed; 
+// Last failed size, last failed (original) rank. 
+
+typedef std::pair<int, int> int_pairtype;
+typedef std::vector<int_pairtype> int_pair_vectype; 
+extern int_pair_vectype size_rank_pair_vec;
 
 #endif
 
@@ -63,6 +69,7 @@ extern MPI_Comm wcomm, rcomm;
 extern char err_str[MPI_MAX_ERROR_STRING];
 extern int err_strlen;
 
+void completed(bool comp);
 void update_faulted_processes(int faulted_rank);
 
 int mpix_comm_replace(MPI_Comm comm, MPI_Comm* newcomm);

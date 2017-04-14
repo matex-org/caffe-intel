@@ -312,10 +312,16 @@ void Solver<Dtype>::Step(int iters) {
     double total_step_time = 0, comm_step_time = 0, temp_time = 0;
 
     #ifdef CAFFE_FT
+    MPI_Comm temp_comm = caffe::mpi::get_working_comm();
+    ft_rank = caffe::mpi::comm_rank(temp_comm);
+    ft_size = caffe::mpi::comm_size(temp_comm);
     // Fault Injection
-    int victim = (ft_size - 1);//(ft_rank == (ft_size - 1));
+    int victim = ft_size - 1;
+    // int victim = 1;
+
 
     if ((ft_rank == victim) && (iter_ == 5)) {
+    //if ((ft_rank == victim) && (iter_ > 0) && ((iter_ % 2) == 0)) {
       std::cout << "Victim Rank: " << victim << std::endl;
       raise(SIGKILL);
     }
@@ -455,6 +461,10 @@ void Solver<Dtype>::Step(int iters) {
   ResetTimers();
   PrintTimers(true);
 #endif
+
+#ifdef CAFFE_FT
+caffe::mpi::completed(true);
+#endif 
 
 }
 
