@@ -1,7 +1,7 @@
 Instructions for Fault Tolerance:
 
-- Use branch feature/ft_frozen.
-- Install ULFM-OpenMPI and made available on PATH
+- Use branch feature/ft_alpha.
+- Install ULFM-OpenMPI and have it made available in $PATH
 - Enable FILE-IO by executing {for file in ompi/mpi/c/file_*.c; do sed -i
   's/OPAL_ENABLE_FT_MPI/0 \&\& OPAL_ENABLE_FT_MPI/g' $file; done}
 - Avoid enabling thread-multiple flag for ULFM.
