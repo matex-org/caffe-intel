@@ -97,14 +97,10 @@ std::tuple<int, bool> PnetCDFAllDataLayer<Dtype>::fix_comm_error(MPI_Comm* comm,
   if(std::get<0>(retVal) != MPI_SUCCESS) {
     DLOG(INFO) << "ERROR OCCURED BEFORE FILE ACCESS. Could not recover. Aborting";
     caffe::mpi::error_report(std::get<0>(retVal), comm);
-    // MPI_Group group_f;
-    // std::get<0>(retVal1) = MPIX_Comm_failure_ack(comm_);
-    // std::get<0>(retVal2) = MPIX_Comm_failure_get_acked(comm_, &group_f);
     MPI_Abort(*comm, std::get<0>(retVal));
   }
-  // comm_ = caffe::mpi::get_working_comm();
-  comm_rank_ = caffe::mpi::comm_rank(*comm);// comm_);
-  comm_size_ = caffe::mpi::comm_size(*comm);//comm_);
+  comm_rank_ = caffe::mpi::comm_rank(*comm);
+  comm_size_ = caffe::mpi::comm_size(*comm);
   return retVal;
 }
 #endif 
@@ -133,10 +129,10 @@ void PnetCDFAllDataLayer<Dtype>::load_pnetcdf_file_data(const string& filename) 
   #ifdef CAFFE_FT
   // int rc, rc2;
   std::tuple<int, bool> retVal1, retVal2; 
-  DLOG(INFO) << "PnetCDF Before Opening File:------- ";
-  // Check if communicator is still valid.
 
   float xallreduce = 1.0;
+// check if communicator is valid
+
   std::get<1>(retVal1) = false;
   std::get<0>(retVal1) = MPI_Allreduce(MPI_IN_PLACE, &xallreduce, 1, MPI_FLOAT, 
               MPI_SUM, comm_);
@@ -407,9 +403,8 @@ void PnetCDFAllDataLayer<Dtype>::reload_pnetcdf_file_data(const string& filename
   MPI_Offset faulted_stop;
 
   std::tuple<int, bool> retVal1, retVal2;
-  DLOG(INFO) << "PnetCDF Before Opening File:------- ";
-  // Check if communicator is still valid.
   float xallreduce = 1.0;
+  // check if communicator is valid
   std::get<1>(retVal1) = false;
   std::get<0>(retVal1) = MPI_Allreduce(MPI_IN_PLACE, &xallreduce, 1, MPI_FLOAT, 
               MPI_SUM, comm_);
@@ -419,7 +414,6 @@ void PnetCDFAllDataLayer<Dtype>::reload_pnetcdf_file_data(const string& filename
     DLOG(INFO) << "ERROR OCCURED BEFORE FILE ACCESS";
   }
   DLOG(INFO) << "Test AllReduce Value: " << xallreduce;
-  // comm_ = caffe::mpi::get_working_comm();            
   retval = ncmpi_open(comm_, filename.c_str(),
           NC_NOWRITE, MPI_INFO_NULL, &ncid);
   errcheck(retval);
@@ -436,9 +430,8 @@ void PnetCDFAllDataLayer<Dtype>::reload_pnetcdf_file_data(const string& filename
   // Make universal for multiple faults
   if(caffe::mpi::last_rank_failed >= 0) {
     int frank = caffe::mpi::last_rank_failed;
-    // int size = comm_size_;
-    count_ = total / caffe::mpi::old_size; // 1250
-    remain = total % caffe::mpi::old_size; // 0
+    count_ = total / caffe::mpi::old_size; 
+    remain = total % caffe::mpi::old_size; 
       
     DLOG(INFO) << "Last Rank Failed :" << caffe::mpi::last_rank_failed;
     DLOG(INFO) << "Last COMM Size :" << caffe::mpi::old_size;
@@ -540,12 +533,12 @@ void PnetCDFAllDataLayer<Dtype>::reload_pnetcdf_file_data(const string& filename
       }
       // MPI-IO can only read 2GB chunks due to "int" interface for indices
 #if STRIDED
-      count[0] = padd_count_; // count_;
-      offset[0] = padd_start; // start; 
-      stride[0] = comm_size_; // size
+      count[0] = padd_count_; 
+      offset[0] = padd_start; 
+      stride[0] = comm_size_; 
 #else
-      count[0] = padd_stop - padd_start;// stop-start;
-      offset[0] = padd_start;// start;
+      count[0] = padd_stop - padd_start;
+      offset[0] = padd_start;
 #endif
       prodcount = prod(count);
 
@@ -659,7 +652,6 @@ void PnetCDFAllDataLayer<Dtype>::reload_pnetcdf_file_data(const string& filename
 #endif
             errcheck(retval);
             memcpy(this->padd_label_.get() + data_offset, chunk.get(), newprodcount);
-            // padd_label_byte_count_ += newprodcount;
             padd_label_int_count_ += newcount[0];
             cur += newcount[0];
 #if STRIDED

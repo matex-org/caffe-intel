@@ -54,10 +54,7 @@ class PnetCDFAllDataLayer : public BasePrefetchingDataLayer<Dtype> {
   shared_ptr<signed char> data_;
   shared_ptr<int> label_;
   shared_ptr<boost::mutex> row_mutex_;
-  //#ifdef CAFFE_FT
   MPI_Comm comm_;
-  //#else
-  //#endif
   int comm_rank_;
   int comm_size_;
 #ifdef CAFFE_FT
