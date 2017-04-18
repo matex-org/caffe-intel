@@ -7,6 +7,10 @@
 #include <pnetcdf.h>
 #endif
 
+#ifdef CAFFE_FT
+#include <memory>
+#endif 
+
 #define STRIDED 0
 
 #include <boost/thread.hpp>
@@ -428,19 +432,34 @@ void PnetCDFAllDataLayer<Dtype>::reload_pnetcdf_file_data(const string& filename
   errcheck(retval);
 
   // Make universal for multiple faults
-  if(caffe::mpi::last_rank_failed >= 0) {
-    int frank = caffe::mpi::last_rank_failed;
-    count_ = total / caffe::mpi::old_size; 
-    remain = total % caffe::mpi::old_size; 
+  // if(caffe::mpi::last_rank_failed >= 0) {
+  auto srp_vec = std::make_shared<caffe::mpi::int_pair_vectype>(
+                  caffe::mpi::size_rank_pair_vec);
+  
+  if(caffe::mpi::size_rank_pair_vec.size() >= 0) {
+    // [first:start, second:stop]
+    typedef std::pair<MPI_Offset, MPI_Offset> offset_pair_type;
+#if STRIDED
+    std::vector<offset_pair_type> start_count_vec;
+#else
+    std::vector<offset_pair_type> start_stop_vec;
+#endif
+
+
+    // int frank = caffe::mpi::last_rank_failed;
+    int frank = caffe::mpi::size_rank_pair_vec[0].second;
+    
+    ///count_ = total / caffe::mpi::old_size; 
+    // remain = total % caffe::mpi::old_size; 
       
-    DLOG(INFO) << "Last Rank Failed :" << caffe::mpi::last_rank_failed;
-    DLOG(INFO) << "Last COMM Size :" << caffe::mpi::old_size;
-    DLOG(INFO) << "Count_ with prev size:" << count_;
-    DLOG(INFO) << "Remain with prev size :" << remain;
+    // DLOG(INFO) << "Last Rank Failed :" << caffe::mpi::last_rank_failed;
+    // DLOG(INFO) << "Last COMM Size :" << caffe::mpi::old_size;
+    // DLOG(INFO) << "Count_ with prev size:" << count_;
+    // DLOG(INFO) << "Remain with prev size :" << remain;
 
-
+    
     // Strided does not work for the moment. 
-  #if STRIDED
+  /*#if STRIDED
     faulted_start = caffe::mpi::last_rank_failed;
     faulted_stop = caffe::mpi::last_rank_failed;
     if (caffe::mpi::rank < remain) 
@@ -455,7 +474,7 @@ void PnetCDFAllDataLayer<Dtype>::reload_pnetcdf_file_data(const string& filename
       faulted_start += remain;
       faulted_stop += remain;
     }
-  #endif 
+  #endif
 
     MPI_Offset padd_count_ = (faulted_stop - faulted_start)/comm_size_;
     MPI_Offset padd_remain = (faulted_stop - faulted_start)% comm_size_;
@@ -479,16 +498,85 @@ void PnetCDFAllDataLayer<Dtype>::reload_pnetcdf_file_data(const string& filename
       padd_start += padd_remain; 
       padd_stop += padd_remain; 
     }
-  #endif  
+  #endif  */
 
-    DLOG(INFO) << "ncid " << ncid;
-    DLOG(INFO) << "ndims " << ndims;
-    DLOG(INFO) << "nvars " << nvars;
-    DLOG(INFO) << "ngatts " << ngatts;
-    DLOG(INFO) << "unlimdim " << unlimdim;
-    DLOG(INFO) << "total images " << total;
-    DLOG(INFO) << "padd start (failed)" << padd_start;
-    DLOG(INFO) << "padd stop (failed)" << padd_stop;
+    // Non Strided version only
+    MPI_Offset f_start, f_stop, f_count, f_remain
+             , p_start, p_stop, p_count, p_remain
+             , temp_start, temp_stop, temp_count, temp_remain;
+
+    std::size_t frank_sz = srp_vec->size();
+    for(int i = 0; i < frank_sz; i++) {
+      f_count = total/(*srp_vec)[0].first;
+      f_remain = total% (*srp_vec)[0].first;
+#if STRIDED
+      f_start = (*srp_vec)[i].second;
+      // f_stop = (*srp_vec)[i].second;
+      if((*srp_vec)[i].second < f_remain)
+        f_count +=1;
+#else
+      f_start = f_count * (*srp_vec)[i].second;
+      f_stop = f_count * (*srp_vec)[i].second + f_count;
+      this->add_remaining((*srp_vec)[i].second, f_remain, &f_start, &f_stop);
+#endif
+
+      for(int j = i+1 ; j < frank_sz; j++) {
+          temp_count = (f_stop - f_start)/(*srp_vec)[j].first;
+          temp_remain = (f_stop - f_start)%(*srp_vec)[j].first;
+          DLOG(INFO) << "f_start ____: " << f_start << " f_stop____: "<< f_stop; 
+          
+          DLOG(INFO) << "Last Size: " << (*srp_vec)[j-1].first 
+                     << " Next Size: " << (*srp_vec)[j].first;
+          DLOG(INFO) << "Last Rank: " << (*srp_vec)[j-1].second 
+                     << " ____ Next Rank: " << (*srp_vec)[j].second;
+          DLOG(INFO) << "Temp Count____: " << temp_count 
+                     << " Temp remain____: " << temp_remain;
+#if STRIDED
+          f_start = f_start + (*srp_vec)[j].second;
+          // f_stop = (*srp_vec)[j].second;
+          if(*srp_vec[j].second < temp_remain)
+            temp_count += 1;
+#else
+          f_start  = f_start + temp_count * (*srp_vec)[j].second;
+          f_stop = f_start + temp_count;
+          this->add_remaining((*srp_vec)[j].second, temp_remain, &f_start, &f_stop);
+#endif 
+          DLOG(INFO) << "next f_start ____: " << f_start 
+                     << " next f_stop____: " << f_stop;
+      }
+      p_count = (f_stop - f_start)/comm_size_;
+      p_remain = (f_stop -f_start)%comm_size_;
+
+#if STRIDED
+      p_start = f_start + comm_rank_;
+      // p_stop = f_start + comm_rank_;
+      if (comm_rank_ < p_remain)
+        p_count += 1;
+#else
+      p_start = f_start + comm_rank_ * p_count;
+      p_stop = f_start + comm_rank_ * p_count + p_count;
+      this->add_remaining(comm_rank_, p_remain, &p_start, &p_stop);
+#endif
+      DLOG(INFO) << "last p_start ____: " << p_start 
+                     << " last p_stop____: " << p_stop;
+      
+      // Different Vector Type for STRIDED 
+      // offset_pair_type
+#if STRIDED
+      start_count_vec.push_back(std::make_pair(p_start, p_count));
+#else
+      start_stop_vec.push_back(std::make_pair(p_start, p_stop));
+#endif  
+      DLOG(INFO) << "ncid " << ncid;
+      DLOG(INFO) << "ndims " << ndims;
+      DLOG(INFO) << "nvars " << nvars;
+      DLOG(INFO) << "ngatts " << ngatts;
+      DLOG(INFO) << "unlimdim " << unlimdim;
+      DLOG(INFO) << "total images " << total;
+      DLOG(INFO) << "padd start (failed)" << p_start;
+      DLOG(INFO) << "padd stop (failed)" << p_stop;
+      DLOG(INFO) << "------------------------" ;
+    }    
 
     for (int varid = 0; varid < nvars; varid++) {
       int vartype;
@@ -532,139 +620,224 @@ void PnetCDFAllDataLayer<Dtype>::reload_pnetcdf_file_data(const string& filename
         } 
       }
       // MPI-IO can only read 2GB chunks due to "int" interface for indices
-#if STRIDED
-      count[0] = padd_count_; 
-      offset[0] = padd_start; 
-      stride[0] = comm_size_; 
-#else
-      count[0] = padd_stop - padd_start;
-      offset[0] = padd_start;
-#endif
-      prodcount = prod(count);
 
-      if (NC_BYTE == vartype) {
-        this->padd_data_ = shared_ptr<signed char>(new signed char[prodcount]);
-        datum_shape_.resize(4);
-        datum_shape_[0] = 1;
-        datum_shape_[1] = count[1];
-        datum_shape_[2] = count[2];
-        datum_shape_[3] = count[3];
-        DLOG(INFO) << "datum_shape_[0] " << datum_shape_[0];
-        DLOG(INFO) << "datum_shape_[1] " << datum_shape_[1];
-        DLOG(INFO) << "datum_shape_[2] " << datum_shape_[2];
-        DLOG(INFO) << "datum_shape_[3] " << datum_shape_[3];
-        if (prodcount < chunksize) {
-          LOG(INFO) << "reading PnetCDF data whole " << count[0];
-          LOG(INFO) << "offset={"<<offset[0]<<","<<offset[1]<<","<<offset[2]<<","<<offset[3]<<"}";
-          LOG(INFO) << "count={"<<count[0]<<","<<count[1]<<","<<count[2]<<","<<count[3]<<"}";
+      // Go through the offset, count pair for each failed rank/s
+      // [data_ptr, count]
+      typedef std::pair<shared_ptr<signed char>
+                        , MPI_Offset> data_count_pair_type;
+      std::vector<data_count_pair_type> data_chunks;
+      // [label_ptr, count]
+      typedef std::pair<shared_ptr<int>
+                        , MPI_Offset> label_count_pair_type;
+      std::vector<label_count_pair_type> label_chunks;
+      // std::vector<MPI_Offset> data_prodcounts;
+      // std::vector<MPI_Offset> label_counts;
+      // std::vector<shared_ptr<signed char> > data_chunks;
+      // std::vector<shared_ptr<int> > label_chunks;
 #if STRIDED
-          retval = ncmpi_get_vars_schar_all(ncid, varid, &offset[0],
-              &count[0], &stride[0], this->padd_data_.get());
+      for(int i = 0; i < start_count_vec.size() ; i++) {
 #else
-          retval = ncmpi_get_vara_schar_all(ncid, varid, &offset[0],
-              &count[0], this->padd_data_.get());
+      for(int i = 0; i < start_stop_vec.size() ; i++) {
+#endif 
+
+#if STRIDED
+        // Need to revisit
+        // count[0] = padd_count_; 
+        // offset[0] = padd_start; 
+        count[0] = start_count_vec[i].second;
+        offset[0] = start_count_vec[i].first;
+        stride[0] = comm_size_;  // TODO: Need verification this works 
+#else
+        // count[0] = padd_stop - padd_start;
+        // offset[0] = padd_start;
+        count[0] = start_stop_vec[i].second - start_stop_vec[i].first;
+        offset[0] = start_stop_vec[i].first;
 #endif
-          padd_data_char_count_ += prodcount;
-          errcheck(retval);
+        prodcount = prod(count);
+
+        if (NC_BYTE == vartype) {
+          // this->padd_data_ = shared_ptr<signed char>(new signed char[prodcount]);
+          auto temp_padd_data_ = shared_ptr<signed char>(new signed char[prodcount]);
+          datum_shape_.resize(4);
+          datum_shape_[0] = 1;
+          datum_shape_[1] = count[1];
+          datum_shape_[2] = count[2];
+          datum_shape_[3] = count[3];
+          DLOG(INFO) << "datum_shape_[0] " << datum_shape_[0];
+          DLOG(INFO) << "datum_shape_[1] " << datum_shape_[1];
+          DLOG(INFO) << "datum_shape_[2] " << datum_shape_[2];
+          DLOG(INFO) << "datum_shape_[3] " << datum_shape_[3];
+          if (prodcount < chunksize) {
+            LOG(INFO) << "reading PnetCDF data whole " << count[0];
+            LOG(INFO) << "offset={"<<offset[0]<<","<<offset[1]<<","<<offset[2]<<","<<offset[3]<<"}";
+            LOG(INFO) << "count={"<<count[0]<<","<<count[1]<<","<<count[2]<<","<<count[3]<<"}";
+#if STRIDED
+            //retval = ncmpi_get_vars_schar_all(ncid, varid, &offset[0],
+            //    &count[0], &stride[0], this->padd_data_.get());
+            retval = ncmpi_get_vars_schar_all(ncid, varid, &offset[0],
+                &count[0], &stride[0], temp_padd_data_.get());
+
+#else
+            //retval = ncmpi_get_vara_schar_all(ncid, varid, &offset[0],
+            //    &count[0], this->padd_data_.get());
+            retval = ncmpi_get_vara_schar_all(ncid, varid, &offset[0],
+                &count[0], temp_padd_data_.get());
+#endif
+            // padd_data_char_count_ += prodcount;
+            // data_prodcounts.push_back(prodcount);
+            // data_chunks.push_back(temp_padd_data_);
+            data_chunks.push_back(std::make_pair(temp_padd_data_, prodcount));
+            errcheck(retval);
+          }
+          else {
+            vector<MPI_Offset> newoffset = offset;
+            vector<MPI_Offset> newcount = count;
+            MPI_Offset data_offset = 0;
+            newcount[0] = 1;
+            MPI_Offset newprodcount = prod(newcount);
+            newcount[0] = chunksize/newprodcount;
+            newprodcount = prod(newcount);
+            if (newprodcount >= chunksize) {
+              LOG(FATAL) << "newprodcount >= chunksize";
+            }
+            MPI_Offset cur = 0;
+            shared_ptr<signed char> chunk = shared_ptr<signed char>(
+                new signed char[newprodcount]);
+            MPI_Offset temp_prodcount = 0;
+            while (cur < count[0]) {
+              if (cur+newcount[0] > count[0]) {
+                newcount[0] = count[0]-cur;
+                newprodcount = prod(newcount);
+              }
+              LOG(INFO) << "reading data chunk " << cur << " ... " << cur+newcount[0];
+#if STRIDED
+              retval = ncmpi_get_vars_schar_all(ncid, varid, &newoffset[0],
+                  &newcount[0], &stride[0], chunk.get());
+#else
+              retval = ncmpi_get_vara_schar_all(ncid, varid, &newoffset[0],
+                  &newcount[0], chunk.get());
+#endif
+              errcheck(retval);
+              // memcpy(this->padd_data_.get() + data_offset, chunk.get(),newprodcount);
+              memcpy(temp_padd_data_.get() + data_offset, chunk.get(),newprodcount);
+              // padd_data_char_count_ += newprodcount;
+              temp_prodcount += newprodcount;
+
+              cur += newcount[0];
+#if STRIDED
+              newoffset[0] += newcount[0]*size; // TODO: Verify this (size)
+#else
+              newoffset[0] += newcount[0];
+#endif
+              data_offset += newprodcount;
+            }
+            // data_prodcounts.push_back(temp_prodcount);
+            // data_chunks.push_back(temp_padd_data_);
+            data_chunks.push_back(std::make_pair(temp_padd_data_, temp_prodcount));
+          }
+        }
+        else if (NC_INT == vartype && this->output_labels_) {
+          padd_max_row_ = count[0];
+          //this->padd_label_ = shared_ptr<int>(new int[padd_max_row_]);
+          auto temp_padd_label_ = shared_ptr<int>(new int[padd_max_row_]);
+
+
+          LOG(INFO) << "PnetCDF padd max_row_ = " << padd_max_row_;
+          if (prodcount < chunksize) {
+            LOG(INFO) << "reading PnetCDF label whole " << count[0];
+#if STRIDED
+            // retval = ncmpi_get_vars_int_all(ncid, varid, &offset[0],
+            //     &count[0], &stride[0], this->padd_label_.get());
+            retval = ncmpi_get_vars_int_all(ncid, varid, &offset[0],
+                &count[0], &stride[0], temp_padd_label_.get());
+#else
+            // retval = ncmpi_get_vara_int_all(ncid, varid, &offset[0],
+            //     &count[0], this->padd_label_.get());
+            retval = ncmpi_get_vara_int_all(ncid, varid, &offset[0],
+                &count[0], temp_padd_label_.get());
+#endif
+            // padd_label_int_count_ +=  count[0];
+            // label_counts.push_back(count[0]);
+            // label_chunks.push_back(temp_padd_label_);
+            label_chunks.push_back(std::make_pair(temp_padd_label_, count[0]));
+
+            errcheck(retval);
+          }
+          else {
+            vector<MPI_Offset> newoffset = offset;
+            vector<MPI_Offset> newcount = count;
+            MPI_Offset data_offset = 0;
+            newcount[0] = 1;
+            MPI_Offset newprodcount = prod(newcount);
+            newcount[0] = chunksize/newprodcount;
+            newprodcount = prod(newcount);
+            if (newprodcount >= chunksize) {
+              LOG(FATAL) << "newprodcount >= chunksize";
+            }
+            MPI_Offset cur = 0;
+            shared_ptr<int> chunk = shared_ptr<int>(new int[newprodcount]);
+            MPI_Offset temp_count = 0;
+            while (cur < count[0]) {
+              if (cur+newcount[0] > count[0]) {
+                newcount[0] = count[0]-cur;
+                newprodcount = prod(newcount);
+              }
+              LOG(INFO) << "reading label chunk " << cur << " ... " << cur+newcount[0];
+#if STRIDED
+              retval = ncmpi_get_vars_int_all(ncid, varid, &newoffset[0],
+                  &newcount[0], &stride[0], chunk.get());
+#else
+              retval = ncmpi_get_vara_int_all(ncid, varid, &newoffset[0],
+                  &newcount[0], chunk.get());
+#endif
+              errcheck(retval);
+              // memcpy(this->padd_label_.get() + data_offset, chunk.get(), newprodcount);
+              memcpy(temp_padd_label_.get() + data_offset, chunk.get(), newprodcount);
+              // padd_label_int_count_ += newcount[0];
+              temp_count += newcount[0];
+              cur += newcount[0];
+#if STRIDED
+              newoffset[0] += newcount[0]*size;;
+#else
+              newoffset[0] += newcount[0];
+#endif
+              data_offset += newprodcount;
+            }
+            // label_counts.push_back(temp_count);
+            // label_chunks.push_back(temp_padd_label_);
+            label_chunks.push_back(std::make_pair(temp_padd_label_, temp_count));
+          }
         }
         else {
-          vector<MPI_Offset> newoffset = offset;
-          vector<MPI_Offset> newcount = count;
-          MPI_Offset data_offset = 0;
-          newcount[0] = 1;
-          MPI_Offset newprodcount = prod(newcount);
-          newcount[0] = chunksize/newprodcount;
-          newprodcount = prod(newcount);
-          if (newprodcount >= chunksize) {
-            LOG(FATAL) << "newprodcount >= chunksize";
-          }
-          MPI_Offset cur = 0;
-          shared_ptr<signed char> chunk = shared_ptr<signed char>(
-              new signed char[newprodcount]);
-          while (cur < count[0]) {
-            if (cur+newcount[0] > count[0]) {
-              newcount[0] = count[0]-cur;
-              newprodcount = prod(newcount);
-            }
-            LOG(INFO) << "reading data chunk " << cur << " ... " << cur+newcount[0];
-#if STRIDED
-            retval = ncmpi_get_vars_schar_all(ncid, varid, &newoffset[0],
-                &newcount[0], &stride[0], chunk.get());
-#else
-            retval = ncmpi_get_vara_schar_all(ncid, varid, &newoffset[0],
-                &newcount[0], chunk.get());
-#endif
-            errcheck(retval);
-            memcpy(this->padd_data_.get() + data_offset, chunk.get(),newprodcount);
-            padd_data_char_count_ += newprodcount;
-            cur += newcount[0];
-#if STRIDED
-            newoffset[0] += newcount[0]*size;
-#else
-            newoffset[0] += newcount[0];
-#endif
-            data_offset += newprodcount;
-          }
+          LOG(FATAL) << "unknown data type";
         }
       }
-      else if (NC_INT == vartype && this->output_labels_) {
-        padd_max_row_ = count[0];
-        this->padd_label_ = shared_ptr<int>(new int[padd_max_row_]);
+      
+      // Update data_, label_ here: 
+      MPI_Offset temp_prodcount = 0, temp_labelcount = 0;
 
-        LOG(INFO) << "PnetCDF padd max_row_ = " << padd_max_row_;
-        if (prodcount < chunksize) {
-          LOG(INFO) << "reading PnetCDF label whole " << count[0];
-#if STRIDED
-          retval = ncmpi_get_vars_int_all(ncid, varid, &offset[0],
-              &count[0], &stride[0], this->padd_label_.get());
-#else
-          retval = ncmpi_get_vara_int_all(ncid, varid, &offset[0],
-              &count[0], this->padd_label_.get());
-#endif
-          padd_label_int_count_ +=  count[0];
-          errcheck(retval);
-        }
-        else {
-          vector<MPI_Offset> newoffset = offset;
-          vector<MPI_Offset> newcount = count;
-          MPI_Offset data_offset = 0;
-          newcount[0] = 1;
-          MPI_Offset newprodcount = prod(newcount);
-          newcount[0] = chunksize/newprodcount;
-          newprodcount = prod(newcount);
-          if (newprodcount >= chunksize) {
-            LOG(FATAL) << "newprodcount >= chunksize";
-          }
-          MPI_Offset cur = 0;
-          shared_ptr<int> chunk = shared_ptr<int>(new int[newprodcount]);
-          while (cur < count[0]) {
-            if (cur+newcount[0] > count[0]) {
-              newcount[0] = count[0]-cur;
-              newprodcount = prod(newcount);
-            }
-            LOG(INFO) << "reading label chunk " << cur << " ... " << cur+newcount[0];
-#if STRIDED
-            retval = ncmpi_get_vars_int_all(ncid, varid, &newoffset[0],
-                &newcount[0], &stride[0], chunk.get());
-#else
-            retval = ncmpi_get_vara_int_all(ncid, varid, &newoffset[0],
-                &newcount[0], chunk.get());
-#endif
-            errcheck(retval);
-            memcpy(this->padd_label_.get() + data_offset, chunk.get(), newprodcount);
-            padd_label_int_count_ += newcount[0];
-            cur += newcount[0];
-#if STRIDED
-            newoffset[0] += newcount[0]*size;;
-#else
-            newoffset[0] += newcount[0];
-#endif
-            data_offset += newprodcount;
-          }
-        }
+      for(auto dp : data_chunks)
+        temp_prodcount += dp.second;
+      for(auto lp : label_chunks)
+        temp_labelcount += lp.second;
+
+      this->padd_data_ = shared_ptr<signed char>(new signed char[temp_prodcount]);
+      this->padd_label_ = shared_ptr<int>(new int[temp_labelcount]);
+
+      padd_label_int_count_ += temp_labelcount;
+      padd_data_char_count_ += temp_prodcount;
+
+      temp_labelcount = 0;
+      temp_prodcount = 0;
+
+      for(auto dp : data_chunks) {
+        memcpy(this->padd_data_.get() + temp_prodcount, dp.first.get(), dp.second);
+        temp_prodcount += dp.second;
       }
-      else {
-        LOG(FATAL) << "unknown data type";
+
+      for(auto lp : label_chunks) {
+        memcpy(this->padd_label_.get() + temp_labelcount, lp.first.get(), lp.second);
+        temp_labelcount += lp.second;
       }
     }
 
@@ -684,6 +857,8 @@ void PnetCDFAllDataLayer<Dtype>::reload_pnetcdf_file_data(const string& filename
       LOG(INFO) << "Padd Label Sum: " << label_sum;
     }
     //}
+  } else {
+    LOG(INFO) << "No failed Rank detected"; 
   }
 
 #else

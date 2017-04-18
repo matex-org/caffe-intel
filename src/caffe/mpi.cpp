@@ -495,7 +495,7 @@ int mpix_comm_replace(MPI_Comm comm, MPI_Comm* newcomm)
     ranks_df [i] = i;
   MPI_Group_translate_ranks(dgrp, nd, ranks_df, fgrp, ranks_ff);
   for(i=0; i< nd; i++) {
-    // DLOG(INFO)<< "______Last Rank Failed: " << ranks_ff[i];
+    DLOG(INFO)<< "Last Rank Failed: " << ranks_ff[i];
     int last_size = ns + 1;
     int temp_last_rank = -1;
     bool rank_exists = false;
@@ -508,18 +508,17 @@ int mpix_comm_replace(MPI_Comm comm, MPI_Comm* newcomm)
     }
   } 
 
-  /*int_pair_vectype::iterator itr;
+  int_pair_vectype::iterator itr;
   for(itr = size_rank_pair_vec.begin(); itr != size_rank_pair_vec.end(); itr++) {
     DLOG(INFO) << "Contents of SzRnkPairVec: Last Size " 
               << (*itr).first << " Failed Rank " << (*itr).second;
   }
 
   MPI_Comm_size(comm, &nc);
-
   std::cout << "Last Rank Failed: -----------" << last_rank_failed;
   std::cout << " ,Old Comm size:" << nc; 
   std::cout << " ,New Comm size:" << ns;
-  std::cout << "\n"; */
+  std::cout << "\n";
 
 
   // Set Error Handler: instantiated during MPI init

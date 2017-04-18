@@ -68,7 +68,23 @@ class PnetCDFAllDataLayer : public BasePrefetchingDataLayer<Dtype> {
   #ifdef USE_MPI
   int error_code_;
   #endif
-#endif
+private:
+  void add_remaining(int rank, MPI_Offset remain
+        , MPI_Offset* start, MPI_Offset* stop) {
+            if(rank < remain) {
+                *start += rank;
+                *stop += rank + 1;
+            } else {
+                *start += remain;
+                *stop += remain;
+            }
+        }
+
+/* void add_remaining(int rank, MPI_Offset remain, 
+        , MPI_Offset* start, MPI_Offset* stop) {
+
+        } */
+#endif /*CAFFE_FT*/
 };
 
 }  // namespace caffe
