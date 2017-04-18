@@ -445,9 +445,8 @@ void PnetCDFAllDataLayer<Dtype>::reload_pnetcdf_file_data(const string& filename
     std::vector<offset_pair_type> start_stop_vec;
 #endif
 
-
     // int frank = caffe::mpi::last_rank_failed;
-    int frank = caffe::mpi::size_rank_pair_vec[0].second;
+    // int frank = caffe::mpi::size_rank_pair_vec[0].second;
     
     ///count_ = total / caffe::mpi::old_size; 
     // remain = total % caffe::mpi::old_size; 
@@ -560,8 +559,6 @@ void PnetCDFAllDataLayer<Dtype>::reload_pnetcdf_file_data(const string& filename
       DLOG(INFO) << "last p_start ____: " << p_start 
                      << " last p_stop____: " << p_stop;
       
-      // Different Vector Type for STRIDED 
-      // offset_pair_type
 #if STRIDED
       start_count_vec.push_back(std::make_pair(p_start, p_count));
 #else
@@ -630,10 +627,7 @@ void PnetCDFAllDataLayer<Dtype>::reload_pnetcdf_file_data(const string& filename
       typedef std::pair<shared_ptr<int>
                         , MPI_Offset> label_count_pair_type;
       std::vector<label_count_pair_type> label_chunks;
-      // std::vector<MPI_Offset> data_prodcounts;
-      // std::vector<MPI_Offset> label_counts;
-      // std::vector<shared_ptr<signed char> > data_chunks;
-      // std::vector<shared_ptr<int> > label_chunks;
+    
 #if STRIDED
       for(int i = 0; i < start_count_vec.size() ; i++) {
 #else
@@ -656,7 +650,6 @@ void PnetCDFAllDataLayer<Dtype>::reload_pnetcdf_file_data(const string& filename
         prodcount = prod(count);
 
         if (NC_BYTE == vartype) {
-          // this->padd_data_ = shared_ptr<signed char>(new signed char[prodcount]);
           auto temp_padd_data_ = shared_ptr<signed char>(new signed char[prodcount]);
           datum_shape_.resize(4);
           datum_shape_[0] = 1;
@@ -678,14 +671,10 @@ void PnetCDFAllDataLayer<Dtype>::reload_pnetcdf_file_data(const string& filename
                 &count[0], &stride[0], temp_padd_data_.get());
 
 #else
-            //retval = ncmpi_get_vara_schar_all(ncid, varid, &offset[0],
-            //    &count[0], this->padd_data_.get());
             retval = ncmpi_get_vara_schar_all(ncid, varid, &offset[0],
                 &count[0], temp_padd_data_.get());
 #endif
             // padd_data_char_count_ += prodcount;
-            // data_prodcounts.push_back(prodcount);
-            // data_chunks.push_back(temp_padd_data_);
             data_chunks.push_back(std::make_pair(temp_padd_data_, prodcount));
             errcheck(retval);
           }
@@ -718,7 +707,6 @@ void PnetCDFAllDataLayer<Dtype>::reload_pnetcdf_file_data(const string& filename
                   &newcount[0], chunk.get());
 #endif
               errcheck(retval);
-              // memcpy(this->padd_data_.get() + data_offset, chunk.get(),newprodcount);
               memcpy(temp_padd_data_.get() + data_offset, chunk.get(),newprodcount);
               // padd_data_char_count_ += newprodcount;
               temp_prodcount += newprodcount;
@@ -731,16 +719,12 @@ void PnetCDFAllDataLayer<Dtype>::reload_pnetcdf_file_data(const string& filename
 #endif
               data_offset += newprodcount;
             }
-            // data_prodcounts.push_back(temp_prodcount);
-            // data_chunks.push_back(temp_padd_data_);
             data_chunks.push_back(std::make_pair(temp_padd_data_, temp_prodcount));
           }
         }
         else if (NC_INT == vartype && this->output_labels_) {
           padd_max_row_ = count[0];
-          //this->padd_label_ = shared_ptr<int>(new int[padd_max_row_]);
           auto temp_padd_label_ = shared_ptr<int>(new int[padd_max_row_]);
-
 
           LOG(INFO) << "PnetCDF padd max_row_ = " << padd_max_row_;
           if (prodcount < chunksize) {
@@ -751,14 +735,10 @@ void PnetCDFAllDataLayer<Dtype>::reload_pnetcdf_file_data(const string& filename
             retval = ncmpi_get_vars_int_all(ncid, varid, &offset[0],
                 &count[0], &stride[0], temp_padd_label_.get());
 #else
-            // retval = ncmpi_get_vara_int_all(ncid, varid, &offset[0],
-            //     &count[0], this->padd_label_.get());
             retval = ncmpi_get_vara_int_all(ncid, varid, &offset[0],
                 &count[0], temp_padd_label_.get());
 #endif
             // padd_label_int_count_ +=  count[0];
-            // label_counts.push_back(count[0]);
-            // label_chunks.push_back(temp_padd_label_);
             label_chunks.push_back(std::make_pair(temp_padd_label_, count[0]));
 
             errcheck(retval);
@@ -791,7 +771,6 @@ void PnetCDFAllDataLayer<Dtype>::reload_pnetcdf_file_data(const string& filename
                   &newcount[0], chunk.get());
 #endif
               errcheck(retval);
-              // memcpy(this->padd_label_.get() + data_offset, chunk.get(), newprodcount);
               memcpy(temp_padd_label_.get() + data_offset, chunk.get(), newprodcount);
               // padd_label_int_count_ += newcount[0];
               temp_count += newcount[0];
@@ -803,8 +782,6 @@ void PnetCDFAllDataLayer<Dtype>::reload_pnetcdf_file_data(const string& filename
 #endif
               data_offset += newprodcount;
             }
-            // label_counts.push_back(temp_count);
-            // label_chunks.push_back(temp_padd_label_);
             label_chunks.push_back(std::make_pair(temp_padd_label_, temp_count));
           }
         }
@@ -946,14 +923,22 @@ void PnetCDFAllDataLayer<Dtype>::DataLayerUpdate(const vector<Blob<Dtype>*>& bot
   DLOG(INFO) << "Checking Data, padd_data, label, padd_label" ;
 
   shared_ptr<signed char> temp_newdata = shared_ptr<signed char>(new signed char[this->data_char_count_ + this->padd_data_char_count_]);
+  DLOG(INFO) << "Here________________________1" ;
 
   memcpy(temp_newdata.get(), this->data_.get()
     , this->data_char_count_ * sizeof(signed char));
+  
+  DLOG(INFO) << "Here________________________2" ;
+
   memcpy(temp_newdata.get()+this->data_char_count_, this->padd_data_.get()
     , this->padd_data_char_count_ * sizeof(signed char));
 
+  DLOG(INFO) << "Here________________________3" ;
+
   this->data_.swap(temp_newdata);
   temp_newdata.reset();
+  
+  DLOG(INFO) << "After Padd Data copy to Data" ;
 
   shared_ptr<int> temp_newlabel = shared_ptr<int>(new int[this->label_int_count_ + this->padd_label_int_count_]);
 
@@ -963,6 +948,8 @@ void PnetCDFAllDataLayer<Dtype>::DataLayerUpdate(const vector<Blob<Dtype>*>& bot
 
   this->label_.swap(temp_newlabel);
   temp_newlabel.reset();
+  DLOG(INFO) << "After Padd Label copy to Label" ;
+
 
   CHECK(this->max_row_);
   CHECK(this->padd_max_row_);
