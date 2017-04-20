@@ -12,6 +12,8 @@
 
 #ifdef CAFFE_FT
 #include <tuple>
+#include <algorithm>
+#include <utility>
 #endif /*CAFFE_FT*/
 
 #define NO_MPI LOG(FATAL) << "Cannot use MPI unless USE_MPI is enabled during make."
@@ -28,11 +30,11 @@ extern MPI_Comm wcomm, rcomm, first_comm;
 extern int old_size;
 extern int new_size;
 extern int last_rank_failed;
-extern bool solver_completed; 
-// Last failed size, last failed (original) rank. 
+extern bool solver_completed;
+// Last failed size, last failed (original) rank.
 
 typedef std::pair<int, int> int_pairtype;
-typedef std::vector<int_pairtype> int_pair_vectype; 
+typedef std::vector<int_pairtype> int_pair_vectype;
 extern int_pair_vectype size_rank_pair_vec;
 
 #endif
@@ -77,7 +79,7 @@ MPI_Comm get_working_comm();
 int duplicate_comm(MPI_Comm* new_comm, MPI_Comm comm=MPI_COMM_NULL);
 void error_report(int err_code, MPI_Comm* comm);
 void verbose_errhandler(MPI_Comm* comm, int* err, ...);
-void fix_communicator();
+void fix_communicator(MPI_Comm* comm);
 
 void allreduce_copy(const float& sendbuf, float& recvbuf,
         MPI_Op op=MPI_SUM, MPI_Comm comm=MPI_COMM_NULL);

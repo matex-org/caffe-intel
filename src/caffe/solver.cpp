@@ -292,6 +292,9 @@ void Solver<Dtype>::Step(int iters) {
   losses_.clear();
   smoothed_loss_ = 0;
 
+  MPI_Comm test_comm = caffe::mpi::get_working_comm();
+  int original_rank = caffe::mpi::comm_rank(test_comm);
+
   Timer ft_timer;
   // Timer total_timer, comm_timer;
   double total_time = 0, total_comm_time = 0;
@@ -320,8 +323,8 @@ void Solver<Dtype>::Step(int iters) {
     // int victim = 1;
 
     // if ((ft_rank == victim) && (iter_ == 4)) {
-    // if ((ft_rank == victim) && ((iter_ == 2) || (iter_ == 4))) {
-    if ((ft_rank == victim) && (iter_ > 0) && ((iter_ % 2) == 0)) {
+    if ((original_rank != 0) && (ft_rank == victim) && ((iter_ == 2) || (iter_ == 4))) {
+    // if ((ft_rank == victim) && (iter_ > 0) && ((iter_ % 2) == 0)) {
       std::cout << "Victim Rank: " << victim << std::endl;
       raise(SIGKILL);
     }
@@ -386,16 +389,16 @@ void Solver<Dtype>::Step(int iters) {
 #endif
 
     }
- 
+
     iter_timer.Start();
 
     for (int i = 0; i < callbacks_.size(); ++i) {
 #ifdef CAFFE_FT
       std::tuple<int, bool> ret_val = callbacks_[i]->on_gradients_ready();
       if(std::get<1>(ret_val)) {
-    
+
         // fault has occured
-        // MPI AllReduce other ranks as well.. 
+        // MPI AllReduce other ranks as well..
         // Global Faulted Variable... (to trigger read from every rank
         net_->ReSetUpLayer("data");
         MPI_Comm temp_comm = caffe::mpi::get_working_comm();
@@ -458,7 +461,7 @@ void Solver<Dtype>::Step(int iters) {
 
 #ifdef CAFFE_FT
 caffe::mpi::completed(true);
-#endif 
+#endif
 
 }
 

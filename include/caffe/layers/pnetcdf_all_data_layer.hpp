@@ -35,9 +35,9 @@ class PnetCDFAllDataLayer : public BasePrefetchingDataLayer<Dtype> {
   #ifdef CAFFE_FT
   virtual void reload_pnetcdf_file_data(const string& filename);
   virtual std::tuple<int, bool> fix_comm_error(MPI_Comm* comm, float* x);
-  virtual void DataLayerUpdate(const vector<Blob<Dtype>*>& bottom, 
+  virtual void DataLayerUpdate(const vector<Blob<Dtype>*>& bottom,
       const vector<Blob<Dtype>*>& top);
-  #endif 
+  #endif
   virtual void load_batch(Batch<Dtype>* batch);
   virtual vector<int> get_datum_shape();
   virtual size_t get_datum_size();
@@ -80,7 +80,15 @@ private:
             }
         }
 
-/* void add_remaining(int rank, MPI_Offset remain, 
+  template< typename T >
+  struct array_deleter
+  {
+    void operator ()( T const * p){
+      delete[] p;
+    }
+  };
+
+/* void add_remaining(int rank, MPI_Offset remain,
         , MPI_Offset* start, MPI_Offset* stop) {
 
         } */
@@ -90,4 +98,3 @@ private:
 }  // namespace caffe
 
 #endif  // PNETCDF_ALL_CAFFE_DATA_LAYER_HPP_
-
