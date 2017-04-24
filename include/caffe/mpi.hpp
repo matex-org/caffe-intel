@@ -76,9 +76,9 @@ void update_faulted_processes(int faulted_rank);
 
 int mpix_comm_replace(MPI_Comm comm, MPI_Comm* newcomm);
 MPI_Comm get_working_comm();
-int duplicate_comm(MPI_Comm* new_comm, MPI_Comm comm=MPI_COMM_NULL);
+int duplicate_comm(MPI_Comm* newcomm, MPI_Comm comm=MPI_COMM_NULL);
 void error_report(int err_code, MPI_Comm* comm);
-void verbose_errhandler(MPI_Comm* comm, int* err, ...);
+static void verbose_errhandler(MPI_Comm* comm, int* err, ...);
 void fix_communicator(MPI_Comm* comm);
 
 void allreduce_copy(const float& sendbuf, float& recvbuf,

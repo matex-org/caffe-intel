@@ -292,8 +292,10 @@ void Solver<Dtype>::Step(int iters) {
   losses_.clear();
   smoothed_loss_ = 0;
 
+#ifdef CAFFE_FT
   MPI_Comm test_comm = caffe::mpi::get_working_comm();
   int original_rank = caffe::mpi::comm_rank(test_comm);
+#endif
 
   Timer ft_timer;
   // Timer total_timer, comm_timer;
@@ -322,8 +324,8 @@ void Solver<Dtype>::Step(int iters) {
     int victim = ft_size - 1;
     // int victim = 1;
 
-    // if ((ft_rank == victim) && (iter_ == 4)) {
-    if ((original_rank != 0) && (ft_rank == victim) && ((iter_ == 2) || (iter_ == 4))) {
+    if ((ft_rank == victim) && (iter_ == 4)) {
+    // if ((original_rank != 0) && (ft_rank == victim) && ((iter_ == 2) || (iter_ == 4))) {
     // if ((ft_rank == victim) && (iter_ > 0) && ((iter_ % 2) == 0)) {
       std::cout << "Victim Rank: " << victim << std::endl;
       raise(SIGKILL);

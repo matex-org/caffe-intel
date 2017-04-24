@@ -16,6 +16,7 @@ MPI_Comm default_comm_ = MPI_COMM_WORLD;
 #ifdef CAFFE_FT
 MPI_Comm wcomm , first_comm = MPI_COMM_WORLD; // rcomm
 MPI_Errhandler errh;
+// MPI_Comm_create_errhandler(caffe::mpi::verbose_errhandler, &errh);
 char err_str[MPI_MAX_ERROR_STRING] = "";
 int err_strlen;
 int new_size;
@@ -70,7 +71,7 @@ void init(int *argc, char ***argv) {
   caffe::mpi::old_size = size;
   caffe::mpi::new_size = size;
 
-  MPI_Comm_create_errhandler(verbose_errhandler, &errh);
+  MPI_Comm_create_errhandler(verbose_errhandler, &errh); // global
   // MPI_Comm_set_errhandler(wcomm, MPI_ERRORS_RETURN);
   MPI_Comm_set_errhandler(wcomm, errh);
 
@@ -336,13 +337,13 @@ std::tuple<int,bool> allreduce(float& buffer, MPI_Op op, MPI_Comm comm) {
     DLOG(INFO) << "_____Communicator Failed AllReduce (Float Ref): Rank: "
       << trank << ", Size: " << tsize;
     caffe::mpi::fix_communicator(&comm);
-    test_comm = caffe::mpi::get_working_comm();
-    trank = caffe::mpi::comm_rank(test_comm);
-    tsize = caffe::mpi::comm_size(test_comm);
+    // test_comm = caffe::mpi::get_working_comm();
+    trank = caffe::mpi::comm_rank(comm);
+    tsize = caffe::mpi::comm_size(comm);
     DLOG(INFO) << "Communicator Fixed AllReduce (Float Ref): Rank: "
       << trank << ", Size: " << tsize;
     std::get<1>(ret_val) = true;
-    std::get<0>(ret_val) = MPI_Allreduce(MPI_IN_PLACE, &buffer, 1, MPI_FLOAT, op, test_comm);
+    std::get<0>(ret_val) = MPI_Allreduce(MPI_IN_PLACE, &buffer, 1, MPI_FLOAT, op, comm);
     return ret_val;
   }
   return ret_val;
@@ -369,13 +370,13 @@ std::tuple<int,bool> allreduce(double& buffer, MPI_Op op, MPI_Comm comm) {
     DLOG(INFO) << "______Communicator Failed AllReduce (Double Ref): Rank: "
       << trank << ", Size: " << tsize;
     caffe::mpi::fix_communicator(&comm);
-    test_comm = caffe::mpi::get_working_comm();
-    trank = caffe::mpi::comm_rank(test_comm);
-    tsize = caffe::mpi::comm_size(test_comm);
+    // test_comm = caffe::mpi::get_working_comm();
+    trank = caffe::mpi::comm_rank(comm);
+    tsize = caffe::mpi::comm_size(comm);
     DLOG(INFO) << "Communicator Fixed AllReduce (Double Ref): Rank: "
       << trank << ", Size: " << tsize;
     std::get<1>(ret_val) = true;
-    std::get<0>(ret_val) = MPI_Allreduce(MPI_IN_PLACE, &buffer, 1, MPI_DOUBLE, op, test_comm);
+    std::get<0>(ret_val) = MPI_Allreduce(MPI_IN_PLACE, &buffer, 1, MPI_DOUBLE, op, comm);
 
     return ret_val;
   }
@@ -405,13 +406,13 @@ std::tuple<int, bool> allreduce(float* buffer, int count, MPI_Op op, MPI_Comm co
     DLOG(INFO) << "_____Communicator Failed AllReduce (Float Ptr): Rank: "
       << trank << ", Size: " << tsize;
     caffe::mpi::fix_communicator(&comm);
-    test_comm = caffe::mpi::get_working_comm();
-    trank = caffe::mpi::comm_rank(test_comm);
-    tsize = caffe::mpi::comm_size(test_comm);
+    // test_comm = caffe::mpi::get_working_comm();
+    trank = caffe::mpi::comm_rank(comm);
+    tsize = caffe::mpi::comm_size(comm);
     DLOG(INFO) << "Communicator Fixed AllReduce (Float Ptr): Rank: "
       << trank << ", Size: " << tsize;
     std::get<1>(ret_val) = true;
-    std::get<0>(ret_val) = MPI_Allreduce(MPI_IN_PLACE, buffer, count, MPI_FLOAT, op, test_comm);
+    std::get<0>(ret_val) = MPI_Allreduce(MPI_IN_PLACE, buffer, count, MPI_FLOAT, op, comm);
     return ret_val;
   }
   return ret_val;
@@ -438,13 +439,13 @@ std::tuple<int, bool> allreduce(double* buffer, int count, MPI_Op op, MPI_Comm c
     DLOG(INFO) << "_____Communicator Failed AllReduce (Double Ptr): Rank: "
       << trank << ", Size: " << tsize;
     caffe::mpi::fix_communicator(&comm);
-    test_comm = caffe::mpi::get_working_comm();
-    trank = caffe::mpi::comm_rank(test_comm);
-    tsize = caffe::mpi::comm_size(test_comm);
+    // test_comm = caffe::mpi::get_working_comm();
+    trank = caffe::mpi::comm_rank(comm);
+    tsize = caffe::mpi::comm_size(comm);
     DLOG(INFO) << "Communicator Fixed AllReduce (Double Ptr): Rank: "
       << trank << ", Size: " << tsize;
     std::get<1>(ret_val) = true;
-    std::get<0>(ret_val) = MPI_Allreduce(MPI_IN_PLACE, buffer, count, MPI_DOUBLE, op, test_comm);
+    std::get<0>(ret_val) = MPI_Allreduce(MPI_IN_PLACE, buffer, count, MPI_DOUBLE, op, comm);
 
     return ret_val;
   }
@@ -481,16 +482,23 @@ void bcast(double* buffer, int count, int root, MPI_Comm comm) {
   }
 }
 
-int mpix_comm_replace(MPI_Comm comm, MPI_Comm* newcomm)
+int mpix_comm_replace(MPI_Comm comm, MPI_Comm* pnewcomm)
 {
   MPI_Comm shrinked;
+  // MPI_Comm* temp_newcomm; //  = pnewcomm;
   MPI_Group cgrp, sgrp, dgrp, fgrp;
   int rc, flag, i, nc, ns, nd, nf, nnew, crank, srank, drank, frank;
 
   int *ranks_cc, *ranks_df, *ranks_ff;
 
   // Shrink/remove dead process/es
+  DLOG(INFO) << "Before Shrinking (mpix_comm_replace)";
+  if (comm == MPI_COMM_NULL)
+    DLOG(INFO) << "Null Communicator provided (mpix_comm_replace)";
+
   MPIX_Comm_shrink(comm, &shrinked);
+  DLOG(INFO) << "After Shrinking (mpix_comm_replace)";
+  MPI_Comm_rank(comm, &crank);
   MPI_Comm_size(comm, &nc);
   MPI_Comm_size(shrinked, &ns);
   if(ns == nc)
@@ -540,52 +548,72 @@ int mpix_comm_replace(MPI_Comm comm, MPI_Comm* newcomm)
   flag = MPIX_Comm_agree(shrinked, &caffe::mpi::new_size);
   if(flag == MPI_SUCCESS) {
     DLOG(INFO) << "All Agree on reduced Comm size, new rank:" << srank <<" , old rank " << crank;
-    // swap insteam of duplicate
-    // flag = duplicate_comm(newcomm, shrinked);
-    std::swap(*newcomm , shrinked);
-    //newcomm = &shrinked;
-    // if(flag != MPI_SUCCESS)
+    // swap instead of duplicate
+    MPI_Comm tempCOMM;
+    // flag = duplicate_comm(pnewcomm, shrinked);
+    flag = duplicate_comm(&tempCOMM, shrinked);
+    MPI_Comm_set_errhandler(tempCOMM, errh);
+    free(pnewcomm);
+    pnewcomm = &tempCOMM;
+    // temp_newcomm = std::move(&shrinked);
+    DLOG (INFO) << "______Duplicate Shrunk Comm";
+
+    // MPI_Comm_create_errhandler(verbose_errhandler, &errh);
+    // MPI_Comm_set_errhandler(*pnewcomm, errh);
+    DLOG (INFO) << "______Duplicate Shrunk Comm, set errhandler";
+    // pnewcomm = std::move(emp_newcomm);
     MPI_Comm_free(&shrinked);
   }
-  // MPI_Comm_size(*newcomm, &nnew);
   return flag;
 }
 
 MPI_Comm get_working_comm() {
-  if(wcomm == MPI_COMM_NULL) {
+  if(caffe::mpi::wcomm == MPI_COMM_NULL) {
     DLOG(INFO) << "Working Comm is NULL, fixing communicator";
     MPI_Comm temp_comm;
+    // TO DO: Fix This
     fix_communicator(&temp_comm);
+    caffe::mpi::wcomm = temp_comm;
   }
   return wcomm;
 }
 
 // duplicate communicator
-int duplicate_comm(MPI_Comm* new_comm, MPI_Comm comm)
+int duplicate_comm(MPI_Comm* newcomm, MPI_Comm comm)
 {
   int rc;
   int flag;
   int temp_rank, temp_size;
+  MPI_Comm* temp_newcomm;
   temp_size = caffe::mpi::comm_size(comm);
-  // DLOG(INFO) << "Comm_dup, before comm_size" << temp_size;
+  DLOG(INFO) << "______Comm_dup, previous comm_size" << temp_size;
 
   if(comm == MPI_COMM_NULL)
   {
     DLOG(INFO) << "Primary Communicator is Null\n";
   }
 
-  rc = MPI_Comm_dup(comm, new_comm);
+  // rc = MPI_Comm_dup(comm, newcomm);
+  rc = MPI_Comm_dup(comm, newcomm);
   flag = (MPI_SUCCESS == rc);
-  if(rc != MPI_SUCCESS)
-    // caffe::mpi::error_report(rc, &comm);
 
   MPIX_Comm_agree(comm, &flag);
   if(!flag) {
+    caffe::mpi::error_report(rc, &comm);
     if(rc == MPI_SUCCESS) {
-      MPI_Comm_free(new_comm);
+      DLOG(INFO) << "_____Duplication of communicator failed";
+      MPI_Comm_free(newcomm);
       rc = MPIX_ERR_PROC_FAILED;
+      caffe::mpi::error_report(rc, &comm);
     }
   }
+  else {
+    DLOG(INFO) << "_____Duplication of communicator success";
+  }
+  // newcomm = std::move(temp_newcomm);
+  // newcomm = temp_newcomm;
+  temp_size = caffe::mpi::comm_size(*newcomm);
+  DLOG(INFO) << "______Comm_dup, new comm_size" << temp_size;
   return rc;
 }
 
@@ -601,7 +629,7 @@ void error_report(int err_code, MPI_Comm* Comm)
   std::cout << "Error Report: " << err_code_ << " ," << err_string_ << std::endl;
 }
 
-void verbose_errhandler(MPI_Comm* pcomm, int* perr, ...)
+static void verbose_errhandler(MPI_Comm* pcomm, int* perr, ...)
 {
   int flag;
   MPI_Comm comm = *pcomm;
@@ -640,39 +668,46 @@ void verbose_errhandler(MPI_Comm* pcomm, int* perr, ...)
 
 void fix_communicator(MPI_Comm* comm)
 {
-  MPI_Comm rcomm;
+  MPI_Comm* rcomm;
   int flag, rsize, wsize, flag2;
   int wb_rank, wa_rank;
-  // fix global variable
-  flag = mpix_comm_replace(wcomm, &rcomm);
-  // flag = mpix_comm_replace(*comm, &rcomm);
+  // flag = mpix_comm_replace(wcomm, &rcomm);
+  //
+  // flag : false; MPIX_Comm_agree (failed on new communicator size);
+  flag = mpix_comm_replace(*comm, rcomm);
 
-  rsize = caffe::mpi::comm_size(rcomm);
-  wsize = caffe::mpi::comm_size(caffe::mpi::wcomm);
-  wb_rank = caffe::mpi::comm_rank(caffe::mpi::wcomm);
+  rsize = caffe::mpi::comm_size(*rcomm);
+  wsize = caffe::mpi::comm_size(*comm);
+  wb_rank = caffe::mpi::comm_rank(*comm);
+  // wsize = caffe::mpi::comm_size(caffe::mpi::wcomm);
+  // wb_rank = caffe::mpi::comm_rank(caffe::mpi::wcomm);
   if (rsize != wsize) {
     DLOG(INFO) << "Working comm size (before switch): " << wsize << ", rank" << wb_rank;
 
-          MPIX_Comm_revoke(wcomm); // for thread safety
+          MPIX_Comm_revoke(*comm); // for thread safety
           // MPI_Comm_free(&wcomm);
-    flag2 = duplicate_comm(&caffe::mpi::wcomm, rcomm);
-          // std::swap(wcomm, rcomm);
+    MPI_Comm temp_comm;
+    flag2 = duplicate_comm(&temp_comm, *rcomm);
+
+    // Agree on new communicator. (already happened in replace communicator);
+    // flag = MPIX_Comm_agree(caffe::mpi::wcomm, &flag);
+    if (flag != MPI_SUCCESS) {
+      LOG(INFO) << "NO agreemeent after communicator fix";
+      MPI_Comm_free(rcomm);
+      MPI_Abort(caffe::mpi::wcomm, flag);
+    }
+    // Error handler already created, when the comunicator is shrunk and agreed.
+    // MPI_Comm_create_errhandler(verbose_errhandler, &errh);
+    // MPI_Comm_set_errhandler(wcomm, errh);
+    // MPI_Comm_set_errhandler(caffe::mpi::wcomm, MPI_ERRORS_RETURN);
+    *comm = temp_comm;
+    caffe::mpi::wcomm = temp_comm;
+
     wsize = caffe::mpi::comm_size(caffe::mpi::wcomm);
     wa_rank = caffe::mpi::comm_rank(caffe::mpi::wcomm);
     DLOG(INFO) << "Working comm size (after switch): "
                << wsize << " , rank" << wa_rank;
-    MPI_Comm_create_errhandler(verbose_errhandler, &errh);
-    MPI_Comm_set_errhandler(wcomm, errh);
-    // MPI_Comm_set_errhandler(caffe::mpi::wcomm, MPI_ERRORS_RETURN);
-
-    // Agree on new communicator.
-    flag = MPIX_Comm_agree(caffe::mpi::wcomm, &flag);
-    if (flag != MPI_SUCCESS) {
-      LOG(INFO) << "NO agreemeent after communicator fix";
-      MPI_Comm_free(&rcomm);
-      MPI_Abort(caffe::mpi::wcomm, flag);
-    }
-    MPI_Comm_free(&rcomm);
+    MPI_Comm_free(rcomm);
   }
 }
 
