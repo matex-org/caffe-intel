@@ -485,7 +485,6 @@ void bcast(double* buffer, int count, int root, MPI_Comm comm) {
 int mpix_comm_replace(MPI_Comm comm, MPI_Comm* pnewcomm)
 {
   MPI_Comm shrinked;
-  // MPI_Comm* temp_newcomm; //  = pnewcomm;
   MPI_Group cgrp, sgrp, dgrp, fgrp;
   int rc, flag, i, nc, ns, nd, nf, nnew, crank, srank, drank, frank;
 
@@ -549,19 +548,11 @@ int mpix_comm_replace(MPI_Comm comm, MPI_Comm* pnewcomm)
   if(flag == MPI_SUCCESS) {
     DLOG(INFO) << "All Agree on reduced Comm size, new rank:" << srank <<" , old rank " << crank;
     // swap instead of duplicate
-    MPI_Comm tempCOMM;
-    // flag = duplicate_comm(pnewcomm, shrinked);
-    flag = duplicate_comm(&tempCOMM, shrinked);
-    MPI_Comm_set_errhandler(tempCOMM, errh);
-    free(pnewcomm);
-    pnewcomm = &tempCOMM;
-    // temp_newcomm = std::move(&shrinked);
-    DLOG (INFO) << "______Duplicate Shrunk Comm";
-
-    // MPI_Comm_create_errhandler(verbose_errhandler, &errh);
-    // MPI_Comm_set_errhandler(*pnewcomm, errh);
-    DLOG (INFO) << "______Duplicate Shrunk Comm, set errhandler";
-    // pnewcomm = std::move(emp_newcomm);
+    if(*pnewcomm  == MPI_COMM_NULL)
+      DLOG(INFO) << "Empty Communicator for replacement";
+    else
+      DLOG(INFO) << "Not Empty Communicator for replacement";
+    flag = duplicate_comm(pnewcomm, shrinked);
     MPI_Comm_free(&shrinked);
   }
   return flag;
@@ -586,14 +577,11 @@ int duplicate_comm(MPI_Comm* newcomm, MPI_Comm comm)
   int temp_rank, temp_size;
   MPI_Comm* temp_newcomm;
   temp_size = caffe::mpi::comm_size(comm);
-  DLOG(INFO) << "______Comm_dup, previous comm_size" << temp_size;
 
   if(comm == MPI_COMM_NULL)
   {
     DLOG(INFO) << "Primary Communicator is Null\n";
   }
-
-  // rc = MPI_Comm_dup(comm, newcomm);
   rc = MPI_Comm_dup(comm, newcomm);
   flag = (MPI_SUCCESS == rc);
 
@@ -601,19 +589,14 @@ int duplicate_comm(MPI_Comm* newcomm, MPI_Comm comm)
   if(!flag) {
     caffe::mpi::error_report(rc, &comm);
     if(rc == MPI_SUCCESS) {
-      DLOG(INFO) << "_____Duplication of communicator failed";
+      DLOG(INFO) << "Duplication of communicator failed";
       MPI_Comm_free(newcomm);
       rc = MPIX_ERR_PROC_FAILED;
       caffe::mpi::error_report(rc, &comm);
     }
   }
-  else {
-    DLOG(INFO) << "_____Duplication of communicator success";
-  }
-  // newcomm = std::move(temp_newcomm);
-  // newcomm = temp_newcomm;
+  
   temp_size = caffe::mpi::comm_size(*newcomm);
-  DLOG(INFO) << "______Comm_dup, new comm_size" << temp_size;
   return rc;
 }
 
@@ -668,46 +651,35 @@ static void verbose_errhandler(MPI_Comm* pcomm, int* perr, ...)
 
 void fix_communicator(MPI_Comm* comm)
 {
-  MPI_Comm* rcomm;
+  MPI_Comm rcomm;
   int flag, rsize, wsize, flag2;
   int wb_rank, wa_rank;
   // flag = mpix_comm_replace(wcomm, &rcomm);
   //
   // flag : false; MPIX_Comm_agree (failed on new communicator size);
-  flag = mpix_comm_replace(*comm, rcomm);
+  flag = mpix_comm_replace(*comm, &rcomm);
 
-  rsize = caffe::mpi::comm_size(*rcomm);
+  rsize = caffe::mpi::comm_size(rcomm);
   wsize = caffe::mpi::comm_size(*comm);
   wb_rank = caffe::mpi::comm_rank(*comm);
-  // wsize = caffe::mpi::comm_size(caffe::mpi::wcomm);
-  // wb_rank = caffe::mpi::comm_rank(caffe::mpi::wcomm);
   if (rsize != wsize) {
     DLOG(INFO) << "Working comm size (before switch): " << wsize << ", rank" << wb_rank;
-
-          MPIX_Comm_revoke(*comm); // for thread safety
-          // MPI_Comm_free(&wcomm);
-    MPI_Comm temp_comm;
-    flag2 = duplicate_comm(&temp_comm, *rcomm);
-
-    // Agree on new communicator. (already happened in replace communicator);
-    // flag = MPIX_Comm_agree(caffe::mpi::wcomm, &flag);
+    MPIX_Comm_revoke(*comm); 
+    MPI_Comm_free(comm);
+    flag2 = duplicate_comm(comm, rcomm);
     if (flag != MPI_SUCCESS) {
       LOG(INFO) << "NO agreemeent after communicator fix";
-      MPI_Comm_free(rcomm);
+      MPI_Comm_free(&rcomm);
       MPI_Abort(caffe::mpi::wcomm, flag);
     }
-    // Error handler already created, when the comunicator is shrunk and agreed.
-    // MPI_Comm_create_errhandler(verbose_errhandler, &errh);
-    // MPI_Comm_set_errhandler(wcomm, errh);
-    // MPI_Comm_set_errhandler(caffe::mpi::wcomm, MPI_ERRORS_RETURN);
-    *comm = temp_comm;
-    caffe::mpi::wcomm = temp_comm;
+    MPI_Comm_set_errhandler(*comm, caffe::mpi::errh);
+    caffe::mpi::wcomm = *comm;
 
-    wsize = caffe::mpi::comm_size(caffe::mpi::wcomm);
-    wa_rank = caffe::mpi::comm_rank(caffe::mpi::wcomm);
+    wsize = caffe::mpi::comm_size(*comm);
+    wa_rank = caffe::mpi::comm_rank(*comm);
     DLOG(INFO) << "Working comm size (after switch): "
                << wsize << " , rank" << wa_rank;
-    MPI_Comm_free(rcomm);
+    MPI_Comm_free(&rcomm);
   }
 }
 
