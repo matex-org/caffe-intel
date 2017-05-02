@@ -319,8 +319,7 @@ void Solver<Dtype>::Step(int iters) {
     int victim = ft_size - 1;
     // int victim = 1;
 
-
-    if ((ft_rank == victim) && (iter_ == 200)) {
+    if ((ft_rank == victim) && (iter_ == 2)) {
     //if ((ft_rank == victim) && (iter_ > 0) && ((iter_ % 2) == 0)) {
       std::cout << "Victim Rank: " << victim << std::endl;
       raise(SIGKILL);
@@ -386,16 +385,16 @@ void Solver<Dtype>::Step(int iters) {
 #endif
 
     }
- 
+
     iter_timer.Start();
 
     for (int i = 0; i < callbacks_.size(); ++i) {
 #ifdef CAFFE_FT
       std::tuple<int, bool> ret_val = callbacks_[i]->on_gradients_ready();
       if(std::get<1>(ret_val)) {
-    
+
         // fault has occured
-        // MPI AllReduce other ranks as well.. 
+        // MPI AllReduce other ranks as well..
         // Global Faulted Variable... (to trigger read from every rank
         net_->ReSetUpLayer("data");
         MPI_Comm temp_comm = caffe::mpi::get_working_comm();
@@ -458,7 +457,7 @@ void Solver<Dtype>::Step(int iters) {
 
 #ifdef CAFFE_FT
 caffe::mpi::completed(true);
-#endif 
+#endif
 
 }
 

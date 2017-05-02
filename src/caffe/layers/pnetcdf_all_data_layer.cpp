@@ -15,7 +15,7 @@
 #include "caffe/mpi.hpp"
 //#if CAFFE_FT
 //#include <mpi-ext.h>
-//#endif 
+//#endif
 #include "caffe/util/benchmark.hpp"
 
 namespace caffe {
@@ -35,7 +35,7 @@ PnetCDFAllDataLayer<Dtype>::PnetCDFAllDataLayer(const LayerParameter& param)
     padd_label_(),
     padd_data_char_count_(0),
     padd_label_int_count_(0),
-#endif 
+#endif
     row_mutex_(),
     comm_(),
     comm_rank_(),
@@ -46,10 +46,10 @@ PnetCDFAllDataLayer<Dtype>::PnetCDFAllDataLayer(const LayerParameter& param)
   std::cout << "Working Comm PNETCDFALLDATALAYER.\n";
 #else
   comm_ = caffe::mpi::comm_dup();
-#endif 
+#endif
   comm_rank_ = caffe::mpi::comm_rank(comm_);
   comm_size_ = caffe::mpi::comm_size(comm_);
-  LOG(INFO) << "Rank PnetCDF file: " << comm_rank_ 
+  LOG(INFO) << "Rank PnetCDF file: " << comm_rank_
       << " Size: " << comm_size_;
 
 }
@@ -89,9 +89,9 @@ std::tuple<int, bool> PnetCDFAllDataLayer<Dtype>::fix_comm_error(MPI_Comm* comm,
   *comm = caffe::mpi::get_working_comm();
   trank = caffe::mpi::comm_rank(*tcomm);
   tsize = caffe::mpi::comm_size(*tcomm);
-  DLOG(INFO) << "Communicator Fixed: Rank: " << trank 
+  DLOG(INFO) << "Communicator Fixed: Rank: " << trank
       << ", Size: " << tsize;
-  
+
   std::get<1>(retVal) = true;
   std::get<0>(retVal) =  MPI_Allreduce(MPI_IN_PLACE, x, 1, MPI_FLOAT, MPI_SUM, *comm);
   if(std::get<0>(retVal) != MPI_SUCCESS) {
@@ -103,7 +103,7 @@ std::tuple<int, bool> PnetCDFAllDataLayer<Dtype>::fix_comm_error(MPI_Comm* comm,
   comm_size_ = caffe::mpi::comm_size(*comm);
   return retVal;
 }
-#endif 
+#endif
 
 template <typename Dtype>
 void PnetCDFAllDataLayer<Dtype>::load_pnetcdf_file_data(const string& filename) {
@@ -128,20 +128,20 @@ void PnetCDFAllDataLayer<Dtype>::load_pnetcdf_file_data(const string& filename) 
 
   #ifdef CAFFE_FT
   // int rc, rc2;
-  std::tuple<int, bool> retVal1, retVal2; 
+  std::tuple<int, bool> retVal1, retVal2;
 
   float xallreduce = 1.0;
 // check if communicator is valid
 
   std::get<1>(retVal1) = false;
-  std::get<0>(retVal1) = MPI_Allreduce(MPI_IN_PLACE, &xallreduce, 1, MPI_FLOAT, 
+  std::get<0>(retVal1) = MPI_Allreduce(MPI_IN_PLACE, &xallreduce, 1, MPI_FLOAT,
               MPI_SUM, comm_);
   if(std::get<0>(retVal1) != MPI_SUCCESS)
   {
     retVal2 = fix_comm_error(&comm_, &xallreduce);
     DLOG(INFO) << "ERROR OCCURED BEFORE FILE ACCESS";
   }
-  DLOG(INFO) << "Test AllReduce Value: " << xallreduce;            
+  DLOG(INFO) << "Test AllReduce Value: " << xallreduce;
   retval = ncmpi_open(comm_, filename.c_str(),
           NC_NOWRITE, MPI_INFO_NULL, &ncid);
   #else
@@ -152,7 +152,7 @@ void PnetCDFAllDataLayer<Dtype>::load_pnetcdf_file_data(const string& filename) 
   int rank = comm_rank_;
   int size = comm_size_;
 
-  DLOG(INFO) << "PnetCDF After Opening File:-------w rank: " 
+  DLOG(INFO) << "PnetCDF After Opening File:-------w rank: "
              << rank << ", size:" << size;
 
   retval = ncmpi_inq(ncid, &ndims, &nvars, &ngatts, &unlimdim);
@@ -379,7 +379,7 @@ void PnetCDFAllDataLayer<Dtype>::load_pnetcdf_file_data(const string& filename) 
 #endif
 }
 
-//////////////////////////////////////// 
+////////////////////////////////////////
 #ifdef CAFFE_FT
 template <typename Dtype>
 void PnetCDFAllDataLayer<Dtype>::reload_pnetcdf_file_data(const string& filename) {
@@ -389,7 +389,7 @@ void PnetCDFAllDataLayer<Dtype>::reload_pnetcdf_file_data(const string& filename
   #else
     LOG(INFO) << "Loading PnetCDF file: " << filename;
   #endif
-  
+
   int retval;
   int ncid;
   int ndims;
@@ -406,7 +406,7 @@ void PnetCDFAllDataLayer<Dtype>::reload_pnetcdf_file_data(const string& filename
   float xallreduce = 1.0;
   // check if communicator is valid
   std::get<1>(retVal1) = false;
-  std::get<0>(retVal1) = MPI_Allreduce(MPI_IN_PLACE, &xallreduce, 1, MPI_FLOAT, 
+  std::get<0>(retVal1) = MPI_Allreduce(MPI_IN_PLACE, &xallreduce, 1, MPI_FLOAT,
               MPI_SUM, comm_);
   if(std::get<0>(retVal1) != MPI_SUCCESS)
   {
@@ -417,10 +417,10 @@ void PnetCDFAllDataLayer<Dtype>::reload_pnetcdf_file_data(const string& filename
   retval = ncmpi_open(comm_, filename.c_str(),
           NC_NOWRITE, MPI_INFO_NULL, &ncid);
   errcheck(retval);
-  
-  DLOG(INFO) << "PnetCDF After Opening File:-------w rank: " 
+
+  DLOG(INFO) << "PnetCDF After Opening File:-------w rank: "
              << comm_rank_ << ", size:" << comm_size_;
-        
+
   retval = ncmpi_inq(ncid, &ndims, &nvars, &ngatts, &unlimdim);
   errcheck(retval);
 
@@ -430,20 +430,19 @@ void PnetCDFAllDataLayer<Dtype>::reload_pnetcdf_file_data(const string& filename
   // Make universal for multiple faults
   if(caffe::mpi::last_rank_failed >= 0) {
     int frank = caffe::mpi::last_rank_failed;
-    count_ = total / caffe::mpi::old_size; 
-    remain = total % caffe::mpi::old_size; 
-      
+    count_ = total / caffe::mpi::old_size;
+    remain = total % caffe::mpi::old_size;
+
     DLOG(INFO) << "Last Rank Failed :" << caffe::mpi::last_rank_failed;
     DLOG(INFO) << "Last COMM Size :" << caffe::mpi::old_size;
     DLOG(INFO) << "Count_ with prev size:" << count_;
     DLOG(INFO) << "Remain with prev size :" << remain;
 
-
-    // Strided does not work for the moment. 
+    // Strided does not work for the moment.
   #if STRIDED
     faulted_start = caffe::mpi::last_rank_failed;
     faulted_stop = caffe::mpi::last_rank_failed;
-    if (caffe::mpi::rank < remain) 
+    if (caffe::mpi::rank < remain)
       count_+=1;
   #else
     faulted_start = caffe::mpi::last_rank_failed * count_;
@@ -455,12 +454,12 @@ void PnetCDFAllDataLayer<Dtype>::reload_pnetcdf_file_data(const string& filename
       faulted_start += remain;
       faulted_stop += remain;
     }
-  #endif 
+  #endif
 
     MPI_Offset padd_count_ = (faulted_stop - faulted_start)/comm_size_;
     MPI_Offset padd_remain = (faulted_stop - faulted_start)% comm_size_;
 
-    MPI_Offset padd_start; 
+    MPI_Offset padd_start;
     MPI_Offset padd_stop;
 
   #if STRIDED
@@ -476,10 +475,10 @@ void PnetCDFAllDataLayer<Dtype>::reload_pnetcdf_file_data(const string& filename
       padd_start += comm_rank_;
       padd_stop += comm_rank_ + 1;
     } else {
-      padd_start += padd_remain; 
-      padd_stop += padd_remain; 
+      padd_start += padd_remain;
+      padd_stop += padd_remain;
     }
-  #endif  
+  #endif
 
     DLOG(INFO) << "ncid " << ncid;
     DLOG(INFO) << "ndims " << ndims;
@@ -513,14 +512,8 @@ void PnetCDFAllDataLayer<Dtype>::reload_pnetcdf_file_data(const string& filename
 
       retval = ncmpi_inq_vardimid(ncid, varid, &vardimids[0]);
       errcheck(retval);
-
-      vardimids.resize(varndims);
-      count.resize(varndims);
-      offset.resize(varndims);
-      stride.resize(varndims);
-
-      retval = ncmpi_inq_vardimid(ncid, varid, &vardimids[0]);
-      errcheck(retval);
+      DLOG(INFO) << "_________varid " << varid;
+      DLOG(INFO) << "_______vardims " << varndims;
 
       for (int i = 0; i < varndims; i++) {
         retval = ncmpi_inq_dimlen(ncid, vardimids[i], &count[i]);
@@ -529,13 +522,14 @@ void PnetCDFAllDataLayer<Dtype>::reload_pnetcdf_file_data(const string& filename
         stride[i] = 1;
         if (count[i] > chunksize) {
           LOG(FATAL) << "dimension is too large for Blob";
-        } 
+        }
+        DLOG(INFO) << "_________vardimids[" << i << "]: " << vardimids[i] << " ,count[" << i << "]: " << count[i];
       }
       // MPI-IO can only read 2GB chunks due to "int" interface for indices
 #if STRIDED
-      count[0] = padd_count_; 
-      offset[0] = padd_start; 
-      stride[0] = comm_size_; 
+      count[0] = padd_count_;
+      offset[0] = padd_start;
+      stride[0] = comm_size_;
 #else
       count[0] = padd_stop - padd_start;
       offset[0] = padd_start;
@@ -780,6 +774,8 @@ void PnetCDFAllDataLayer<Dtype>::DataLayerUpdate(const vector<Blob<Dtype>*>& bot
   this->data_.swap(temp_newdata);
   temp_newdata.reset();
 
+  // this->data_.swap(this->padd_data_);
+
   shared_ptr<int> temp_newlabel = shared_ptr<int>(new int[this->label_int_count_ + this->padd_label_int_count_]);
 
   memcpy(temp_newlabel.get(), this->label_.get()
@@ -788,11 +784,18 @@ void PnetCDFAllDataLayer<Dtype>::DataLayerUpdate(const vector<Blob<Dtype>*>& bot
 
   this->label_.swap(temp_newlabel);
   temp_newlabel.reset();
+  // this->data_.swap(this->padd_data_);
 
   CHECK(this->max_row_);
   CHECK(this->padd_max_row_);
 
+  //##
   this->max_row_ += this->padd_max_row_;
+  // this->max_row_ = this->padd_max_row_;
+  DLOG(INFO) << "Max Row: " << this->max_row_ ;
+  DLOG(INFO) << "Padd Max Row: " << this->padd_max_row_ ;
+  this->current_row_ = 0;
+
   this->data_char_count_ += this->padd_data_char_count_;
   this->label_int_count_ += this->padd_label_int_count_;
   DLOG(INFO) << "Total Data Char Count, after padd:" << this->data_char_count_;
@@ -804,6 +807,28 @@ void PnetCDFAllDataLayer<Dtype>::DataLayerUpdate(const vector<Blob<Dtype>*>& bot
   this->padd_max_row_ = 0;
 
   row_mutex_->unlock();
+  row_mutex_.reset(new boost::mutex());
+
+  vector<int> top_shape = infer_blob_shape();
+  this->transformed_data_.Reshape(top_shape);
+  // Reshape top[0] and prefetch_data according to the batch_size.
+  top_shape[0] = batch_size;
+  top[0]->Reshape(top_shape);
+  for (int i = 0; i < this->PREFETCH_COUNT; ++i) {
+    this->prefetch_[i].data_.Reshape(top_shape);
+  }
+  LOG(INFO) << "output data size: " << top[0]->num() << ","
+      << top[0]->channels() << "," << top[0]->height() << ","
+      << top[0]->width();
+  // label
+  if (this->output_labels_) {
+    vector<int> label_shape(1, batch_size);
+    top[1]->Reshape(label_shape);
+    for (int i = 0; i < this->PREFETCH_COUNT; ++i) {
+      this->prefetch_[i].label_.Reshape(label_shape);
+    }
+  }
+
 }
 #endif /*CAFFE_FT*/
 
@@ -904,4 +929,3 @@ INSTANTIATE_CLASS(PnetCDFAllDataLayer);
 REGISTER_LAYER_CLASS(PnetCDFAllData);
 
 }  // namespace caffe
-
