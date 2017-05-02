@@ -115,7 +115,7 @@ class LMDB : public DB {
  public:
   LMDB() : mdb_env_(NULL) { }
   virtual ~LMDB() { Close(); }
-  virtual void Open(const string& source, Mode mode);
+  virtual void Open(const string& source, Mode mode, const LayerParameter& param);
   virtual void Close() {
     if (mdb_env_ != NULL) {
       mdb_dbi_close(mdb_env_, mdb_dbi_);

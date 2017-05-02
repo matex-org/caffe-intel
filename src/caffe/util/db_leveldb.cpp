@@ -42,7 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace caffe { namespace db {
 
-void LevelDB::Open(const string& source, Mode mode) {
+void LevelDB::Open(const string& source, Mode mode, const LayerParameter& param) {
   leveldb::Options options;
   options.block_size = 65536;
   options.write_buffer_size = 268435456;

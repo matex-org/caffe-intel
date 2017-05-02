@@ -82,7 +82,7 @@ void Cache<Dtype>::local_rate_replace_policy(int next_cache)
 {
   if(current_shuffle_count < eviction_rate)
   {
-    LOG(INFO) << "Shuffling Level " << next_cache-1 << " " << size;
+    //LOG(INFO) << "Shuffling Level " << next_cache-1 << " " << size;
     shuffle();
     if(full_replace)
     {
@@ -101,7 +101,7 @@ void Cache<Dtype>::local_rate_replace_policy(int next_cache)
   }
   else
   {
-    LOG(INFO) << "Refilling Level " << next_cache-1 << " " << size;
+    //LOG(INFO) << "Refilling Level " << next_cache-1 << " " << size;
     //Refill higher levels
     if(!next->prefetch && next->empty() ) //empty cache
       (next->*(next->local_refill_policy))(next_cache+1);
@@ -154,6 +154,8 @@ void MemoryCache<Dtype>::create( void * ptr, bool * ptr2, bool thread_safe )
   Cache<Dtype>::prefetch = thread_safe;
   Cache<Dtype>::full_replace = false;
   Cache<Dtype>::dirty = ptr2;
+  Cache<Dtype>::last_i = 0; 
+  Cache<Dtype>::slot = 0; 
   for(int i=0; i< Cache<Dtype>::size; i++)
     dirty[i] = true;
   
@@ -173,7 +175,7 @@ bool MemoryCache<Dtype>::empty()
 
   //LOG(INFO)  << bounds << " " << Cache<Dtype>::size;
   
-  LOG(INFO) << " empty  " << Cache<Dtype>::used;
+  //LOG(INFO) << " empty  " << Cache<Dtype>::used;
 
   return Cache<Dtype>::used == Cache<Dtype>::size;
 }
@@ -183,16 +185,17 @@ PopBatch<Dtype> MemoryCache<Dtype>::pop()
   //Cache<Dtype>::lock();
   //Cache<Dtype>::used++;
   //Cache<Dtype>::unlock();
-  static int slot = 0; 
+  //static int slot = 0; 
   Cache<Dtype>::used.fetch_add(1, boost::memory_order_relaxed);
   //Batch<Dtype> *batch = cache_full.pop();
-  int my_slot = slot++;
+  int my_slot = Cache<Dtype>::slot++;
   
   if(slot == Cache<Dtype>::size)
     slot = 0;
 
-  LOG(INFO) << "Waiting " << my_slot;
+  //LOG(INFO) << "Waiting " << this << " " << my_slot;
   while(Cache<Dtype>::dirty[my_slot]){};
+  //LOG(INFO) << "Waiting done" << this << " " << my_slot;
   
   PopBatch<Dtype> batch;
   batch.batch = &cache[my_slot];
@@ -205,10 +208,11 @@ template <typename Dtype>
 void MemoryCache<Dtype>::shuffle ()
 {
   //Cache<Dtype>::lock();
-  static int last_i=0;
+  //static int last_i=0;
   //int bounds = Cache<Dtype>::used.fetch_add(0, boost::memory_order_relaxed);
   int rand;
-  for (int i = last_i; i < Cache<Dtype>::size; ++i) {
+  //LOG(INFO) << "Shuffle " << this;
+  for (int i = Cache<Dtype>::last_i; i < Cache<Dtype>::size; ++i) {
    
     last_i=i;
     if(Cache<Dtype>::dirty[i] == true)
@@ -222,7 +226,7 @@ void MemoryCache<Dtype>::shuffle ()
       }
       Cache<Dtype>::used.fetch_sub(1, boost::memory_order_relaxed);
       //cache_full.push(&cache[i]);
-      LOG(INFO)  << "Shuffle used "  << Cache<Dtype>::used << " clear " << i;
+      //LOG(INFO)  << "Shuffle used "  << Cache<Dtype>::used << " clear " << i;
       dirty[i] = false;
       last_i++;
     }
@@ -243,8 +247,8 @@ template <typename Dtype>
 void MemoryCache<Dtype>::fill(bool in_thread)
 {
   //Cache<Dtype>::lock();
-  static int last_i=0;
-  for (int j = last_i; j < Cache<Dtype>::size; ++j) {
+  //static int last_i=0;
+  for (int j = Cache<Dtype>::last_i; j < Cache<Dtype>::size; ++j) {
     last_i=j;
     if(Cache<Dtype>::dirty[j] == true)
     {  
@@ -253,7 +257,7 @@ void MemoryCache<Dtype>::fill(bool in_thread)
       //cache_full.push(&cache[j]);
       dirty[j] = false;
       last_i++;
-      LOG(INFO)  << "Fill used "  << Cache<Dtype>::used;
+      //LOG(INFO)  << "Fill used "  << Cache<Dtype>::used;
     }
     else
       break;
@@ -273,8 +277,8 @@ void MemoryCache<Dtype>::refill(Cache<Dtype> * next_cache)
 {
   //Cache<Dtype>::lock();
   PopBatch<Dtype> batch;
-  static int last_i=0;
-  for (int j = last_i; j < Cache<Dtype>::size; ++j) {
+  //static int last_i=0;
+  for (int j = Cache<Dtype>::last_i; j < Cache<Dtype>::size; ++j) {
     //LOG(INFO) << position;
     last_i=j;
     if(Cache<Dtype>::dirty[j] == true)
@@ -285,7 +289,7 @@ void MemoryCache<Dtype>::refill(Cache<Dtype> * next_cache)
       *batch.dirty = true;
       Cache<Dtype>::used.fetch_sub(1, boost::memory_order_relaxed);
       //cache_full.push(&cache[j]);
-      LOG(INFO)  << "Refill used "  << Cache<Dtype>::used;
+      //LOG(INFO)  << "Refill used "  << Cache<Dtype>::used;
       dirty[j] = false;
       last_i++;
     }

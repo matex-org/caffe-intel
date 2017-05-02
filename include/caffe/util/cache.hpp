@@ -49,6 +49,8 @@ class Cache
   mutable boost::atomic<int> used;
   int eviction_rate;
   int current_shuffle_count;
+  int last_i;
+  int slot;
   bool ignoreAccuracy;
   void rate_replace_policy(int next_cache);
   void local_rate_replace_policy(int next_cache);

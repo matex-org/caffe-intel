@@ -90,7 +90,7 @@ class LevelDB : public DB {
  public:
   LevelDB() : db_(NULL) { }
   virtual ~LevelDB() { Close(); }
-  virtual void Open(const string& source, Mode mode);
+  virtual void Open(const string& source, Mode mode, const LayerParameter& param);
   virtual void Close() {
     if (db_ != NULL) {
       delete db_;

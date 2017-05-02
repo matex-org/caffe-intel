@@ -320,7 +320,7 @@ void BasePrefetchingDataLayer<Dtype>::Forward_cpu(
   {
     if(!caches_[0]->prefetch && caches_[0]->empty()) //empty cache
     {
-      LOG(INFO) << "Local Refill "; 
+      //LOG(INFO) << "Local Refill "; 
       (caches_[0]->*(caches_[0]->local_refill_policy))(1);
     }
     pop_batch = caches_[0]->pop();

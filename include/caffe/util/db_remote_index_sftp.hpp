@@ -86,7 +86,7 @@ class RemoteIndexSFTPEnv
       buffer_size = image_index[current_index];
       buffer = new char[buffer_size];
     }
-    int res=0, total = 0;
+    uint64_t res=0, total = 0;
 
     timer.Start();
     res = sftp_read( block_file_, buffer, image_index[current_index]);
@@ -113,11 +113,10 @@ class RemoteIndexSFTPEnv
     //block_stream_.write( value.c_str(), value.size());
     //block_stream_ << value; //.write( value.data(), value.size());
   }
-  int helper_getline(char * buffer, string & key, char delim, int & pos, int max_size)
+  uint64_t helper_getline(char * buffer, string & key, char delim, uint64_t & pos, uint64_t max_size)
   {
-    int i;
     bool found = false;
-    for(int i =0; i< max_size; i++)
+    for(uint64_t i =0; i< max_size; i++)
     {
       if(buffer[i+pos] == delim)
       {
@@ -231,7 +230,7 @@ class RemoteIndexSFTPEnv
       }
       return SSH_OK;
   }
-  void open_session(char * host, char * user)
+  void open_session(const char * host, const char * user, const char * password)
   {
     int rc;
     db_ssh_session = ssh_new();
@@ -257,8 +256,12 @@ class RemoteIndexSFTPEnv
     rc = authenticate_pubkey(db_ssh_session);
     if (rc != SSH_AUTH_SUCCESS)
     {
-      char *  password = getpass("Password: ");
       rc = ssh_userauth_password(db_ssh_session, NULL, password);
+      if (rc != SSH_AUTH_SUCCESS)
+      {
+        password = getpass("Password: ");
+        rc = ssh_userauth_password(db_ssh_session, NULL, password);
+      }
     }
     if (rc != SSH_AUTH_SUCCESS)
     {
@@ -272,9 +275,9 @@ class RemoteIndexSFTPEnv
     sftp_create_session(db_ssh_session, db_sftp_session);
   }
 
-  int open(const string &source, int sftp_mode, int mode)
+  int open(const string &source, int sftp_mode, int mode, const string &server, const string &username, const string &password)
   {
-    open_session("constance.pnl.gov","land350");
+    open_session(server.c_str(), username.c_str(), password.c_str());
     string index = source + "/index";
     string block = source + "/db";
     string key, int_string;
@@ -282,11 +285,11 @@ class RemoteIndexSFTPEnv
     block_file_ = sftp_open(db_sftp_session, block.c_str(), sftp_mode, 0);
     uint64_t value;
     valid_=true;
-    int nbytes;
-    int res;
-    int pos;
-    int offset =0;
-    int read_offset =0;
+    uint64_t nbytes;
+    uint64_t res;
+    uint64_t pos;
+    uint64_t offset =0;
+    uint64_t read_offset =0;
     bool break2= false;
     if(sftp_mode == O_RDONLY)
     {
@@ -392,11 +395,11 @@ class RemoteIndexSFTPEnv
   bool valid_;
   char * buffer;
   char * index_buffer;
-  unsigned int buffer_size;
-  unsigned int index_buffer_size;
+  uint64_t buffer_size;
+  uint64_t index_buffer_size;
   sftp_file index_file_;
   sftp_file block_file_;
-  unsigned int current_index;
+  uint64_t current_index;
   uint64_t index_position;
   uint64_t block_position;
   uint64_t bytes_total;
@@ -454,7 +457,7 @@ class RemoteIndexSFTP : public DB {
  public:
   RemoteIndexSFTP() { }
   virtual ~RemoteIndexSFTP() { Close(); }
-  virtual void Open(const string& source, Mode mode);
+  virtual void Open(const string& source, Mode mode, const LayerParameter& param);
   virtual void Close() { env_->close();
   }
   virtual RemoteIndexSFTPCursor* NewCursor();

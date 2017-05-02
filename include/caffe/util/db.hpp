@@ -76,7 +76,7 @@ class DB {
  public:
   DB() { }
   virtual ~DB() { }
-  virtual void Open(const string& source, Mode mode) = 0;
+  virtual void Open(const string& source, Mode mode, const LayerParameter& param) = 0;
   virtual void Close() = 0;
   virtual Cursor* NewCursor() = 0;
   virtual Transaction* NewTransaction() = 0;
