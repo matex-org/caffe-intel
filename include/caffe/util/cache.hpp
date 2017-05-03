@@ -96,7 +96,9 @@ class DiskCache : public Cache <Dtype>
   //File stream
   bool open;
   fstream cache;
+  fstream cache_read;
   Batch<Dtype> * cache_buffer;
+  Batch<Dtype> * cache_read_buffer;
   unsigned int current_offset;
   void shuffle_cache(int batch1, int batchPos1, int  batch2, int batchPos2, int image_count, int data_count, int label_count);
   virtual void create( void * ptr, bool * ptr2, bool thread_safe);

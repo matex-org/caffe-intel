@@ -42,21 +42,21 @@ void Cache<Dtype>::rate_replace_policy(int next_cache)
 {
   if(current_shuffle_count < eviction_rate)
   {
-    //LOG(INFO) << "Shuffling Level " << next_cache-1 << " " << size;
     shuffle();
     
     if(full_replace)
     {
+      //LOG(INFO) << "Shuffling Level " << next_cache-1 << " " << size;
       current_shuffle_count++;
       full_replace=0;
     }
   }
   else if(next == NULL) //Last level -> refill
   {
-    //LOG(INFO) << "Filling Level " << next_cache-1 << " " << size;
     fill(true);
     if(full_replace)
     {
+      //LOG(INFO) << "Filling Level " << next_cache-1 << " " << size;
       current_shuffle_count=0;
       full_replace=0;
     }
@@ -64,14 +64,14 @@ void Cache<Dtype>::rate_replace_policy(int next_cache)
   else
   {
     //Refill higher levels
-    //if(next->empty() ) //empty cache
-    //  (next->*(next->refill_policy))(next_cache+1);
+    if(next->prefetch && next->empty() ) //empty cache
+      (next->*(next->refill_policy))(next_cache+1);
     
-    //LOG(INFO) << "Refilling Level " << next_cache-1 << " " << size;
     refill(next);
     
     if(full_replace)
     {
+      //LOG(INFO) << "Refilling Level " << next_cache-1 << " " << size;
       current_shuffle_count=0;
       full_replace=0;
     }
@@ -386,6 +386,8 @@ void DiskCache<Dtype>::create( void * ptr, bool * ptr2, bool thread_safe )
   Cache<Dtype>::prefetch = thread_safe;
   Cache<Dtype>::full_replace = false;
   Cache<Dtype>::dirty = ptr2;
+  Cache<Dtype>::last_i = 0; 
+  Cache<Dtype>::slot = 0; 
   for(int i=0; i< Cache<Dtype>::size; i++)
     dirty[i] = true;
 
@@ -395,6 +397,7 @@ void DiskCache<Dtype>::create( void * ptr, bool * ptr2, bool thread_safe )
   //  Cache<Dtype>::sync_var = NULL;
   open = false;
   cache_buffer = static_cast<Batch<Dtype> *> (ptr); 
+  cache_read_buffer = static_cast<Batch<Dtype> *> (ptr)+1; 
   current_offset = 0;
   if( Cache<Dtype>::eviction_rate!=0)
   {
@@ -406,36 +409,50 @@ template <typename Dtype>
 bool DiskCache<Dtype>::empty()
 { 
   
-  return current_offset == Cache<Dtype>::size;
+  //return current_offset == Cache<Dtype>::size;
+  return Cache<Dtype>::used == Cache<Dtype>::size;
 }
 template <typename Dtype>
 PopBatch<Dtype> DiskCache<Dtype>::pop() {
   //Cache<Dtype>::lock();
-  Dtype * data = cache_buffer->data_.mutable_cpu_data();  
-  Dtype * label = cache_buffer->label_.mutable_cpu_data();  
+  Cache<Dtype>::used.fetch_add(1, boost::memory_order_relaxed);
+  
+  int my_slot = Cache<Dtype>::slot++;
+  
+  if(slot == Cache<Dtype>::size)
+  {
+    cache_read.seekg (0, ios::beg);
+    slot = 0;
+  }
+  
+  while(Cache<Dtype>::dirty[my_slot]){};
+  
+  Dtype * data = cache_read_buffer->data_.mutable_cpu_data();  
+  Dtype * label = cache_read_buffer->label_.mutable_cpu_data();  
   int image_count;
   int datum_size;
   char * bytes;
   char byte;
 
-  cache.read( (char *)&image_count, sizeof(int)); 
-  cache.read( (char *)&datum_size, sizeof(int)); 
+  cache_read.read( (char *)&image_count, sizeof(int)); 
+  cache_read.read( (char *)&datum_size, sizeof(int)); 
   for (int i = 0; i < image_count; ++i)
   {
-    int offset = cache_buffer->data_.offset(i);
+    int offset = cache_read_buffer->data_.offset(i);
     bytes = (char*) (data+offset);
     //for (int k = 0; k < datum_size; ++k)
-    cache.read( bytes, datum_size); 
+    cache_read.read( bytes, datum_size); 
     bytes = (char*) (label+i);
     //for (int k = 0; k < sizeof(Dtype); ++k)
-    cache.read( bytes, sizeof(Dtype)); 
+    cache_read.read( bytes, sizeof(Dtype)); 
   }
 
-  current_offset++;
-  Cache<Dtype>::used++;
+  //current_offset++;
+  //Cache<Dtype>::used++;
 
   PopBatch<Dtype> batch;
-  batch.batch = cache_buffer;
+  batch.batch = cache_read_buffer;
+  batch.dirty = &Cache<Dtype>::dirty[my_slot];
 
   //Cache<Dtype>::unlock();
   return batch;
@@ -448,8 +465,9 @@ void DiskCache<Dtype>::fill(bool in_thread)
   {
     LOG(INFO) << "Cache Location" << Cache<Dtype>::disk_location;
     cache.open (Cache<Dtype>::disk_location, ios::trunc| ios::in | ios::out | ios::binary );
+    cache_read.open (Cache<Dtype>::disk_location, ios::in | ios::binary );
     open = true;
-    if(!cache.is_open())
+    if(!cache.is_open() || !cache_read.is_open())
     {
       LOG(INFO) << "Couldn't open disk cache location: " << Cache<Dtype>::disk_location;
       exit(1);
@@ -459,29 +477,44 @@ void DiskCache<Dtype>::fill(bool in_thread)
   Dtype * data = cache_buffer->data_.mutable_cpu_data();  
   Dtype * label = cache_buffer->label_.mutable_cpu_data();
   char * bytes;
-  cache.seekg (0, ios::beg);
-  for (int j = 0; j < Cache<Dtype>::used; ++j) {
-    Cache<Dtype>::data_layer->load_batch(cache_buffer, in_thread);
-    int image_count = cache_buffer->data_.shape(0);
-    int datum_size = cache_buffer->data_.shape(1);
-    datum_size *= cache_buffer->data_.shape(2);
-    datum_size *= cache_buffer->data_.shape(3);
-    datum_size *= sizeof(Dtype);
+  for (int j = Cache<Dtype>::last_i; j < Cache<Dtype>::size; ++j) {
+    last_i=j;
+    if(Cache<Dtype>::dirty[j] == true)
+    { 
+      //LOG(INFO) << "Disk fill";
+      Cache<Dtype>::data_layer->load_batch(cache_buffer, in_thread);
+      int image_count = cache_buffer->data_.shape(0);
+      int datum_size = cache_buffer->data_.shape(1);
+      datum_size *= cache_buffer->data_.shape(2);
+      datum_size *= cache_buffer->data_.shape(3);
+      datum_size *= sizeof(Dtype);
+      
+      cache.seekg (j*(2*sizeof(int)+image_count*(datum_size+sizeof(Dtype))), ios::beg);
 
-    cache.write( (char *)&image_count, sizeof(int)); 
-    cache.write( (char *)&datum_size, sizeof(int)); 
-    for (int i = 0; i < image_count; ++i)
-    {
-      int offset = cache_buffer->data_.offset(i);
-      bytes = (char*) (data+offset);
-      cache.write( bytes, datum_size); 
-      bytes = (char*) (label+i);
-      cache.write( bytes, sizeof(Dtype)); 
+      cache.write( (char *)&image_count, sizeof(int)); 
+      cache.write( (char *)&datum_size, sizeof(int)); 
+      for (int i = 0; i < image_count; ++i)
+      {
+        int offset = cache_buffer->data_.offset(i);
+        bytes = (char*) (data+offset);
+        cache.write( bytes, datum_size); 
+        bytes = (char*) (label+i);
+        cache.write( bytes, sizeof(Dtype)); 
+      }
+      Cache<Dtype>::used.fetch_sub(1, boost::memory_order_relaxed);
+      dirty[j] = false;
+      last_i++;
     }
   }
-  cache.seekg (0, ios::beg);
-  current_offset = 0;
-  Cache<Dtype>::used=0;
+  if(last_i == Cache<Dtype>::size)
+  {
+    //bounds=0;
+    Cache<Dtype>::full_replace = true;
+    last_i=0;
+  }
+  //cache.seekg (0, ios::beg);
+  //current_offset = 0;
+  //Cache<Dtype>::used=0;
   //Cache<Dtype>::unlock();
 }
 template <typename Dtype>
@@ -512,33 +545,47 @@ void DiskCache<Dtype>::refill(Cache<Dtype> * next_cache)
   Dtype * data = cache_buffer->data_.mutable_cpu_data();  
   Dtype * label = cache_buffer->label_.mutable_cpu_data();  
   current_offset=0;
-  cache.seekg (0, ios::beg);
+  //cache.seekg (0, ios::beg);
   char * bytes;
-  for (int j = 0; j < Cache<Dtype>::used; ++j) {
-    batch = next_cache->pop(); //->cache_full_.pop("Data layer cache queue empty");
-    data = batch.batch->data_.mutable_cpu_data();  
-    label = batch.batch->label_.mutable_cpu_data();  
-    //cache_buffer->data_.CopyFrom( batch->data_ );
-    //cache_buffer->label_.CopyFrom( batch->label_ );
-    int image_count = batch.batch->data_.shape(0);
-    int datum_size = batch.batch->data_.shape(1);
-    datum_size *= batch.batch->data_.shape(2);
-    datum_size *= batch.batch->data_.shape(3);
-    datum_size *= sizeof(Dtype);
+  for (int j = Cache<Dtype>::last_i; j < Cache<Dtype>::size; ++j) {
+    last_i=j;
+    if(Cache<Dtype>::dirty[j] == true)
+    {  
+      batch = next_cache->pop(); //->cache_full_.pop("Data layer cache queue empty");
+      data = batch.batch->data_.mutable_cpu_data();  
+      label = batch.batch->label_.mutable_cpu_data();  
+      //cache_buffer->data_.CopyFrom( batch->data_ );
+      //cache_buffer->label_.CopyFrom( batch->label_ );
+      int image_count = batch.batch->data_.shape(0);
+      int datum_size = batch.batch->data_.shape(1);
+      datum_size *= batch.batch->data_.shape(2);
+      datum_size *= batch.batch->data_.shape(3);
+      datum_size *= sizeof(Dtype);
 
-    cache.write( (char *)&image_count, sizeof(int)); 
-    cache.write( (char *)&datum_size, sizeof(int)); 
-    for (int i = 0; i < image_count; ++i)
-    {
-      int offset = batch.batch->data_.offset(i);
-      bytes = (char*) (data+offset);
-      cache.write( bytes, datum_size); 
-      bytes = (char*) (label+i);
-      cache.write( bytes, sizeof(Dtype)); 
+      cache.write( (char *)&image_count, sizeof(int)); 
+      cache.write( (char *)&datum_size, sizeof(int)); 
+      for (int i = 0; i < image_count; ++i)
+      {
+        int offset = batch.batch->data_.offset(i);
+        bytes = (char*) (data+offset);
+        cache.write( bytes, datum_size); 
+        bytes = (char*) (label+i);
+        cache.write( bytes, sizeof(Dtype)); 
+      }
+      *batch.dirty = true;
+      Cache<Dtype>::used.fetch_sub(1, boost::memory_order_relaxed);
+      dirty[j] = false;
+      last_i++;
     }
   }
-  cache.seekg (0, ios::beg);
-  Cache<Dtype>::used=0;
+  if(last_i == Cache<Dtype>::size)
+  {
+    //bounds=0;
+    Cache<Dtype>::full_replace = true;
+    last_i=0;
+  } 
+  //cache.seekg (0, ios::beg);
+  //Cache<Dtype>::used=0;
   //Cache<Dtype>::unlock();
 }  
 template <typename Dtype>
@@ -546,10 +593,12 @@ void DiskCache<Dtype>::reshape(vector<int> * top_shape, vector<int> * label_shap
 {
   //for(int i=0; i< Cache<Dtype>::size; i++) {
       cache_buffer->data_.Reshape(*top_shape);
+      cache_read_buffer->data_.Reshape(*top_shape);
   //}
   if (label_shape) {
     //for(int i=0; i< Cache<Dtype>::size; i++) {
       cache_buffer->label_.Reshape(*label_shape);
+      cache_read_buffer->label_.Reshape(*label_shape);
     //}
   }
 }
@@ -558,19 +607,25 @@ void DiskCache<Dtype>::mutate_data(bool labels)
 {
   //for(int i=0; i< Cache<Dtype>::size; i++) {
       cache_buffer->data_.mutable_cpu_data();
+      cache_read_buffer->data_.mutable_cpu_data();
   //}
   if (labels) {
     //for(int i=0; i< Cache<Dtype>::size; i++) {
       cache_buffer->label_.mutable_cpu_data();
+      cache_read_buffer->label_.mutable_cpu_data();
     //}
   }
 #ifndef CPU_ONLY
   //for(int i=0; i< Cache<Dtype>::size; i++) {
-      cache[i].data_.mutable_gpu_data();
+     // cache[i].data_.mutable_gpu_data();
     //}
+      cache_buffer->data_.mutable_gpu_data();
+      cache_read_buffer->data_.mutable_gpu_data();
   if (labels) {
-    //for(int i=0; i< Cache<Dtype>::size; i++) {
       cache_buffer->label_.mutable_gpu_data();
+      cache_read_buffer->label_.mutable_gpu_data();
+    //for(int i=0; i< Cache<Dtype>::size; i++) {
+      //cache_buffer->label_.mutable_gpu_data();
     //}
   }
 #endif

@@ -120,16 +120,16 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
       void * ptr = hbw_malloc(sizeof(DiskCache<Dtype>));
       caches_[i-1] = new (ptr) DiskCache<Dtype>;
       caches_[i-1]->size = param.data_param().cache(j).size();
-      ptr = hbw_malloc(sizeof(Batch<Dtype>));
+      ptr = hbw_malloc(sizeof(Batch<Dtype>)*2);
       bool * ptr2 = (bool *)hbw_malloc(sizeof(bool)*caches_[i-1]->size);
-      caches_[i-1]->create( new (ptr) Batch<Dtype>[1], ptr2, thread_safe );
+      caches_[i-1]->create( new (ptr) Batch<Dtype>[2], ptr2, thread_safe );
     }
   #else
     else if(param.data_param().cache(j).type() == CacheParameter::DISK)
     {
       caches_[i-1] = new DiskCache<Dtype>;
       caches_[i-1]->size = param.data_param().cache(j).size();
-      caches_[i-1]->create( new Batch<Dtype>[1], new bool[caches_[i-1]->size], thread_safe );
+      caches_[i-1]->create( new Batch<Dtype>[2], new bool[caches_[i-1]->size], thread_safe );
     }
   #endif
     else
@@ -237,6 +237,7 @@ void BasePrefetchingDataLayer<Dtype>::InternalThreadEntry() {
     {
       //usleep(1000000);
       for(int i=cache_size_-1; i>= 0; i--)
+      //for(int i=0; i < cache_size_; i++)
       {
         if(caches_[i]->prefetch)
           (caches_[i]->*(caches_[i]->refill_policy))(1);
