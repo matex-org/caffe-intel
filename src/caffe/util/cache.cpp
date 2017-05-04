@@ -194,7 +194,22 @@ PopBatch<Dtype> MemoryCache<Dtype>::pop()
     slot = 0;
 
   //LOG(INFO) << "Waiting " << this << " " << my_slot;
-  while(Cache<Dtype>::dirty[my_slot]){};
+  while(Cache<Dtype>::dirty[my_slot])
+  {
+    if(Cache<Dtype>::prev && prev->prefetch == Cache<Dtype>::prefetch)
+    {
+      if(prefetch)
+      {
+        (prev->*(prev->refill_policy))(1);
+        (this->*(Cache<Dtype>::refill_policy))(1);
+      }
+      else
+      {
+        (prev->*(prev->local_refill_policy))(1);
+        (this->*(Cache<Dtype>::refill_policy))(1);
+      }
+    }
+  };
   //LOG(INFO) << "Waiting done" << this << " " << my_slot;
   
   PopBatch<Dtype> batch;
@@ -425,8 +440,23 @@ PopBatch<Dtype> DiskCache<Dtype>::pop() {
     slot = 0;
   }
   
-  while(Cache<Dtype>::dirty[my_slot]){};
-  
+  while(Cache<Dtype>::dirty[my_slot])
+  {
+    if(Cache<Dtype>::prev && prev->prefetch == Cache<Dtype>::prefetch)
+    {
+      if(prefetch)
+      {
+        (prev->*(prev->refill_policy))(1);
+        (this->*(Cache<Dtype>::refill_policy))(1);
+      }
+      else
+      {
+        (prev->*(prev->local_refill_policy))(1);
+        (this->*(Cache<Dtype>::refill_policy))(1);
+      }
+    }
+  }
+
   Dtype * data = cache_read_buffer->data_.mutable_cpu_data();  
   Dtype * label = cache_read_buffer->label_.mutable_cpu_data();  
   int image_count;

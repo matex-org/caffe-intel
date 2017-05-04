@@ -41,6 +41,7 @@ class Cache
   public:
   volatile bool * dirty;
   class Cache * next;
+  class Cache * prev;
   string disk_location;
   bool prefetch;
   volatile bool full_replace;

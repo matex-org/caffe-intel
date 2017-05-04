@@ -137,6 +137,7 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
       LOG(INFO) << "Cache Type not supported";
       exit(1);
     }
+    
     if(i-1==cache_size_-1)
       caches_[i-1]->next = NULL; 
     else  
@@ -153,6 +154,15 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
     caches_[i-1]->disk_location = param.data_param().cache(j).disk_location();
     LOG(INFO) << "Cacher " <<  param.data_param().cache(j).disk_location() << " " << caches_[i-1]->disk_location;
   }
+  
+  for(int j=0; j < cache_size_; j++)
+  {
+    if(j==0)
+      caches_[j]->prev = NULL; 
+    else
+      caches_[j]->prev = caches_[j-1]; 
+  }
+  
   for (int i = 0; i < PREFETCH_COUNT; ++i) {
     prefetch_free_.push(&prefetch_[i]);
   }
