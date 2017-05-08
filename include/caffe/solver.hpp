@@ -75,6 +75,18 @@ namespace caffe {
   }
 
 #ifdef ADAPTIVE_BATCH
+// Get Min/Max from a range:
+template <typename T> 
+void get_min_max(std::vector<T>& vec, T& max, T& min)
+{
+  for(const T& v : vec) {
+    if(v > max)
+      max = v;
+    if(v < min)
+      min = v;
+  }
+}
+
 namespace AdaptiveBatchOption {  // Should be friend class to Solver Class.
   struct Random {}; // Random value between 1 and max_iter size.
   struct RatioCToC {}; // Ratio of communication to computation.
@@ -121,7 +133,7 @@ struct NewBatchSize {
     // return new_batchsize;
 
     // Communication to (communication + computation) ratio
-    // Sum of most recent of the last 20 recorded values;
+    // Sum of most recent of the last 100 recorded values;
     double sumComm = 0, sumCommComp = 0;
     for (auto c : commTimes)
       sumComm += c;
@@ -133,12 +145,12 @@ struct NewBatchSize {
 
     // Second half
     Dtype deltaAvg1 = 0;
-      for (int i = 0; i < 10; ++i)
+      for (int i = 0; i < 50; ++i)
         deltaAvg1 += deltaLosses[i];
       deltaAvg1 = deltaAvg1/(0.5 * deltaLosses.size());
     // First half
     Dtype deltaAvg2 = 0;
-    for (int i = 10; i < 20; ++i)
+    for (int i = 50; i < 100; ++i)
       deltaAvg2 += deltaLosses[i];
     deltaAvg2 = deltaAvg2/(0.5 * deltaLosses.size());
 
@@ -181,16 +193,16 @@ struct NewBatchSize {
                         U, AdaptiveBatchOption::LossRate>::value, U>::type,
     typename Dtype>
   static int getLR(std::deque<Dtype>& deltaLosses, float lossThres
-                , int& batchApplyIter,int& currentIterPos) {
+                , int& batchApplyIter,int& currentIterPos, const int& stopIter) {
     // if(deltaLosses.size() > 1)
     // {
       Dtype deltaAvg1 = 0;
-      for (int i = 0; i < 10; ++i)
+      for (int i = 0; i < 50; ++i)
         deltaAvg1 += deltaLosses[i];
       deltaAvg1 = deltaAvg1/(0.5 * deltaLosses.size());
 
       Dtype deltaAvg2 = 0;
-      for (int i = 10; i < 20; ++i)
+      for (int i = 50; i < 100; ++i)
         deltaAvg2 += deltaLosses[i];
       deltaAvg2 = deltaAvg2/(0.5 * deltaLosses.size());
 
@@ -209,12 +221,38 @@ struct NewBatchSize {
               // && (trendAcc <= lossThres
                   && trendAcc > (0.9 * lossThres)){
         return batchApplyIter; // continue with same batch size;
-      }
+      } 
       else {
         // if(batchApplyIter > 1) {
           //return (batchApplyIter - 1); // decrease batch size;
         //}
-        return 1;
+        // Check if tailend has been reached or not 
+        if(currentIterPos > 0.5 * stopIter) {
+            Dtype front_min = 1000000, back_min = 1000000, front_max = -1000000, back_max = -1000000, front_max_min_diff, back_max_min_diff;
+
+            std::vector<Dtype> front_range, back_range; // sizeof 20;
+            for ( int i = 0; i< 20; ++i)
+              front_range.push_back(deltaLosses[i]);
+            for (int i = 80; i < 100; ++i)
+              back_range.push_back(deltaLosses[i]);
+            
+            get_min_max<Dtype>(front_range, front_max, front_min);
+            get_min_max<Dtype>(back_range, back_max, back_min);
+
+            front_max_min_diff = front_max - front_min; 
+            back_max_min_diff = back_max - back_min;
+
+            if( (front_max_min_diff <= 1.1 * back_max_min_diff) 
+                && (front_max_min_diff >= 0.9 * back_max_min_diff)) {
+                return batchApplyIter + 10; 
+            } 
+            else {
+              return 1; 
+            }
+        } 
+        else {
+          return 1;
+        }
       }
   }
 
@@ -227,12 +265,12 @@ struct NewBatchSize {
     // if(deltaLosses.size() > 1)
     // {
       Dtype deltaAvg1 = 0;
-      for (int i = 0; i < 10; ++i)
+      for (int i = 0; i < 50; ++i)
         deltaAvg1 += deltaLosses[i];
       deltaAvg1 = deltaAvg1/(0.5 * deltaLosses.size());
 
       Dtype deltaAvg2 = 0;
-      for (int i = 10; i < 20; ++i)
+      for (int i = 50; i < 100; ++i)
         deltaAvg2 += deltaLosses[i];
       deltaAvg2 = deltaAvg2/(0.5 * deltaLosses.size());
 
@@ -269,12 +307,12 @@ struct NewBatchSize {
     // if(deltaLosses.size() > 1)
     // {
       Dtype deltaAvg1 = 0;
-      for (int i = 0; i < 10; ++i)
+      for (int i = 0; i < 50; ++i)
         deltaAvg1 += deltaLosses[i];
       deltaAvg1 = deltaAvg1/(0.5 * deltaLosses.size());
 
       Dtype deltaAvg2 = 0;
-      for (int i = 10; i < 20; ++i)
+      for (int i = 50; i < 100; ++i)
         deltaAvg2 += deltaLosses[i];
       deltaAvg2 = deltaAvg2/(0.5 * deltaLosses.size());
 

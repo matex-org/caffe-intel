@@ -382,7 +382,7 @@ void Solver<Dtype>::Step(int iters) {
 
 #else
   int batch_ongradients_iter = 1;
-  // std::size_t lossesHistorySize = 20;
+  // std::size_t lossesHistorySize = 100;
 #endif /* ADAPTIVE_BATCH */
 
   Timer total_timer, comm_timer;
@@ -421,7 +421,7 @@ void Solver<Dtype>::Step(int iters) {
       // batch_apply_iter = *itrB;
       // BroadCast New Iter by Rank 0
       if (rank == 0) {
-        if((iter_ > 300) && (deltaLosses_.size() > 20))
+        if((iter_ > 300) && (deltaLosses_.size() > 100))
         {
           batch_apply_iter = NewBatchSize<batchOptionLRD>::getLRD(
             deltaLosses_
@@ -443,7 +443,7 @@ void Solver<Dtype>::Step(int iters) {
       // batch_apply_iter = *itrB;
       // BroadCast New Iter by Rank 0
       if (rank == 0) {
-        if((iter_ > 300) && (deltaLosses_.size() > 20))
+        if((iter_ > 300) && (deltaLosses_.size() >= 100))
         {
           batch_apply_iter = NewBatchSize<batchOptionLRR>::getLRR(
             deltaLosses_
@@ -465,13 +465,14 @@ void Solver<Dtype>::Step(int iters) {
       // batch_apply_iter = *itrB;
       // BroadCast New Iter by Rank 0
       if (rank == 0) {
-        if((iter_ > 300) && (deltaLosses_.size() > 20))
+        if((iter_ > 300) && (deltaLosses_.size() >= 100))
         {
           batch_apply_iter = NewBatchSize<batchOptionLR>::getLR(
             deltaLosses_
           , lossThres
           , last_batchApplyIter
-          , iter_);
+          , iter_
+          , stop_iter);
         }
       }
       comm_timer.Start();
@@ -485,7 +486,7 @@ void Solver<Dtype>::Step(int iters) {
       //TODO: Need to revisit
       int last_batchApplyIter = batch_apply_iter;
       if (rank == 0){
-        if((iter_ > 300) && (commTimes_.size() >= 20)) {
+        if((iter_ > 300) && (commTimes_.size() >= 100)) {
           batch_apply_iter = NewBatchSize<batchOptionRatioCToC>::get(
             deltaLosses_
             , commTimes_
@@ -662,7 +663,7 @@ void Solver<Dtype>::Step(int iters) {
 #endif
 
 #ifdef ADAPTIVE_BATCH
-    if(commTimes_.size() < 20) {
+    if(commTimes_.size() < 100) {
       commTimes_.push_front(comm_time);
     }
     else {
@@ -670,7 +671,7 @@ void Solver<Dtype>::Step(int iters) {
       commTimes_.push_front(comm_time);
     }
 
-    if(commCompTimes_.size() < 20) {
+    if(commCompTimes_.size() < 100) {
       commCompTimes_.push_front(total_time);
     }
     else {
