@@ -28,6 +28,7 @@ class Batch {
   //void unlock();
 };
 
+//Pop Batch strucutre is like a batch but includes a pointer to dirty structure
 template <typename Dtype>
 struct PopBatch 
 {
@@ -39,33 +40,35 @@ template <typename Dtype>
 class Cache
 {
   public:
-  volatile bool * dirty;
-  class Cache * next;
-  class Cache * prev;
-  string disk_location;
-  bool prefetch;
-  volatile bool full_replace;
-  int size;
-  int refill_start;
-  mutable boost::atomic<int> used;
-  int eviction_rate;
-  int current_shuffle_count;
-  int last_i;
+  volatile bool * dirty; //Tells if cache position can be written over  
+  class Cache * next; //The cache above me
+  class Cache * prev; //The cache below me
+  string disk_location; //File location for disk caching
+  bool prefetch; //Is this cache replaced in the prefetcher thread
+  volatile bool full_replace; //Has the whole cache been replaced
+  int size; //Number of batches this cache stores
+  int refill_start; 
+  mutable boost::atomic<int> used; //Tells your dirty slot or how many slots are dirty
+  int eviction_rate; //Reuse count
+  int current_shuffle_count; //Increments when full_replace is true
+  int last_i; //Stores the i for refill/fill/shuffle loops between function calls
   int slot;
   bool ignoreAccuracy;
-  void rate_replace_policy(int next_cache);
-  void local_rate_replace_policy(int next_cache);
-  void (Cache<Dtype>::*refill_policy)(int);  
-  void (Cache<Dtype>::*local_refill_policy)(int);  
+  void rate_replace_policy(int next_cache); //Generic prefetch thread policy that replaces cache at the eviction rate
+  void local_rate_replace_policy(int next_cache); //Same as above but inside of forward cpu
+  void (Cache<Dtype>::*refill_policy)(int); //Function pointer to thread replacement policy
+  void (Cache<Dtype>::*local_refill_policy)(int); //Function pointer to forward cpu replacement policy
   BasePrefetchingDataLayer<Dtype> * data_layer;
-  //void (BasePrefetchingDataLayer<Dtype>::*refill_policy)(int);  
-  //void (BasePrefetchingDataLayer<Dtype>::*thread_refill_policy)(int);  
-  //void (Cache<Dtype>::*refill_policy)(Cache<Dtype> * next_cache);  
+  
+  //Inits Cache: ptr is the batch buffer memory, pt2 is the dirty bit memory, thread_safe tells if cache is on prefetch
   virtual void create( void * ptr, bool * ptr2, bool thread_safe ) { };
   virtual bool empty() { return false; };
+  //Pops a batch from the cache -> includes ptr to dirty structure
   virtual PopBatch<Dtype> pop() { PopBatch<Dtype> nothing; return nothing; };
   virtual void shuffle (){}
+  //Fills data from data_layer ptr -> in_cach
   virtual void fill(bool in_cache) {};
+  //Refills from cache above you (basically next_cache is what uses though)
   virtual void refill(Cache<Dtype> * next_cache) {};
   virtual void reshape(vector<int> * top_shape, vector<int> * label_shape) {};
   virtual void mutate_data(bool labels) {};
@@ -76,9 +79,15 @@ template <typename Dtype>
 class MemoryCache : public Cache <Dtype>
 {
   public:
+
+  //Batches memory 
   Batch<Dtype> * cache;
+  //Queue for poping from
   BlockingQueue<Batch<Dtype>*> cache_full;
+  
+  //Swaps image in batch1 at batchPos1 with image in batch2 at batchPos2
   void shuffle_cache(Batch<Dtype>* batch1, int batchPos1, Batch<Dtype>*  batch2, int batchPos2);
+  
   virtual void create( void * ptr, bool * ptr2,bool thread_safe );
   virtual bool empty();
   virtual PopBatch<Dtype> pop();

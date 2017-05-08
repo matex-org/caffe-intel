@@ -159,7 +159,7 @@ void DataReader::Body::read_one(DBWrapper* dbw, QueuePair* qp) {
 
 DataReader::DBWrapper::DBWrapper(const LayerParameter& param) {
   db.reset(db::GetDB(param.data_param().backend()));
-  db->Open(param.data_param().source(), db::READ, param);
+  db->Open(param.data_param().source(), db::READ, &param);
   cursor.reset(db->NewCursor());
 }
 

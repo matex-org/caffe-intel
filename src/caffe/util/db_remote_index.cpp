@@ -45,7 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace caffe { namespace db {
 
-void RemoteIndex::Open(const string& source, Mode mode, const LayerParameter& param) {
+void RemoteIndex::Open(const string& source, Mode mode, const LayerParameter * param) {
   env_ = new RemoteIndexEnv();
   if (mode == NEW) {
     CHECK_EQ(mkdir(source.c_str(), 0744), 0) << "mkdir " << source << " failed";

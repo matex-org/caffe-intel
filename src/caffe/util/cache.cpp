@@ -16,34 +16,19 @@
 #endif
 
 namespace caffe {
-/*template<typename T>
-class Batch<T>::sync {
- public:
-  mutable boost::mutex mutex_;
-  boost::condition_variable condition_;
-};
 
-template <typename Dtype>
-void Batch<Dtype>::lock() {
-
-  if(sync_var)
-    sync_var->mutex_.lock();
-}
-
-template <typename Dtype>
-void Batch<Dtype>::unlock() {
-
-  if(sync_var)
-    sync_var->mutex_.unlock();
-}*/
-
+//These are replacement policies based to the individual caches:
+//This is for the thread 
 template <typename Dtype>
 void Cache<Dtype>::rate_replace_policy(int next_cache)
 {
+  //Shuffle until we hit the eviction rate
   if(current_shuffle_count < eviction_rate)
   {
     shuffle();
     
+    //This var is set by the cache once we have shuffled all the entries of the
+    //Entire cache
     if(full_replace)
     {
       //LOG(INFO) << "Shuffling Level " << next_cache-1 << " " << size;
@@ -53,6 +38,8 @@ void Cache<Dtype>::rate_replace_policy(int next_cache)
   }
   else if(next == NULL) //Last level -> refill
   {
+    //Fill in the cache -> we pass true to indicate to not use openmp in the data
+    //Transformer since it will spawn more oepnmp threads
     fill(true);
     if(full_replace)
     {
@@ -61,12 +48,13 @@ void Cache<Dtype>::rate_replace_policy(int next_cache)
       full_replace=0;
     }
   }
-  else
+  else //Refill level of the cache
   {
-    //Refill higher levels
+    //Refill higher levels-> not really required because we handle this issue
+    //inside also during poping
     if(next->prefetch && next->empty() ) //empty cache
       (next->*(next->refill_policy))(next_cache+1);
-    
+   
     refill(next);
     
     if(full_replace)
@@ -77,6 +65,7 @@ void Cache<Dtype>::rate_replace_policy(int next_cache)
     }
   }
 }
+//Same as above but for within a node
 template <typename Dtype>
 void Cache<Dtype>::local_rate_replace_policy(int next_cache)
 {
@@ -92,7 +81,8 @@ void Cache<Dtype>::local_rate_replace_policy(int next_cache)
   }
   else if(next == NULL) //Last level -> refill
   {
-    fill(false);
+    fill(false); //We can use openmp here so false is passed since we are within
+    //Caffe's main thread
     if(full_replace)
     {
       current_shuffle_count=0;
@@ -115,6 +105,7 @@ void Cache<Dtype>::local_rate_replace_policy(int next_cache)
     }
   }
 }
+//Shuffles image at pos 1 in batch 1 with image at pos 2 in batch 2
 template <typename Dtype>
 void MemoryCache<Dtype>::shuffle_cache(Batch<Dtype>* batch1, int batchPos1, Batch<Dtype>*  batch2, int batchPos2) {
   const int datum_channels = batch1->data_.shape(1);
@@ -136,6 +127,7 @@ void MemoryCache<Dtype>::shuffle_cache(Batch<Dtype>* batch1, int batchPos1, Batc
 
   int h_off = 0;
   int w_off = 0;
+  //Fairly self explanatory -> swap labelsi, swap each channel for height and width
   std::swap(label1[batchPos1], label2[batchPos2]); 
   for (int c = 0; c < datum_channels; ++c) {
     for (int h = 0; h < height; ++h) {
@@ -146,27 +138,21 @@ void MemoryCache<Dtype>::shuffle_cache(Batch<Dtype>* batch1, int batchPos1, Batc
     }
   }
 }
+//Ptr is the cache buffer and pt2 is for the dirty buffer
 template <typename Dtype>
 void MemoryCache<Dtype>::create( void * ptr, bool * ptr2, bool thread_safe )
 {
-
   cache = static_cast<Batch<Dtype> *> (ptr);
   Cache<Dtype>::prefetch = thread_safe;
   Cache<Dtype>::full_replace = false;
   Cache<Dtype>::dirty = ptr2;
   Cache<Dtype>::last_i = 0; 
   Cache<Dtype>::slot = 0; 
+  //Initially the cache is dirty and needs to be filled out
   for(int i=0; i< Cache<Dtype>::size; i++)
-    dirty[i] = true;
-  
-  /*for(int i=0; i< Cache<Dtype>::size; i++)
-  {
-    if(thread_safe)
-      cache[i].sync_var = boost::make_shared<Batch<Dtype>::sync>();
-    else
-      cache[i].sync_var = NULL;
-  }*/
+    Cache<Dtype>::dirty[i] = true;
 }
+
 template <typename Dtype>
 bool MemoryCache<Dtype>::empty()
 { 
@@ -182,18 +168,18 @@ bool MemoryCache<Dtype>::empty()
 template <typename Dtype>
 PopBatch<Dtype> MemoryCache<Dtype>::pop()
 {
-  //Cache<Dtype>::lock();
-  //Cache<Dtype>::used++;
-  //Cache<Dtype>::unlock();
-  //static int slot = 0; 
+  //Empty function above uses this variable
   Cache<Dtype>::used.fetch_add(1, boost::memory_order_relaxed);
-  //Batch<Dtype> *batch = cache_full.pop();
+  //Only 1 thread doing this 
   int my_slot = Cache<Dtype>::slot++;
-  
-  if(slot == Cache<Dtype>::size)
-    slot = 0;
+
+  if(Cache<Dtype>::slot == Cache<Dtype>::size)
+    Cache<Dtype>::slot = 0;
 
   //LOG(INFO) << "Waiting " << this << " " << my_slot;
+  //Wait til someone fills your slot or if somehow you get in a bad state and
+  //This thread is suppose to refill the slot, but managed not to -> refill the
+  //State above you
   while(Cache<Dtype>::dirty[my_slot])
   {
     if(Cache<Dtype>::prev && prev->prefetch == Cache<Dtype>::prefetch)
@@ -213,7 +199,9 @@ PopBatch<Dtype> MemoryCache<Dtype>::pop()
   //LOG(INFO) << "Waiting done" << this << " " << my_slot;
   
   PopBatch<Dtype> batch;
+  //Data we are sending out
   batch.batch = &cache[my_slot];
+  //Structure to indicate that we are dirty once the popper copies the data
   batch.dirty = &Cache<Dtype>::dirty[my_slot];
   //LOG(INFO)  << "Pop used "  << Cache<Dtype>::used;
   
@@ -222,56 +210,60 @@ PopBatch<Dtype> MemoryCache<Dtype>::pop()
 template <typename Dtype>
 void MemoryCache<Dtype>::shuffle ()
 {
-  //Cache<Dtype>::lock();
-  //static int last_i=0;
-  //int bounds = Cache<Dtype>::used.fetch_add(0, boost::memory_order_relaxed);
   int rand;
-  //LOG(INFO) << "Shuffle " << this;
+  //Basically we need to loop through each cache position and shuffle when it
+  //is dirty, because this shuffle can happen on a different thread than the
+  //thread using the data and we want to go through all the data without favoring
+  //the first indexes we store i between calles to this function
   for (int i = Cache<Dtype>::last_i; i < Cache<Dtype>::size; ++i) {
-   
-    last_i=i;
-    if(Cache<Dtype>::dirty[i] == true)
+     
+    Cache<Dtype>::last_i=i; //Store i to use during the next function call
+    if(Cache<Dtype>::dirty[i] == true) //Cache pos needs to be replaced
     { 
+      //For each image in the cache pos
       for(int j=0; j< cache[i].data_.shape(0); j++)
       {
+        //Select a random cache pos to swap with
         rand = Cache<Dtype>::data_layer->randomGen(Cache<Dtype>::size);
-        while(!dirty[rand])
+        //Make sure it is dirty otherwise it hasn't been used yet
+        while(!Cache<Dtype>::dirty[rand])
           rand = Cache<Dtype>::data_layer->randomGen(Cache<Dtype>::size);
+        
+        //Swap the current image j in cache[i] with the random cache at pos this is random 
         shuffle_cache(&cache[i], j, &cache[rand], Cache<Dtype>::data_layer->randomGen(cache[i].data_.shape(0)));
       }
+      //Decrement used to indicate emptiness of cache
       Cache<Dtype>::used.fetch_sub(1, boost::memory_order_relaxed);
       //cache_full.push(&cache[i]);
       //LOG(INFO)  << "Shuffle used "  << Cache<Dtype>::used << " clear " << i;
-      dirty[i] = false;
-      last_i++;
+      Cache<Dtype>::dirty[i] = false;
+      Cache<Dtype>::last_i++;
     }
-    else
+    else // Break if we can't shuffle in order
       break;
   }
-  //Cache<Dtype>::used = 0;
-  if(last_i == Cache<Dtype>::size)
+  //We have shuffeled the whole cache once
+  if(Cache<Dtype>::last_i == Cache<Dtype>::size)
   {
     //bounds=0;
-    Cache<Dtype>::full_replace = true;
-    last_i=0;
+    Cache<Dtype>::full_replace = true; //Indicate the cache has shuffled once
+    Cache<Dtype>::last_i=0; //Start over
   }
-  //refill_start = bounds;
-  //Cache<Dtype>::unlock();
 }
 template <typename Dtype>
 void MemoryCache<Dtype>::fill(bool in_thread)
 {
-  //Cache<Dtype>::lock();
-  //static int last_i=0;
+  //Same logic as shuffle but it is reading data from the data_layer
+  //in_thread indicates it is in a thread other than main
+  //this is passed to load_batch which avoids calling openmp if it is true
   for (int j = Cache<Dtype>::last_i; j < Cache<Dtype>::size; ++j) {
-    last_i=j;
+    Cache<Dtype>::last_i=j;
     if(Cache<Dtype>::dirty[j] == true)
     {  
       Cache<Dtype>::data_layer->load_batch(&cache[j], in_thread);
       Cache<Dtype>::used.fetch_sub(1, boost::memory_order_relaxed);
-      //cache_full.push(&cache[j]);
-      dirty[j] = false;
-      last_i++;
+      Cache<Dtype>::dirty[j] = false;
+      Cache<Dtype>::last_i++;
       //LOG(INFO)  << "Fill used "  << Cache<Dtype>::used;
     }
     else
@@ -279,23 +271,17 @@ void MemoryCache<Dtype>::fill(bool in_thread)
   }
   if(last_i == Cache<Dtype>::size)
   {
-    //bounds=0;
     Cache<Dtype>::full_replace = true;
-    last_i=0;
+    Cache<Dtype>::last_i=0;
   }
-  //refill_start = bounds;
-  //Cache<Dtype>::used = 0;
-  //Cache<Dtype>::unlock();
 }
 template <typename Dtype>
 void MemoryCache<Dtype>::refill(Cache<Dtype> * next_cache)
 {
-  //Cache<Dtype>::lock();
   PopBatch<Dtype> batch;
-  //static int last_i=0;
   for (int j = Cache<Dtype>::last_i; j < Cache<Dtype>::size; ++j) {
     //LOG(INFO) << position;
-    last_i=j;
+    Cache<Dtype>::last_i=j;
     if(Cache<Dtype>::dirty[j] == true)
     {  
       batch = next_cache->pop(); //->cache_full_.pop("Data layer cache queue empty");
@@ -303,22 +289,18 @@ void MemoryCache<Dtype>::refill(Cache<Dtype> * next_cache)
       cache[j].label_.CopyFrom( batch.batch->label_ );
       *batch.dirty = true;
       Cache<Dtype>::used.fetch_sub(1, boost::memory_order_relaxed);
-      //cache_full.push(&cache[j]);
       //LOG(INFO)  << "Refill used "  << Cache<Dtype>::used;
-      dirty[j] = false;
-      last_i++;
+      Cache<Dtype>::dirty[j] = false;
+      Cache<Dtype>::last_i++;
     }
     else
       break;
   }
-  if(last_i == Cache<Dtype>::size)
+  if(Cache<Dtype>::last_i == Cache<Dtype>::size)
   {
-    //bounds=0;
     Cache<Dtype>::full_replace = true;
-    last_i=0;
+    Cache<Dtype>::last_i=0;
   } 
-  //refill_start = bounds;
-  //Cache<Dtype>::unlock();
 }  
 template <typename Dtype>
 void MemoryCache<Dtype>::reshape(vector<int> * top_shape, vector<int> * label_shape)
@@ -404,7 +386,7 @@ void DiskCache<Dtype>::create( void * ptr, bool * ptr2, bool thread_safe )
   Cache<Dtype>::last_i = 0; 
   Cache<Dtype>::slot = 0; 
   for(int i=0; i< Cache<Dtype>::size; i++)
-    dirty[i] = true;
+    Cache<Dtype>::dirty[i] = true;
 
   //if(thread_safe)
   //  Cache<Dtype>::sync_var = boost::make_shared<Cache<Dtype>::sync>();
@@ -434,17 +416,17 @@ PopBatch<Dtype> DiskCache<Dtype>::pop() {
   
   int my_slot = Cache<Dtype>::slot++;
   
-  if(slot == Cache<Dtype>::size)
+  if(Cache<Dtype>::slot == Cache<Dtype>::size)
   {
     cache_read.seekg (0, ios::beg);
-    slot = 0;
+    Cache<Dtype>::slot = 0;
   }
   
   while(Cache<Dtype>::dirty[my_slot])
   {
     if(Cache<Dtype>::prev && prev->prefetch == Cache<Dtype>::prefetch)
     {
-      if(prefetch)
+      if(Cache<Dtype>::prefetch)
       {
         (prev->*(prev->refill_policy))(1);
         (this->*(Cache<Dtype>::refill_policy))(1);
@@ -508,7 +490,7 @@ void DiskCache<Dtype>::fill(bool in_thread)
   Dtype * label = cache_buffer->label_.mutable_cpu_data();
   char * bytes;
   for (int j = Cache<Dtype>::last_i; j < Cache<Dtype>::size; ++j) {
-    last_i=j;
+    Cache<Dtype>::last_i=j;
     if(Cache<Dtype>::dirty[j] == true)
     { 
       //LOG(INFO) << "Disk fill";
@@ -532,15 +514,15 @@ void DiskCache<Dtype>::fill(bool in_thread)
         cache.write( bytes, sizeof(Dtype)); 
       }
       Cache<Dtype>::used.fetch_sub(1, boost::memory_order_relaxed);
-      dirty[j] = false;
-      last_i++;
+      Cache<Dtype>::dirty[j] = false;
+      Cache<Dtype>::last_i++;
     }
   }
-  if(last_i == Cache<Dtype>::size)
+  if(Cache<Dtype>::last_i == Cache<Dtype>::size)
   {
     //bounds=0;
     Cache<Dtype>::full_replace = true;
-    last_i=0;
+    Cache<Dtype>::last_i=0;
   }
   //cache.seekg (0, ios::beg);
   //current_offset = 0;
@@ -578,7 +560,7 @@ void DiskCache<Dtype>::refill(Cache<Dtype> * next_cache)
   //cache.seekg (0, ios::beg);
   char * bytes;
   for (int j = Cache<Dtype>::last_i; j < Cache<Dtype>::size; ++j) {
-    last_i=j;
+    Cache<Dtype>::last_i=j;
     if(Cache<Dtype>::dirty[j] == true)
     {  
       batch = next_cache->pop(); //->cache_full_.pop("Data layer cache queue empty");
@@ -604,15 +586,15 @@ void DiskCache<Dtype>::refill(Cache<Dtype> * next_cache)
       }
       *batch.dirty = true;
       Cache<Dtype>::used.fetch_sub(1, boost::memory_order_relaxed);
-      dirty[j] = false;
-      last_i++;
+      Cache<Dtype>::dirty[j] = false;
+      Cache<Dtype>::last_i++;
     }
   }
-  if(last_i == Cache<Dtype>::size)
+  if(Cache<Dtype>::last_i == Cache<Dtype>::size)
   {
     //bounds=0;
     Cache<Dtype>::full_replace = true;
-    last_i=0;
+    Cache<Dtype>::last_i=0;
   } 
   //cache.seekg (0, ios::beg);
   //Cache<Dtype>::used=0;

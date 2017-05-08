@@ -46,7 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace caffe { namespace db {
 
-void RemoteIndexSFTP::Open(const string& source, Mode mode, const LayerParameter& param) {
+void RemoteIndexSFTP::Open(const string& source, Mode mode, const LayerParameter * param) {
   env_ = new RemoteIndexSFTPEnv();
   /*if (mode == NEW) {
     CHECK_EQ(mkdir(source.c_str(), 0744), 0) << "mkdir " << source << " failed";
@@ -58,7 +58,14 @@ void RemoteIndexSFTP::Open(const string& source, Mode mode, const LayerParameter
   }
   //else
   //  ios_mode = ios::out | ios::trunc;
-  int rc = env_->open(source, sftp_mode, 0664, param.data_param().server(), param.data_param().username(), param.data_param().password());
+  if(param == NULL)
+  {
+    LOG(INFO) << "Remote Index SFTP Requires a param layer to connect.";
+    LOG(INFO) << "Likely you are trying to extract features with this db which doesn't work.";
+    LOG(INFO) << "Since the connection info is the in the data layer of the network.";
+    exit(1);
+  }
+  int rc = env_->open(source, sftp_mode, 0664, param->data_param().server(), param->data_param().username(), param->data_param().password());
   /*if (mode == NEW) {
     CHECK_EQ(mkdir(source.c_str(), 0744), 0) << "mkdir " << source << " failed";
   }

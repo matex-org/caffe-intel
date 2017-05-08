@@ -457,7 +457,7 @@ class RemoteIndexSFTP : public DB {
  public:
   RemoteIndexSFTP() { }
   virtual ~RemoteIndexSFTP() { Close(); }
-  virtual void Open(const string& source, Mode mode, const LayerParameter& param);
+  virtual void Open(const string& source, Mode mode, const LayerParameter * param);
   virtual void Close() { env_->close();
   }
   virtual RemoteIndexSFTPCursor* NewCursor();

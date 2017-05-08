@@ -84,6 +84,7 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
   prefetch=false;
   if(cache_size_)
   {
+    //Allocate array to hold caches on heap or in hbm
     #ifdef KNL
       void * ptr = hbw_malloc(sizeof(Cache<Dtype> *) * cache_size_);
       caches_ = new (ptr) Cache<Dtype> * [cache_size_];
@@ -94,13 +95,17 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
   }
   for(int i = cache_size_, j=0; i > 0; i--, j++)
   {
+
     bool thread_safe = param.data_param().cache(j).thread_safe();
     
+    //If one cache is thread_save then set this global to turn the prefetcher
+    //Thread
     if(thread_safe)
       prefetch = true;
 
     if(param.data_param().cache(j).type() == CacheParameter::HEAP)
     {
+      //Create a new cache, set size, a dirty structure
       caches_[i-1] = new MemoryCache<Dtype>;
       caches_[i-1]->size = param.data_param().cache(j).size();
       caches_[i-1]->create( new Batch<Dtype>[caches_[i-1]->size], new bool[caches_[i-1]->size], thread_safe );
@@ -108,6 +113,7 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
   #ifdef KNL
     else if(param.data_param().cache(j).type() == CacheParameter::HBM)
     {
+      //Use hbm to create a new cache, set size, and dirty structure
       void * ptr = hbw_malloc(sizeof(MemoryCache<Dtype>));
       caches_[i-1] = new (ptr) MemoryCache<Dtype>;
       caches_[i-1]->size = param.data_param().cache(j).size();
@@ -117,9 +123,11 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
     }
     else if(param.data_param().cache(j).type() == CacheParameter::DISK)
     {
+      //Use hbm to create a new cache, read/write bufs, set size, and dirty structure
       void * ptr = hbw_malloc(sizeof(DiskCache<Dtype>));
       caches_[i-1] = new (ptr) DiskCache<Dtype>;
       caches_[i-1]->size = param.data_param().cache(j).size();
+      //Read/write buffer
       ptr = hbw_malloc(sizeof(Batch<Dtype>)*2);
       bool * ptr2 = (bool *)hbw_malloc(sizeof(bool)*caches_[i-1]->size);
       caches_[i-1]->create( new (ptr) Batch<Dtype>[2], ptr2, thread_safe );
@@ -137,24 +145,27 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
       LOG(INFO) << "Cache Type not supported";
       exit(1);
     }
-    
+   
+    //Setup cache to point one level above 
     if(i-1==cache_size_-1)
       caches_[i-1]->next = NULL; 
     else  
       caches_[i-1]->next = caches_[i]; 
-    
+   
+    // Pass data_layer (used for filling)
     caches_[i-1]->data_layer = this;
+    //Initially needs to be filled
     caches_[i-1]->used = caches_[i-1]->size;
     caches_[i-1]->refill_start = 0;
     caches_[i-1]->current_shuffle_count = 0;
     caches_[i-1]->eviction_rate = param.data_param().cache(j).eviction_rate();
-    //caches_[i-1]->thread_refill_policy = Cache<Dtype>::thread_rate_replace_policy;
     caches_[i-1]->refill_policy = &Cache<Dtype>::rate_replace_policy;
     caches_[i-1]->local_refill_policy = &Cache<Dtype>::local_rate_replace_policy;
     caches_[i-1]->disk_location = param.data_param().cache(j).disk_location();
     LOG(INFO) << "Cacher " <<  param.data_param().cache(j).disk_location() << " " << caches_[i-1]->disk_location;
   }
   
+  //Setup cache to point one level below
   for(int j=0; j < cache_size_; j++)
   {
     if(j==0)
@@ -194,6 +205,7 @@ void BasePrefetchingDataLayer<Dtype>::LayerSetUp(
         prefetch_[i].label_.mutable_gpu_data();
       }
     }
+    //Setup the caches data
     for (int i = 0; i < cache_size_; ++i) {
       for (int j = 0; j < caches_[i]->size; ++j) {
         caches_[i]->cache[j].data_.mutable_gpu_data();
@@ -212,6 +224,7 @@ void BasePrefetchingDataLayer<Dtype>::LayerSetUp(
   }
   // Only if GPU mode on then we use background threads
   //if (Caffe::mode() == Caffe::GPU) {
+  //If the global prefetch is set create a prefetch thread which is just below
   if (prefetch) {
     StartInternalThread();
   }
@@ -227,28 +240,13 @@ void BasePrefetchingDataLayer<Dtype>::InternalThreadEntry() {
   }
 #endif
 
-  /*try {
-    while (!must_stop()) {
-      Batch<Dtype>* batch = prefetch_free_.pop();
-      load_batch(batch);
-#ifndef CPU_ONLY
-      if (Caffe::mode() == Caffe::GPU) {
-        batch->data_.data().get()->async_gpu_push(stream);
-        CUDA_CHECK(cudaStreamSynchronize(stream));
-      }
-#endif
-      prefetch_full_.push(batch);
-    }
-  } catch (boost::thread_interrupted&) {
-    // Interrupted exception is expected on shutdown
-  }*/
   while (!must_stop()) {
     if(cache_size_)
     {
-      //usleep(1000000);
       for(int i=cache_size_-1; i>= 0; i--)
-      //for(int i=0; i < cache_size_; i++)
       {
+        //If we handle the refilling apply the member pointer to the current
+        //Cache class
         if(caches_[i]->prefetch)
           (caches_[i]->*(caches_[i]->refill_policy))(1);
       }
@@ -273,71 +271,25 @@ void BasePrefetchingDataLayer<Dtype>::GetBatch() {
   }
 }
 
-/*template <typename Dtype>
-void BasePrefetchingDataLayer<Dtype>::thread_rate_replace_policy(int next_cache)
-{
- 
-  if(next_cache == cache_size_) //Last level -> refill
-  {
-    caches_[next_cache-1]->fill(this);
-  }
-  else
-  {
-    (this->*(caches_[next_cache]->thread_refill_policy))(next_cache+1);
-    
-    caches_[next_cache-1]->refill(caches_[next_cache]);
-  }
-}
-
-template <typename Dtype>
-void BasePrefetchingDataLayer<Dtype>::rate_replace_policy(int next_cache)
-{
- 
-  //LOG(INFO) << "replace " << caches_[next_cache-1]->current_shuffle_count; // << " " << caches_[next_cache-1]->cache_full.size();
-
-  if(caches_[next_cache-1]->current_shuffle_count < caches_[next_cache-1]->eviction_rate)
-  {
-    LOG(INFO) << "Shuffling Level " << next_cache-1 << " " << caches_[next_cache-1]->size;
-    caches_[next_cache-1]->current_shuffle_count++;
-    caches_[next_cache-1]->shuffle(this);
-  }
-  else if(next_cache == cache_size_) //Last level -> refill
-  {
-    LOG(INFO) << "Refilling last level " << next_cache-1 << " " << caches_[next_cache-1]->size;
-    caches_[next_cache-1]->current_shuffle_count=0;
-    caches_[next_cache-1]->fill(this);
-    
-  }
-  else
-  {
-    caches_[next_cache-1]->current_shuffle_count=0;
-    //Refill higher levels
-    //LOG(INFO) << "Recurse level " << next_cache << " " << caches_[next_cache]->size;
-    //LOG(INFO) << "Recurse Queue Size " << caches_[next_cache]->current_shuffle_count; // << " " << caches_[next_cache]->cache_full.size();
-    if(caches_[next_cache]->empty() ) //empty cache
-      (this->*(caches_[next_cache]->refill_policy))(next_cache+1);
-    
-    LOG(INFO) << "Refilling level " << next_cache-1 << " " << caches_[next_cache-1]->size;
-    caches_[next_cache-1]->refill(caches_[next_cache]);
-  }
-}*/
-
 template <typename Dtype>
 void BasePrefetchingDataLayer<Dtype>::Forward_cpu(
     const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top) {
   Batch<Dtype> * batch;
   PopBatch<Dtype> pop_batch;
+  //If there are any caches
   if(cache_size_)
   {
+    //Do we handle the refill on l1 cache?
     if(!caches_[0]->prefetch && caches_[0]->empty()) //empty cache
     {
-      //LOG(INFO) << "Local Refill "; 
+      //LOG(INFO) << "Local Refill ";
+      //Refill before poping using the policy we have
       (caches_[0]->*(caches_[0]->local_refill_policy))(1);
     }
     pop_batch = caches_[0]->pop();
     batch = pop_batch.batch;
   }
-  else
+  else //Use the original unmofified code to get a batch
   {
     //int accuracySize = historical_accuracy.size();
     //for(int i=0; i< accuracySize; i++)
@@ -362,8 +314,9 @@ void BasePrefetchingDataLayer<Dtype>::Forward_cpu(
     caffe_copy(batch->label_.count(), batch->label_.cpu_data(),
         top[1]->mutable_cpu_data());
   }
-  if(cache_size_)
+  if(cache_size_) // We finished copy the batch so mark it for replacement
     *pop_batch.dirty = true;
+  //Use the orginal code if caches are turned off
   if(cache_size_ == 0 || caches_[0]->size == 0)
     prefetch_free_.push(batch);
 
