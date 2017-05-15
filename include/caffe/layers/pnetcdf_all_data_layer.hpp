@@ -51,8 +51,10 @@ class PnetCDFAllDataLayer : public BasePrefetchingDataLayer<Dtype> {
   size_t current_row_;
   size_t max_row_;
   vector<int> datum_shape_;
-  shared_ptr<signed char> data_;
-  shared_ptr<int> label_;
+  // shared_ptr<signed char> data_;
+  // shared_ptr<int[]> label_;
+  vector<signed char> data_;
+  vector<int> label_;
   shared_ptr<boost::mutex> row_mutex_;
   MPI_Comm comm_;
   int comm_rank_;
@@ -63,8 +65,10 @@ class PnetCDFAllDataLayer : public BasePrefetchingDataLayer<Dtype> {
   // size_t padd_label_int_count_;
   MPI_Offset padd_data_char_count_;
   MPI_Offset padd_label_int_count_;
-  shared_ptr<signed char> padd_data_;
-  shared_ptr<int> padd_label_;
+  // shared_ptr<signed char> padd_data_;
+  // shared_ptr<int[]> padd_label_;
+  vector<signed char> padd_data_;
+  vector<int> padd_label_;
   #ifdef USE_MPI
   int error_code_;
   #endif
