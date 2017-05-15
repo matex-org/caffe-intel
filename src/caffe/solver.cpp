@@ -325,8 +325,8 @@ void Solver<Dtype>::Step(int iters) {
     // int victim = 1;
 
     
-    if ((ft_rank == victim) && (iter_ == 4)) {
-    // if ((original_rank != 0) && (ft_rank == victim) && ((iter_ == 2) || (iter_ == 4))) {
+    // if((ft_rank == victim) && (iter_ == 4)) {
+    if ((original_rank != 0) && (ft_rank == victim) && ((iter_ == 2) || (iter_ == 4))) {
     // if ((ft_rank == victim) && (iter_ > 0) && ((iter_ % 2) == 0)) {
       std::cout << "Victim Rank: " << victim << std::endl;
       raise(SIGKILL);
