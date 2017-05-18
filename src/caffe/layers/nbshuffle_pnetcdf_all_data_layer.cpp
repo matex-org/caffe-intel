@@ -11,14 +11,45 @@
 
 #include <boost/thread.hpp>
 #include "caffe/data_transformer.hpp"
-#include "caffe/layers/shuffle_pnetcdf_all_data_layer.hpp"
+#include "caffe/layers/nbshuffle_pnetcdf_all_data_layer.hpp"
 #include "caffe/mpi.hpp"
 #include "caffe/util/benchmark.hpp"
 
 namespace caffe {
 
 template <typename Dtype>
-ShufflePnetCDFAllDataLayer<Dtype>::ShufflePnetCDFAllDataLayer(const LayerParameter& param)
+class NBShufflePnetCDFAllDataLayer<Dtype>::Shuffler : public InternalThread {
+  public:
+    NBShufflePnetCDFAllDataLayer<Dtype> *layer_;
+
+    Shuffler(NBShufflePnetCDFAllDataLayer *layer) : layer_(layer) { }
+
+    void InternalThreadEntry() {
+      size_t datum_size = layer_->get_datum_size();
+      try {
+        while (!must_stop()) {
+          size_t row = layer_->queue_.pop("shuffle data not yet ready");
+          size_t pnetcdf_offset = row * datum_size;
+#define TAG_DATA  6543
+#define TAG_LABEL 6544
+      /* now that we're done with this datum, exchange with partner */
+      /* must use a temporary copy to avoid aliasing */
+      memcpy(layer_->one_data_, layer_->data_.get() + pnetcdf_offset, datum_size);
+      caffe::mpi::sendrecv(layer_->one_data_, datum_size, layer_->dest_, TAG_DATA,
+          layer_->data_.get() + pnetcdf_offset, datum_size, layer_->source_, TAG_DATA, layer_->comm_);
+      if (layer_->output_labels_) {
+        memcpy(layer_->one_label_, layer_->label_.get()+row, sizeof(int));
+        caffe::mpi::sendrecv(layer_->one_label_, 1, layer_->dest_, TAG_LABEL,
+            layer_->label_.get()+row, 1, layer_->source_, TAG_LABEL, layer_->comm_);
+      }
+        }
+      } catch (boost::thread_interrupted&) {
+      }
+    }
+};
+
+template <typename Dtype>
+NBShufflePnetCDFAllDataLayer<Dtype>::NBShufflePnetCDFAllDataLayer(const LayerParameter& param)
   : BasePrefetchingDataLayer<Dtype>(param),
     current_row_(0),
     max_row_(0),
@@ -31,7 +62,9 @@ ShufflePnetCDFAllDataLayer<Dtype>::ShufflePnetCDFAllDataLayer(const LayerParamet
     comm_(),
     comm_rank_(),
     comm_size_(),
-    ignore_(false)
+    ignore_(false),
+    shuffler_(NULL),
+    queue_()
 {
   if (Caffe::ignore_data()) {
     LOG(INFO) << "IGNORING DATA READING FOR LAST RANK";
@@ -53,10 +86,12 @@ ShufflePnetCDFAllDataLayer<Dtype>::ShufflePnetCDFAllDataLayer(const LayerParamet
   if (source_ >= comm_size_) {
     source_ = 0;
   }
+
+  shuffler_ = new Shuffler(this);
 }
 
 template <typename Dtype>
-ShufflePnetCDFAllDataLayer<Dtype>::~ShufflePnetCDFAllDataLayer() {
+NBShufflePnetCDFAllDataLayer<Dtype>::~NBShufflePnetCDFAllDataLayer() {
   this->StopInternalThread();
 }
 
@@ -80,7 +115,7 @@ inline static Dtype prod(vector<Dtype> vec) {
 }
 
 template <typename Dtype>
-void ShufflePnetCDFAllDataLayer<Dtype>::load_pnetcdf_file_data(const string& filename) {
+void NBShufflePnetCDFAllDataLayer<Dtype>::load_pnetcdf_file_data(const string& filename) {
 #if USE_PNETCDF
 #if STRIDED
   LOG(INFO) << "Loading PnetCDF file, strided: " << filename;
@@ -335,7 +370,7 @@ void ShufflePnetCDFAllDataLayer<Dtype>::load_pnetcdf_file_data(const string& fil
 }
 
 template <typename Dtype>
-size_t ShufflePnetCDFAllDataLayer<Dtype>::get_datum_size() {
+size_t NBShufflePnetCDFAllDataLayer<Dtype>::get_datum_size() {
   vector<int> top_shape = this->get_datum_shape();
   const size_t datum_channels = top_shape[1];
   const size_t datum_height = top_shape[2];
@@ -344,13 +379,13 @@ size_t ShufflePnetCDFAllDataLayer<Dtype>::get_datum_size() {
 }
 
 template <typename Dtype>
-vector<int> ShufflePnetCDFAllDataLayer<Dtype>::get_datum_shape() {
+vector<int> NBShufflePnetCDFAllDataLayer<Dtype>::get_datum_shape() {
   CHECK(this->datum_shape_.size());
   return this->datum_shape_;
 }
 
 template <typename Dtype>
-vector<int> ShufflePnetCDFAllDataLayer<Dtype>::infer_blob_shape() {
+vector<int> NBShufflePnetCDFAllDataLayer<Dtype>::infer_blob_shape() {
   vector<int> top_shape = this->get_datum_shape();
   const int crop_size = this->transform_param_.crop_size();
   const int datum_height = top_shape[2];
@@ -365,7 +400,7 @@ vector<int> ShufflePnetCDFAllDataLayer<Dtype>::infer_blob_shape() {
 }
 
 template <typename Dtype>
-void ShufflePnetCDFAllDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bottom,
+void NBShufflePnetCDFAllDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bottom,
       const vector<Blob<Dtype>*>& top) {
   const int batch_size = this->layer_param_.data_param().batch_size();
 
@@ -374,6 +409,7 @@ void ShufflePnetCDFAllDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*
 
   one_data_ = new signed char[get_datum_size()];
   one_label_ = new int[1];
+  shuffler_->StartInternalThread();
 
   row_mutex_.reset(new boost::mutex());
 
@@ -400,7 +436,7 @@ void ShufflePnetCDFAllDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*
 
 // This function is called on prefetch thread
 template<typename Dtype>
-void ShufflePnetCDFAllDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
+void NBShufflePnetCDFAllDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
   if (ignore_) {
     return;
   }
@@ -472,18 +508,8 @@ void ShufflePnetCDFAllDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
         top_label[item_id] = this->label_.get()[row];
       }
 
-#define TAG_DATA  6543
-#define TAG_LABEL 6544
-      /* now that we're done with this datum, exchange with partner */
-      /* must use a temporary copy to avoid aliasing */
-      memcpy(one_data_, this->data_.get() + pnetcdf_offset, datum_size);
-      caffe::mpi::sendrecv(one_data_, datum_size, dest_, TAG_DATA,
-          this->data_.get() + pnetcdf_offset, datum_size, source_, TAG_DATA, comm_);
-      if (this->output_labels_) {
-        memcpy(one_label_, this->label_.get()+row, sizeof(int));
-        caffe::mpi::sendrecv(one_label_, 1, dest_, TAG_LABEL,
-            this->label_.get()+row, 1, source_, TAG_LABEL, comm_);
-      }
+      // queue for shuffle
+      queue_.push(row);
     }
     trans_time += timer.MicroSeconds();
   }
@@ -498,7 +524,7 @@ void ShufflePnetCDFAllDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
 }
 
 template<typename Dtype>
-size_t ShufflePnetCDFAllDataLayer<Dtype>::next_row() {
+size_t NBShufflePnetCDFAllDataLayer<Dtype>::next_row() {
   size_t row;
   row_mutex_->lock();
   row = current_row_++;
@@ -507,8 +533,8 @@ size_t ShufflePnetCDFAllDataLayer<Dtype>::next_row() {
   return row;
 }
 
-INSTANTIATE_CLASS(ShufflePnetCDFAllDataLayer);
-REGISTER_LAYER_CLASS(ShufflePnetCDFAllData);
+INSTANTIATE_CLASS(NBShufflePnetCDFAllDataLayer);
+REGISTER_LAYER_CLASS(NBShufflePnetCDFAllData);
 
 }  // namespace caffe
 

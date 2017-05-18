@@ -124,6 +124,7 @@ size_t BlockingQueue<T>::size() const {
 }
 
 template class BlockingQueue<int>;
+template class BlockingQueue<size_t>;
 template class BlockingQueue<Batch<float>*>;
 template class BlockingQueue<Batch<double>*>;
 template class BlockingQueue<std::string*>;
