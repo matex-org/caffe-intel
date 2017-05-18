@@ -297,7 +297,9 @@ void Solver<Dtype>::Step(int iters) {
   int original_rank = caffe::mpi::comm_rank(test_comm);
 #endif
 
-  Timer ft_timer;
+  // Timer ft_timer;
+  Timer iter_timer;
+
   // Timer total_timer, comm_timer;
   double total_time = 0, total_comm_time = 0;
   while (iter_ < stop_iter) {
@@ -314,7 +316,13 @@ void Solver<Dtype>::Step(int iters) {
       }
     }
 
-    double total_step_time = 0, comm_step_time = 0, temp_time = 0;
+    double total_step_time = 0
+          , iter_time = 0
+          , comm_step_time = 0
+          , temp_time = 0
+          , temp_data_readtime = 0
+          , data_re_readtime = 0
+          , grad_update_time = 0;
 
     #ifdef CAFFE_FT
     MPI_Comm temp_comm = caffe::mpi::get_working_comm();
@@ -325,8 +333,8 @@ void Solver<Dtype>::Step(int iters) {
     // int victim = 1;
 
     
-    // if((ft_rank == victim) && (iter_ == 4)) {
-    if ((original_rank != 0) && (ft_rank == victim) && ((iter_ == 2) || (iter_ == 4))) {
+    if((ft_rank == victim) && (iter_ == 4)) {
+    // if ((original_rank != 0) && (ft_rank == victim) && ((iter_ == 2) || (iter_ == 4))) {
     // if ((ft_rank == victim) && (iter_ > 0) && ((iter_ % 2) == 0)) {
       std::cout << "Victim Rank: " << victim << std::endl;
       raise(SIGKILL);
@@ -335,25 +343,25 @@ void Solver<Dtype>::Step(int iters) {
     
     #endif
 
-    ft_timer.Start();
+    iter_timer.Start();
     for (int i = 0; i < callbacks_.size(); ++i) {
       callbacks_[i]->on_start();
     }
-    temp_time = ft_timer.MilliSeconds();
+    // temp_time = ft_timer.MilliSeconds();
+    temp_time = iter_timer.MilliSeconds();
     total_step_time += temp_time;
     comm_step_time += temp_time;
 
     const bool display = param_.display() && iter_ % param_.display() == 0;
     net_->set_debug_info(display && param_.debug_info());
 
-    Timer iter_timer;
-    double iter_time = 0;
+    // double iter_time = 0;
     iter_timer.Start();
 
     Dtype loss = forward_backward_();
 
     iter_time += iter_timer.MilliSeconds();
-    total_step_time += iter_time;
+    //total_step_time += iter_time;
 
     // average the loss across iterations for smoothed reporting
     UpdateSmoothedLoss(loss, start_iter, average_loss);
@@ -385,13 +393,11 @@ void Solver<Dtype>::Step(int iters) {
               << result_vec[k] << loss_msg_stream.str();
         }
       }
-
 #ifdef CAFFE_PER_LAYER_TIMINGS
       PrintTimers(false);
       ResetTimers();
 //      MLSL::print_mlsl_time();
 #endif
-
     }
 
     iter_timer.Start();
@@ -399,29 +405,43 @@ void Solver<Dtype>::Step(int iters) {
     for (int i = 0; i < callbacks_.size(); ++i) {
 #ifdef CAFFE_FT
       std::tuple<int, bool> ret_val = callbacks_[i]->on_gradients_ready();
-      if(std::get<1>(ret_val)) {
+      temp_time = iter_timer.MilliSeconds();
 
+      if(std::get<1>(ret_val)) {
+        iter_timer.Start();
         // fault has occured
         // MPI AllReduce other ranks as well..
         // Global Faulted Variable... (to trigger read from every rank
         net_->ReSetUpLayer("data");
+        temp_data_readtime =  iter_timer.MilliSeconds();
+
         MPI_Comm temp_comm = caffe::mpi::get_working_comm();
         ft_rank = caffe::mpi::comm_rank(temp_comm);
         ft_size = caffe::mpi::comm_size(temp_comm);
         DLOG(INFO) << "ReSetUpLayer Done:--------------rank:" << ft_rank << " ,size:" << ft_size;
+
       }
 #else
       callbacks_[i]->on_gradients_ready();
+      temp_time = iter_timer.MilliSeconds();
 #endif
     }
     if (!param().disabled_update()) {
+      iter_timer.Start();
       ApplyUpdate();
+      grad_update_time = iter_timer.MilliSeconds();
     }
 
-    temp_time = iter_timer.MilliSeconds();
+    // temp_time = iter_timer.MilliSeconds();
     iter_time += temp_time;
+    iter_time += grad_update_time;
+    
     comm_step_time += temp_time;
+    data_re_readtime += temp_data_readtime;
+
     total_step_time += temp_time;
+    total_step_time += iter_time;
+    total_step_time += temp_data_readtime;
 
 #ifdef CAFFE_PER_LAYER_TIMINGS
     if (MLSL::GetNodeId() == 0)
