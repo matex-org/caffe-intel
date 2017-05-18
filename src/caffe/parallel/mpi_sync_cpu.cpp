@@ -54,7 +54,7 @@ void MPISyncCPU<Dtype>::on_gradients_ready() {
   timer_.Start();
   caffe::mpi::allreduce(diff_, size_, MPI_SUM, comm_);
   double time_comm_ = timer_.MilliSeconds();
-  LOG(INFO) << "time comm " << time_comm_;
+  DLOG(INFO) << "time comm " << time_comm_;
 #else
   NO_MPI;
 #endif
