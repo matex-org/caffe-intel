@@ -332,15 +332,13 @@ void Solver<Dtype>::Step(int iters) {
     int victim = ft_size - 1;
     // int victim = 1;
 
-    
-    if((ft_rank == victim) && (iter_ == 4)) {
-    // if ((original_rank != 0) && (ft_rank == victim) && ((iter_ == 2) || (iter_ == 4))) {
+    if((ft_rank == victim) && (iter_ == 300)) {
+    // if ((original_rank != 0) && (ft_rank == victim) && ((iter_ == 300) || (iter_ == 600))) {
     // if ((ft_rank == victim) && (iter_ > 0) && ((iter_ % 2) == 0)) {
       std::cout << "Victim Rank: " << victim << std::endl;
       raise(SIGKILL);
     }
-    
-    
+
     #endif
 
     iter_timer.Start();
@@ -435,7 +433,7 @@ void Solver<Dtype>::Step(int iters) {
     // temp_time = iter_timer.MilliSeconds();
     iter_time += temp_time;
     iter_time += grad_update_time;
-    
+
     comm_step_time += temp_time;
     data_re_readtime += temp_data_readtime;
 
@@ -450,12 +448,12 @@ void Solver<Dtype>::Step(int iters) {
   total_time += total_step_time;
   total_comm_time += comm_step_time;
 #ifdef USE_MPI
-    if(ft_rank == 0){
-      LOG(INFO) << "iter " << iter_ << ", step_communication_time: " << comm_step_time << " ms";
-      LOG(INFO) << "iter " << iter_ << ", step_total_time: " << total_step_time << " ms";
+    // if(ft_rank == 0){
+      LOG(INFO) << "iter " << iter_ << ", step_communication_time: " << comm_step_time << " ms with_rank " << ft_rank;
+      LOG(INFO) << "iter " << iter_ << ", step_total_time: " << total_step_time << " ms with_rank " << ft_rank;
       LOG(INFO) << "iter " << iter_ << ", cumulative_communication_time: " << total_comm_time << " ms";
       LOG(INFO) << "iter " << iter_ << ", cumulative_total_time: " << total_time << " ms";
-    }
+    // }
 #endif
 
     // Increment the internal iter_ counter -- its value should always indicate

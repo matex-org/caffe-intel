@@ -6,6 +6,10 @@
 #include <unistd.h> // for gethostid()
 #include "caffe/mpi.hpp"
 
+#ifdef CAFFE_FT
+#include "caffe/util/benchmark.hpp"
+#endif
+
 namespace caffe {
 namespace mpi {
 
@@ -495,7 +499,10 @@ int mpix_comm_replace(MPI_Comm comm, MPI_Comm* pnewcomm)
   if (comm == MPI_COMM_NULL)
     DLOG(INFO) << "Null Communicator provided (mpix_comm_replace)";
 
+  CPUTimer timer;
+  timer.Start();
   MPIX_Comm_shrink(comm, &shrinked);
+  LOG(INFO) << "Shrink_time_fault: " << timer.MicroSeconds() << " micro_seconds";
   DLOG(INFO) << "After Shrinking (mpix_comm_replace)";
   MPI_Comm_rank(comm, &crank);
   MPI_Comm_size(comm, &nc);
@@ -544,7 +551,9 @@ int mpix_comm_replace(MPI_Comm comm, MPI_Comm* pnewcomm)
   caffe::mpi::new_size = ns;
 
   // All agree on the reduced size of communicator; // happens in dup_comm.
+  timer.Start();
   flag = MPIX_Comm_agree(shrinked, &caffe::mpi::new_size);
+  LOG(INFO) << "Shrink_agree_time: " << timer.MicroSeconds() << " micro_seconds";
   if(flag == MPI_SUCCESS) {
     DLOG(INFO) << "All Agree on reduced Comm size, new rank:" << srank <<" , old rank " << crank;
     // swap instead of duplicate
@@ -595,7 +604,7 @@ int duplicate_comm(MPI_Comm* newcomm, MPI_Comm comm)
       caffe::mpi::error_report(rc, &comm);
     }
   }
-  
+
   temp_size = caffe::mpi::comm_size(*newcomm);
   return rc;
 }
@@ -664,7 +673,7 @@ void fix_communicator(MPI_Comm* comm)
   wb_rank = caffe::mpi::comm_rank(*comm);
   if (rsize != wsize) {
     DLOG(INFO) << "Working comm size (before switch): " << wsize << ", rank" << wb_rank;
-    MPIX_Comm_revoke(*comm); 
+    MPIX_Comm_revoke(*comm);
     MPI_Comm_free(comm);
     flag2 = duplicate_comm(comm, rcomm);
     if (flag != MPI_SUCCESS) {
