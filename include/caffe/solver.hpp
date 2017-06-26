@@ -266,11 +266,19 @@ struct NewBatchSize {
         // Loss Decrease is Accelerating
         return batchApplyIter + 1;
       }
-      else if((loss_slope >= -lossThres || loss_slope <= lossThres) 
-              && (std_deviation < 1.0))
+      else if((loss_slope >= -lossThres && loss_slope <= 0) 
+            || (loss_slope <= lossThres && loss_slope >= 0)) 
       {
+        if(std_deviation < 1.0)
+        {
         // Loss Decrease is stagnating;
         return batchApplyIter;
+        }
+        else if(std_deviation < 0.01)
+        {
+          // Reached Tail End 
+          return batchApplyIter + 10; 
+        }
       }
       else
         return 1; // reset batch size.
