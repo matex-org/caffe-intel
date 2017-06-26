@@ -50,6 +50,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <queue>
 #include <type_traits>
 #include <random>
+#include <algorithm>
+#include <numeric>
+#include <iterator>
 #endif
 #include <glog/logging.h>
 #include "caffe/mpi.hpp"
@@ -93,6 +96,39 @@ namespace AdaptiveBatchOption {  // Should be friend class to Solver Class.
   struct LossRate {}; // Loss Accel > threshhold, increase batch size.
   struct LossRateDecel {}; // Loss Accel < threshold, inc. batch.
   struct LossRateRange {}; // Loss Accel <> threshold,(with a range).
+}
+
+template <typename It,
+    typename E = typename std::iterator_traits<It>::value_type,
+    typename R = typename std::common_type<double, E>::type >
+R std_dev(It b, It e)
+{
+    R count_n          = std::distance(b, e);
+    R mean = std::accumulate(b, e, R{}) / count_n;
+    R variance   = std::accumulate(b, e, R{}, [mean](R a, E v)-> R { return a + (v-mean)*(v-mean); });
+    return std::sqrt(variance / count_n);
+}
+
+// double slope(const std::vector<double>& x, const std::vector<double>& y){
+template <typename Dtype>
+Dtype slope(const std::deque<Dtype>& x, const std::deque<Dtype>& y){
+
+    if(x.size() != y.size()){
+        throw "Arrays not equal";
+    }
+    std::size_t n = x.size();
+    Dtype avgX = accumulate(x.begin(), x.end(), 0.0) / n;
+    Dtype avgY = accumulate(y.begin(), y.end(), 0.0) / n;
+    Dtype numerator = 0.0;
+    Dtype denominator = 0.0;
+    for(int i=0; i<n; ++i){
+        numerator += (x[i] - avgX) * (y[i] - avgY);
+        denominator += (x[i] - avgX) * (x[i] - avgX);
+    }
+    if(denominator == 0){
+        throw "Divide by zero.";
+    }
+    return numerator / denominator;
 }
 
 template <typename Option>
@@ -210,9 +246,37 @@ struct NewBatchSize {
       Dtype trendDiff = deltaAvg2 - deltaAvg1;
       Dtype trendAcc = (deltaAvg2 - deltaAvg1)/deltaLosses.size();
 
-      LOG(INFO) << "iter " << currentIterPos << " trendAcc " << trendAcc << "Loss Thres " << lossThres;
+      Dtype avg = std::accumulate(deltaLosses.begin()
+                    , deltaLosses.end(), Dtype{})/ deltaLosses.size();
+      Dtype std_deviation = std_dev(deltaLosses.begin(), deltaLosses.end());
+
+      std::deque<Dtype> xaxis_deq(deltaLosses.size());
+      for (int i = 0; i < deltaLosses.size(); ++i)
+        xaxis_deq[i]=i;
+
+      Dtype loss_slope = slope(xaxis_deq, deltaLosses);
+
+      //LOG(INFO) << "iter " << currentIterPos << " trendAcc " << trendAcc << "Loss Thres " << lossThres;
+      LOG(INFO) << "iter " << currentIterPos << " slope " << loss_slope 
+                << " Std_Deviation " << std_deviation
+                << " Loss_Thres " << lossThres;
+
+      // Loss Decrease is Accelerating
+      if(loss_slope < -lossThres) {
+        // Loss Decrease is Accelerating
+        return batchApplyIter + 1;
+      }
+      else if((loss_slope >= -lossThres || loss_slope <= lossThres) 
+              && (std_deviation < 1.0))
+      {
+        // Loss Decrease is stagnating;
+        return batchApplyIter;
+      }
+      else
+        return 1; // reset batch size.
 
       // if( (trendDiff > 0) && trendDiff > lossThres) {
+      /*
       if( (trendAcc > 0) && trendAcc > lossThres) {
         return (batchApplyIter + 1); // fixed increment size;
       }
@@ -254,6 +318,7 @@ struct NewBatchSize {
           return 1;
         }
       }
+      */
   }
 
   template<typename U = Option,
