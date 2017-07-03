@@ -121,6 +121,9 @@ class Solver {
    protected:
     virtual void on_start() = 0;
     virtual void on_gradients_ready() = 0;
+    #ifdef YY_SYNC
+    virtual void gradients_add() {};
+    #endif
 
     template <typename T>
     friend class Solver;
