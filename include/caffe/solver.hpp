@@ -135,6 +135,10 @@ class Solver {
     forward_backward_ = func;
   }
 
+  #ifdef YY_SYNC
+  void yy_sync(bool update, bool allreduce);
+  #endif //
+
   void CheckSnapshotWritePermissions();
   /**
    * @brief Returns the solver type.

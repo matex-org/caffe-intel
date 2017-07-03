@@ -346,13 +346,16 @@ void Solver<Dtype>::Step(int iters) {
     }
 
     iter_timer.Start();
-
+#ifdef YY_SYNC
+    yy_sync(bool update, bool allreduce);
+#else
     for (int i = 0; i < callbacks_.size(); ++i) {
       callbacks_[i]->on_gradients_ready();
     }
     if (!param().disabled_update()) {
       ApplyUpdate();
     }
+#endif
 
     iter_time += iter_timer.MilliSeconds();
 
@@ -380,6 +383,29 @@ void Solver<Dtype>::Step(int iters) {
       break;
     }
   }
+
+#ifdef YY_SYNC
+template <typename Dtype>
+void Solver<Dtype>::yy_sync(bool update, bool allreduce) {
+  if(allreduce) {
+    // callback_allreduce
+    for (int i = 0; i < callbacks_.size(); ++i) {
+      callbacks_[i]->on_gradients_ready();
+    }
+  }
+  if (update) {
+    // Apply update
+    ApplyUpdate();
+  }
+  else {
+    // callbacks_graddadd
+    for (int i = 0; i < callbacks_.size(); ++i) {
+      callbacks_[i]->gradients_add();
+    }
+  }
+
+}
+#endif 
 
 #ifdef CAFFE_PER_LAYER_TIMINGS
   ResetTimers();

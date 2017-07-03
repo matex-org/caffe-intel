@@ -30,7 +30,11 @@ MPISyncCPU<Dtype>::MPISyncCPU(shared_ptr<Solver<Dtype> > root_solver)
   this->configure(solver_.get());
   solver_->add_callback(this);
   caffe::mpi::bcast(data_, size_, 0, comm_);
+#ifdef YY_SYNC
+  solver_->set_scale_on_apply(Dtype(1.0));
+#else
   solver_->set_scale_on_apply(Dtype(1.0 / comm_size_));
+#endif
 #else
   NO_MPI;
 #endif
@@ -49,12 +53,30 @@ template<typename Dtype>
 void MPISyncCPU<Dtype>::on_gradients_ready() {
   DLOG(INFO) << "on_gradients_ready()";
 #ifdef USE_MPI
+  // Sum gradients and scale
+#ifdef YY_SYNC
+  caffe::mpi::allreduce(diff_, size_, MPI_SUM, comm_);
+  caffe_scal(size_, Dtype(1.0/comm_size_), diff_);
+#else
+  caffe::mpi::allreduce(diff_, size_, MPI_SUM, comm_);
+#endif
+#else
+  NO_MPI;
+#endif
+}
+
+#ifdef YY_SYNC
+template<typename Dtype>
+void MPISyncCPU<Dtype>::gradients_add() {
+  DLOG(INFO) << "on_gradients_ready()";
+#ifdef USE_MPI
   // Sum gradients
   caffe::mpi::allreduce(diff_, size_, MPI_SUM, comm_);
 #else
   NO_MPI;
 #endif
 }
+#endif
 
 template<typename Dtype>
 void MPISyncCPU<Dtype>::Run() {

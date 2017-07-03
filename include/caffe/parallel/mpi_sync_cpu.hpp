@@ -29,6 +29,9 @@ class MPISyncCPU : public CPUParams<Dtype>, public Solver<Dtype>::Callback {
  protected:
   void on_start();
   void on_gradients_ready();
+#ifdef YY_SYNC
+  void gradients_add();
+#endif
 
 #ifdef USE_MPI
   MPI_Comm comm_;
