@@ -114,6 +114,8 @@ void Solver<Dtype>::Init(const SolverParameter& param) {
     LOG(INFO) << "Solver scaffolding done.";
   }
   iter_ = 0;
+  update = true;
+  allreduce = true;
   current_step_ = 0;
 
 #ifdef CAFFE_PER_LAYER_TIMINGS
@@ -347,8 +349,8 @@ void Solver<Dtype>::Step(int iters) {
 
     iter_timer.Start();
 #ifdef YY_SYNC
-    bool update = true;
-    bool allreduce = true;
+    //bool update = true;
+    //bool allreduce = true;
     yy_sync(update, allreduce);
 #else
     for (int i = 0; i < callbacks_.size(); ++i) {

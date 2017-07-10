@@ -55,6 +55,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "caffe/layers/memory_data_layer.hpp"
 #include "caffe/layers/python_layer.hpp"
 #include "caffe/sgd_solvers.hpp"
+#include "caffe/parallel/mpi_sync_cpu.hpp"
+#include "caffe/parallel.hpp"
 
 // Temporary solution for numpy < 1.7 versions: old macro, no promises.
 // You're strongly advised to upgrade to >= 1.7.
@@ -408,6 +410,14 @@ BOOST_PYTHON_MODULE(_caffe) {
     .add_property("type", bp::make_function(&Layer<Dtype>::type));
   BP_REGISTER_SHARED_PTR_TO_PYTHON(Layer<Dtype>);
 
+#ifdef USE_MPI
+  bp::class_<MPISyncCPU<Dtype>, shared_ptr<MPISyncCPU<Dtype> >, boost::noncopyable>(
+    "MPISyncCPU", bp::init<shared_ptr<Solver<Dtype> > >())
+    .def("run", &MPISyncCPU<Dtype>::Run)
+    .def("step", &MPISyncCPU<Dtype>::Step);
+  BP_REGISTER_SHARED_PTR_TO_PYTHON(MPISyncCPU<Dtype>);
+#endif
+
   bp::class_<LayerParameter>("LayerParameter", bp::no_init);
 
   bp::class_<Solver<Dtype>, shared_ptr<Solver<Dtype> >, boost::noncopyable>(
@@ -415,12 +425,18 @@ BOOST_PYTHON_MODULE(_caffe) {
     .add_property("net", &Solver<Dtype>::net)
     .add_property("test_nets", bp::make_function(&Solver<Dtype>::test_nets,
           bp::return_internal_reference<>()))
+    .add_property("update", &Solver<Dtype>::update)
+    .add_property("allreduce", &Solver<Dtype>::allreduce)
     .add_property("iter", &Solver<Dtype>::iter)
     .def("add_callback", &Solver_add_callback<Dtype>)
     .def("solve", static_cast<void (Solver<Dtype>::*)(const char*)>(
           &Solver<Dtype>::Solve), SolveOverloads())
     .def("step", &Solver<Dtype>::Step)
     .def("restore", &Solver<Dtype>::Restore)
+    .def("yy_sync", &Solver<Dtype>::yy_sync)
+    .def("set_iter", &Solver<Dtype>::set_iter)
+    .def("set_allreduce", &Solver<Dtype>::set_update)
+    .def("set_update", &Solver<Dtype>::set_allreduce)
     .def("snapshot", &Solver<Dtype>::Snapshot);
   BP_REGISTER_SHARED_PTR_TO_PYTHON(Solver<Dtype>);
 

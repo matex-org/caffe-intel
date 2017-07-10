@@ -112,7 +112,11 @@ class Solver {
     return test_nets_;
   }
   int iter() { return iter_; }
+  bool allreduce;
+  bool update;
   void set_iter(int value) { iter_ = value; }
+  void set_allreduce(bool value){ allreduce = value; }
+  void set_update(bool value){ update = value; }
   float scale_on_apply() { return scale_on_apply_; }
   void set_scale_on_apply(float value) { scale_on_apply_ = value; }
 
