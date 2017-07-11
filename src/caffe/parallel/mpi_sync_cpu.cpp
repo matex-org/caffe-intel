@@ -66,6 +66,16 @@ void MPISyncCPU<Dtype>::on_gradients_ready() {
 }
 
 #ifdef YY_SYNC
+template <typename Dtype>
+void MPISyncCPU<Dtype>::data_allreduce() {
+  DLOG(INFO) << "data_allreduce()";
+#ifdef USE_MPI
+  caffe::mpi::allreduce(data_, size_, MPI_SUM, comm_);
+  caffe_scal(size_, Dtype(1.0 / comm_size_), data_);
+#else
+#endif
+}
+
 template<typename Dtype>
 void MPISyncCPU<Dtype>::gradients_add() {
   DLOG(INFO) << "on_gradients_ready()";

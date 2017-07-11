@@ -30,6 +30,7 @@ class MPISyncCPU : public CPUParams<Dtype>, public Solver<Dtype>::Callback {
   void on_start();
   void on_gradients_ready();
 #ifdef YY_SYNC
+  void data_allreduce();
   void gradients_add();
 #endif
 
