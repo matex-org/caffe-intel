@@ -142,6 +142,8 @@ message NetParameter {
   // Net::Backward, and Net::Update.
   optional bool debug_info = 7 [default = false];
 
+  optional string engine = 9 [default = ""];
+
   // The layers that make up the net.  Each of their configurations, including
   // connectivity and behavior, is specified as a LayerParameter.
   repeated LayerParameter layer = 100;  // ID 100 so layers are printed last.
@@ -150,10 +152,19 @@ message NetParameter {
   repeated V1LayerParameter layers = 2;
 }
 
+message MultiPhaseSolverParameter {
+  repeated SolverBatchSizePair params_pair = 1;
+}
+
+message SolverBatchSizePair {
+  optional SolverParameter solver_params = 1;
+  optional uint32 batch_size = 2;
+}
+
 // NOTE
 // Update the next available ID when you add a new SolverParameter field.
 //
-// SolverParameter next available ID: 41 (last added: type)
+// SolverParameter next available ID: 44 (last added: engine)
 message SolverParameter {
   //////////////////////////////////////////////////////////////////////////////
   // Specifying the train and test networks
@@ -297,6 +308,7 @@ message SolverParameter {
 
   optional MultinodeParameter multinode_param = 41;
   optional bool disabled_update = 42 [default = false];
+  optional string engine = 43 [default = ""];
 }
 
 // A message that stores the solver snapshots
@@ -364,7 +376,7 @@ message ParamSpec {
 // NOTE
 // Update the next available ID when you add a new LayerParameter field.
 //
-// LayerParameter next available layer-specific ID: 149 (last added: remote_data_param)
+// LayerParameter next available layer-specific ID: 150 (last added: engine)
 message LayerParameter {
   optional string name = 1; // the layer name
   optional string type = 2; // the layer type
@@ -463,6 +475,8 @@ message LayerParameter {
   optional TileParameter tile_param = 138;
   optional WindowDataParameter window_data_param = 129;
   optional RemoteDataParameter remote_data_param = 148;
+
+  optional string engine = 149 [default = ""];
 }
 
 // Message that stores parameters used to apply transformation
@@ -692,6 +706,8 @@ message ConvolutionParameter {
   // implementation; for input blobs with num_axes != 2, this option is
   // ignored and the ND implementation will be used.)
   optional bool force_nd_im2col = 17 [default = false];
+  optional bool relu = 19 [default = false];
+  optional float negative_slope = 20 [default = 0];
 }
 
 message CropParameter {

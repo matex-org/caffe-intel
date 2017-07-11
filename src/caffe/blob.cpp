@@ -84,7 +84,7 @@ void Blob<Dtype>::Reshape(const vector<int>& shape) {
 #endif
   }
   // We restart sync objects when there was change of shape
-  // requested count is bgger than current capacity 
+  // requested count is bgger than current capacity
   if ( (actual_reshaping == true) || (count_ > capacity_) ) {
     capacity_ = count_;
     data_.reset(new SyncedMemory(capacity_ * sizeof(Dtype)));
@@ -111,14 +111,23 @@ template <typename Dtype>
 Blob<Dtype>::Blob(const int num, const int channels, const int height,
     const int width)
   // capacity_ must be initialized before calling Reshape
+#ifdef DISTR_WEIGHT_UPDATE
+  : capacity_(0), owned_count_(0), owned_offset_(0) {
+#else
   : capacity_(0) {
+#endif
   Reshape(num, channels, height, width);
 }
 
 template <typename Dtype>
 Blob<Dtype>::Blob(const vector<int>& shape)
   // capacity_ must be initialized before calling Reshape
+#ifdef DISTR_WEIGHT_UPDATE
+  : capacity_(0), owned_count_(0), owned_offset_(0) {
+#else
   : capacity_(0) {
+#endif
+
   Reshape(shape);
 }
 
@@ -140,6 +149,12 @@ template <typename Dtype>
 void Blob<Dtype>::set_cpu_data(Dtype* data) {
   CHECK(data);
   data_->set_cpu_data(data);
+}
+
+template <typename Dtype>
+void Blob<Dtype>::set_cpu_diff(Dtype* diff) {
+  CHECK(diff);
+  diff_->set_cpu_data(diff);
 }
 
 template <typename Dtype>
@@ -304,6 +319,9 @@ template <typename Dtype>
 Dtype Blob<Dtype>::asum_data() const {
   if (!data_) { return 0; }
   switch (data_->head()) {
+  case SyncedMemory::SYNCED_PRV:
+  case SyncedMemory::HEAD_AT_PRV:
+    return caffe_cpu_asum( prv_data_count(), prv_data());
   case SyncedMemory::HEAD_AT_CPU:
     return caffe_cpu_asum(count_, cpu_data());
   case SyncedMemory::HEAD_AT_GPU:
@@ -339,6 +357,9 @@ template <typename Dtype>
 Dtype Blob<Dtype>::asum_diff() const {
   if (!diff_) { return 0; }
   switch (diff_->head()) {
+  case SyncedMemory::SYNCED_PRV:
+  case SyncedMemory::HEAD_AT_PRV:
+    return caffe_cpu_asum( prv_diff_count(), prv_diff());
   case SyncedMemory::HEAD_AT_CPU:
     return caffe_cpu_asum(count_, cpu_diff());
   case SyncedMemory::HEAD_AT_GPU:
@@ -376,6 +397,11 @@ Dtype Blob<Dtype>::sumsq_data() const {
   const Dtype* data;
   if (!data_) { return 0; }
   switch (data_->head()) {
+  case SyncedMemory::SYNCED_PRV:
+  case SyncedMemory::HEAD_AT_PRV:
+      data = prv_data();
+      sumsq = caffe_cpu_dot(prv_data_count(), data, data);
+      break;
   case SyncedMemory::HEAD_AT_CPU:
     data = cpu_data();
     sumsq = caffe_cpu_dot(count_, data, data);
@@ -413,6 +439,11 @@ Dtype Blob<Dtype>::sumsq_diff() const {
   const Dtype* diff;
   if (!diff_) { return 0; }
   switch (diff_->head()) {
+  case SyncedMemory::SYNCED_PRV:
+  case SyncedMemory::HEAD_AT_PRV:
+      diff = prv_diff();
+      sumsq = caffe_cpu_dot(prv_diff_count(), diff, diff);
+      break;
   case SyncedMemory::HEAD_AT_CPU:
     diff = cpu_diff();
     sumsq = caffe_cpu_dot(count_, diff, diff);
@@ -429,7 +460,7 @@ Dtype Blob<Dtype>::sumsq_diff() const {
   case SyncedMemory::UNINITIALIZED:
     return 0;
   default:
-    LOG(FATAL) << "Unknown SyncedMemory head state: " << data_->head();
+    LOG(FATAL) << "Unknown SyncedMemory head state: " << diff_->head();
   }
   return sumsq;
 }
@@ -447,6 +478,11 @@ void Blob<Dtype>::scale_data(Dtype scale_factor) {
   Dtype* data;
   if (!data_) { return; }
   switch (data_->head()) {
+  case SyncedMemory::SYNCED_PRV:
+  case SyncedMemory::HEAD_AT_PRV:
+      data = mutable_prv_data();
+      caffe_scal(prv_data_count(), scale_factor, data);
+      break;
   case SyncedMemory::HEAD_AT_CPU:
     data = mutable_cpu_data();
     caffe_scal(count_, scale_factor, data);
@@ -480,6 +516,11 @@ void Blob<Dtype>::scale_diff(Dtype scale_factor) {
   Dtype* diff;
   if (!diff_) { return; }
   switch (diff_->head()) {
+  case SyncedMemory::SYNCED_PRV:
+  case SyncedMemory::HEAD_AT_PRV:
+      diff = mutable_prv_diff();
+      caffe_scal(prv_diff_count(), scale_factor, diff);
+      break;
   case SyncedMemory::HEAD_AT_CPU:
     diff = mutable_cpu_diff();
     caffe_scal(count_, scale_factor, diff);

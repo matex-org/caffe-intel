@@ -44,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "boost/enable_shared_from_this.hpp"
 #include "caffe/blob.hpp"
 #include "caffe/common.hpp"
+#include "caffe/engine_parser.hpp"
 #include "caffe/layers/base_conv_layer.hpp"
 #include "caffe/layers/conv_layer.hpp"
 #include "caffe/layers/inner_product_layer.hpp"
@@ -62,11 +63,11 @@ class MKLDNNBatchNormLayer : public MKLDNNLayer<Dtype> , public Layer<Dtype> {
 public:
     explicit MKLDNNBatchNormLayer(const LayerParameter& param)
             : Layer<Dtype>(param)
-            , fwd_top_data    (NULL)
-            , fwd_bottom_data (NULL)
-            , BatchNormFwd_pd(NULL)
-            , output_memory(NULL), scaleshift_memory(NULL), ws_memory(NULL)
-            , input_primitive(NULL)
+            , fwd_top_data    ()
+            , fwd_bottom_data ()
+            , BatchNormFwd_pd()
+            , output_memory(), scaleshift_memory(), ws_memory()
+            , input_primitive()
         {}
 
     ~MKLDNNBatchNormLayer() {}
@@ -162,9 +163,9 @@ class MKLDNNLRNLayer : public MKLDNNLayer<Dtype> , public Layer<Dtype>  {
 public:
     explicit MKLDNNLRNLayer(const LayerParameter& param)
         : MKLDNNLayer<Dtype>(), Layer<Dtype>(param)
-        , fwd_top_data(NULL), fwd_bottom_data (NULL)
-        , lrnFwd_pd(NULL)
-        , output_memory(NULL), scratch_(NULL), input_primitive(NULL)
+        , fwd_top_data(), fwd_bottom_data ()
+        , lrnFwd_pd()
+        , output_memory(), scratch_(), input_primitive()
         , alpha_(0.), beta_(0.), k_(0.)
         , size_(0), num_(0), width_(0), height_(0), channels_(0)
         {}
@@ -200,10 +201,10 @@ class MKLDNNPoolingLayer : public MKLDNNLayer<Dtype>, public Layer<Dtype>  {
 public:
     explicit MKLDNNPoolingLayer(const LayerParameter& param)
             : MKLDNNLayer<Dtype>(), Layer<Dtype>(param)
-            , fwd_bottom_data(NULL), fwd_top_data(NULL)
-            , poolingFwd_pd(NULL)
-            , indices_pd(NULL)
-            , indices_memory(NULL), output_memory(NULL), input_primitive(NULL)
+            , fwd_bottom_data(), fwd_top_data()
+            , poolingFwd_pd()
+            , indices_pd()
+            , indices_memory(), output_memory(), input_primitive()
             , num_(0), channels_(0), width_(0), height_(0), width_out_(0), height_out_(0)
             , kernel_w_(0), kernel_h_(0), stride_w_(0), stride_h_(0)
             , pad_w_(0), pad_h_(0)
@@ -258,9 +259,9 @@ public:
     */
     explicit MKLDNNReLULayer(const LayerParameter& param)
             : MKLDNNLayer<Dtype>(), NeuronLayer<Dtype>(param)
-            , fwd_top_data(NULL), fwd_bottom_data (NULL)
-            , reluFwd_pd(NULL), output_memory(NULL)
-            , input_primitive(NULL)
+            , fwd_top_data(), fwd_bottom_data ()
+            , reluFwd_pd(), output_memory()
+            , input_primitive()
             , num_(0), width_(0), height_(0), channels_(0)
             {}
     ~MKLDNNReLULayer() {}
@@ -291,8 +292,8 @@ class MKLDNNConcatLayer : public MKLDNNLayer<Dtype> , public Layer<Dtype> {
 public:
     explicit MKLDNNConcatLayer(const LayerParameter& param)
             : MKLDNNLayer<Dtype>(), Layer<Dtype>(param),
-            concatFwd_pd(NULL), output_memory(NULL),
-            fwd_top_data(NULL), fwd_bottom_data(NULL), split_channels(NULL) {
+            concatFwd_pd(), output_memory(),
+            fwd_top_data(), fwd_bottom_data(), split_channels() {
     }
 protected:
     virtual void LayerSetUp(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);

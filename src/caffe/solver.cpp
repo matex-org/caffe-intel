@@ -10,7 +10,6 @@ Copyright (c) 2014, 2015, the respective contributors
 All rights reserved.
 For the list of contributors go to https://github.com/BVLC/caffe/blob/master/CONTRIBUTORS.md
 
-
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
 
@@ -39,13 +38,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include <numeric>
+
 #include "boost/bind.hpp"
 #include "caffe/internode/mpiutil.hpp"
 #include "caffe/solver.hpp"
 #include "caffe/util/format.hpp"
 #include "caffe/util/hdf5.hpp"
 #include "caffe/util/io.hpp"
+#include "caffe/util/performance.hpp"
 #include "caffe/util/upgrade_proto.hpp"
+
+#ifdef USE_MLSL
+#include <mlsl.h>
+#include <mpi.h>
+#endif /* USE_MLSL */
 
 namespace caffe {
 
@@ -66,7 +73,8 @@ SolverAction::Enum Solver<Dtype>::GetRequestedAction() {
 template <typename Dtype>
 Solver<Dtype>::Solver(const SolverParameter& param, const Solver* root_solver)
     : net_(), callbacks_(), root_solver_(root_solver),
-      requested_early_exit_(false), iteration_timer_(), iterations_last_(),
+      requested_early_exit_(false),
+      scale_on_apply_(1.0),
       forward_backward_(boost::bind(&Solver<Dtype>::ForwardBackward, this)) {
   Init(param);
   Caffe::set_iter_size(param_.iter_size());
@@ -75,7 +83,8 @@ Solver<Dtype>::Solver(const SolverParameter& param, const Solver* root_solver)
 template <typename Dtype>
 Solver<Dtype>::Solver(const string& param_file, const Solver* root_solver)
     : net_(), callbacks_(), root_solver_(root_solver),
-      requested_early_exit_(false), iteration_timer_(), iterations_last_(),
+      requested_early_exit_(false),
+      scale_on_apply_(1.0),
       forward_backward_(boost::bind(&Solver<Dtype>::ForwardBackward, this)) {
   SolverParameter param;
   ReadSolverParamsFromTextFileOrDie(param_file, &param);
@@ -91,7 +100,7 @@ void Solver<Dtype>::Init(const SolverParameter& param) {
     << std::endl << param.DebugString();
   param_ = param;
   CHECK_GE(param_.average_loss(), 1) << "average_loss should be non-negative.";
-#ifndef USE_MPI
+#if !defined(USE_MPI) && !defined(USE_MLSL)
   CheckSnapshotWritePermissions();
 #endif
   if (Caffe::root_solver() && param_.random_seed() >= 0) {
@@ -105,6 +114,11 @@ void Solver<Dtype>::Init(const SolverParameter& param) {
   }
   iter_ = 0;
   current_step_ = 0;
+
+#ifdef CAFFE_PER_LAYER_TIMINGS
+  InitTimers();
+#endif
+
 }
 
 template <typename Dtype>
@@ -136,6 +150,8 @@ void Solver<Dtype>::InitTrainNet() {
         << "Creating training net from net file: " << param_.net();
     ReadNetParamsFromTextFileOrDie(param_.net(), &net_param);
   }
+  if (param_.engine() != "")
+    net_param.set_engine(param_.engine());
   // Set the correct NetState.  We start with the solver defaults (lowest
   // precedence); then, merge in any NetState specified by the net_param itself;
   // finally, merge in any NetState specified by the train_state (highest
@@ -222,6 +238,10 @@ void Solver<Dtype>::InitTestNets() {
       net_state.MergeFrom(param_.test_state(i));
     }
     net_params[i].mutable_state()->CopyFrom(net_state);
+
+    if (param_.engine() != "")
+      net_params[i].set_engine(param_.engine());
+
     LOG(INFO)
         << "Creating test net (#" << i << ") specified by " << sources[i];
     if (Caffe::root_solver()) {
@@ -263,6 +283,9 @@ void Solver<Dtype>::Step(int iters) {
     if (param_.test_interval() && iter_ % param_.test_interval() == 0
         && (iter_ > 0 || param_.test_initialization())
         && Caffe::root_solver()) {
+
+      LOG(INFO) << "TestAll";
+
       TestAll();
       if (requested_early_exit_) {
         // Break out of the while loop because stop was requested while testing.
@@ -275,7 +298,14 @@ void Solver<Dtype>::Step(int iters) {
     }
     const bool display = param_.display() && iter_ % param_.display() == 0;
     net_->set_debug_info(display && param_.debug_info());
+
+    Timer iter_timer;
+    double iter_time = 0;
+    iter_timer.Start();
+
     Dtype loss = forward_backward_();
+
+    iter_time += iter_timer.MilliSeconds();
 
     // average the loss across iterations for smoothed reporting
     UpdateSmoothedLoss(loss, start_iter, average_loss);
@@ -317,13 +347,30 @@ void Solver<Dtype>::Step(int iters) {
               << result_vec[k] << loss_msg_stream.str();
         }
       }
+
+#ifdef CAFFE_PER_LAYER_TIMINGS
+      PrintTimers(false);
+      ResetTimers();
+//      MLSL::print_mlsl_time();
+#endif
+
     }
+
+    iter_timer.Start();
+
     for (int i = 0; i < callbacks_.size(); ++i) {
       callbacks_[i]->on_gradients_ready();
     }
     if (!param().disabled_update()) {
       ApplyUpdate();
     }
+
+    iter_time += iter_timer.MilliSeconds();
+
+#ifdef CAFFE_PER_LAYER_TIMINGS
+    if (MLSL::GetNodeId() == 0)
+        LOG(INFO) << "iter " << iter_ << ", forward_backward_update_time: " << iter_time << " ms";
+#endif
 
     // Increment the internal iter_ counter -- its value should always indicate
     // the number of times the weights have been updated.
@@ -344,13 +391,118 @@ void Solver<Dtype>::Step(int iters) {
       break;
     }
   }
+
+#ifdef CAFFE_PER_LAYER_TIMINGS
+  ResetTimers();
+  PrintTimers(true);
+#endif
+
 }
+
+#ifdef CAFFE_PER_LAYER_TIMINGS
+
+template <typename Dtype>
+void Solver<Dtype>::InitTimers() {
+
+  int layer_count = net_->layers().size();
+
+  this->forward_time_per_layer.resize(layer_count, 0.0);
+  this->backward_time_per_layer.resize(layer_count, 0.0);
+  this->update_time_per_layer.resize(layer_count, 0.0);
+
+  this->forward_time_per_layer_total.resize(layer_count, 0.0);
+  this->backward_time_per_layer_total.resize(layer_count, 0.0);
+  this->update_time_per_layer_total.resize(layer_count, 0.0);
+}
+
+template <typename Dtype>
+void Solver<Dtype>::ResetTimers() {
+
+  std::transform(this->forward_time_per_layer_total.begin(),
+                 this->forward_time_per_layer_total.end(),
+                 this->forward_time_per_layer.begin(),
+                 this->forward_time_per_layer_total.begin(),
+                 std::plus<int>());
+
+  std::transform(this->backward_time_per_layer_total.begin(),
+                 this->backward_time_per_layer_total.end(),
+                 this->backward_time_per_layer.begin(),
+                 this->backward_time_per_layer_total.begin(),
+                 std::plus<int>());
+
+  std::transform(this->update_time_per_layer_total.begin(),
+                 this->update_time_per_layer_total.end(),
+                 this->update_time_per_layer.begin(),
+                 this->update_time_per_layer_total.begin(),
+                 std::plus<int>());
+
+  std::fill(this->forward_time_per_layer.begin(), this->forward_time_per_layer.end(), 0);
+  std::fill(this->backward_time_per_layer.begin(), this->backward_time_per_layer.end(), 0);
+  std::fill(this->update_time_per_layer.begin(), this->update_time_per_layer.end(), 0);
+}
+
+template <typename Dtype>
+void Solver<Dtype>::PrintTimers(bool printTotal) {
+
+#ifdef USE_MPI
+    if (caffe::internode::mpi_get_current_proc_rank())
+        return;
+#endif
+
+#ifdef USE_MLSL
+    if (MLSL::GetNodeId())
+       return;
+#endif
+
+    LOG(WARNING) << std::endl;
+    LOG(WARNING) << "####################################################";
+
+    std::vector<double>& forward_timers = printTotal ? forward_time_per_layer_total : forward_time_per_layer;
+    std::vector<double>& backward_timers = printTotal ? backward_time_per_layer_total : backward_time_per_layer;
+    std::vector<double>& update_timers = printTotal ? update_time_per_layer_total : update_time_per_layer;
+    std::string prefix = printTotal ? "TOTAL " : "DELTA ";
+
+    double forward_time = std::accumulate(forward_timers.begin(), forward_timers.end(), 0) / 1000;
+    LOG(WARNING) << prefix << "FORWARD TIME: " << forward_time << " ms";
+    for (int layer_idx = 0; layer_idx < net_->layers().size(); layer_idx++) {
+        LOG(WARNING) << "LAYER-" << layer_idx << " "
+                     << net_->layers()[layer_idx]->type()
+                     << ": forward_time: " << forward_timers[layer_idx] / 1000 << " ms";
+    }
+    LOG(WARNING) << std::endl;
+
+    double backward_time = std::accumulate(backward_timers.begin(), backward_timers.end(), 0) / 1000;
+    LOG(WARNING) << prefix << "BACKWARD TIME: " << backward_time << " ms";
+    for (int layer_idx = 0; layer_idx < net_->layers().size(); layer_idx++) {
+        LOG(WARNING) << "LAYER-" << layer_idx << " "
+                     << net_->layers()[layer_idx]->type()
+                     << ": backward_time: " << backward_timers[layer_idx] / 1000 << " ms";
+    }
+    LOG(WARNING) << std::endl;
+
+    double update_time = std::accumulate(update_timers.begin(), update_timers.end(), 0) / 1000;
+    LOG(WARNING) << prefix << "UPDATE TIME: " << update_time << " ms";
+    for (int layer_idx = 0; layer_idx < net_->layers().size(); layer_idx++) {
+        LOG(WARNING) << "LAYER-" << layer_idx << " "
+                     << net_->layers()[layer_idx]->type()
+                     << ": update_time: " << update_timers[layer_idx] / 1000 << " ms";
+    }
+    LOG(WARNING) << std::endl;
+
+    LOG(WARNING) << prefix << "TIME (F+B+U): " << (forward_time + backward_time + update_time) / 1000 << " sec";
+    LOG(WARNING) << "####################################################";
+    LOG(WARNING) << std::endl;
+}
+
+#endif /* CAFFE_PER_LAYER_TIMINGS */
 
 template <typename Dtype>
 void Solver<Dtype>::Solve(const char* resume_file) {
   CHECK(Caffe::root_solver());
   LOG(INFO) << "Solving " << net_->name();
   LOG(INFO) << "Learning Rate Policy: " << param_.lr_policy();
+
+  PERFORMANCE_INIT_MONITOR();
 
   // Initialize to false every time we start solving.
   requested_early_exit_ = false;
@@ -395,7 +547,7 @@ void Solver<Dtype>::Solve(const char* resume_file) {
 #endif
   }
 
-#ifndef USE_MPI // in multinode last test must be done after weights update
+#if !defined(USE_MPI) && !defined(USE_MLSL) // in multinode last test must be done after weights update
   if (param_.test_interval() && iter_ % param_.test_interval() == 0)
     TestAll();
 #endif
@@ -468,16 +620,30 @@ void Solver<Dtype>::Test(const int test_net_id) {
     return;
   }
   if (param_.test_compute_loss()) {
+#ifdef USE_MLSL
+    MPI_Allreduce(MPI_IN_PLACE, &loss, 1, sizeof(Dtype) == 4 ? MPI_FLOAT : MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    loss /= (param_.test_iter(test_net_id) * MLSL::GetNumNodes());
+    if(MLSL::GetNodeId() == 0) LOG(INFO) << "Test loss: " << loss;
+#else /* !USE_MLSL */
     loss /= param_.test_iter(test_net_id);
     LOG(INFO) << "Test loss: " << loss;
+#endif /* USE_MLSL */
   }
+#ifdef USE_MLSL
+  MPI_Allreduce(MPI_IN_PLACE, test_score.data(), test_score.size(), sizeof(Dtype) == 4 ? MPI_FLOAT : MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+  if(MLSL::GetNodeId() == 0)
+#endif /* USE_MLSL */
   for (int i = 0; i < test_score.size(); ++i) {
     const int output_blob_index =
         test_net->output_blob_indices()[test_score_output_id[i]];
     const string& output_name = test_net->blob_names()[output_blob_index];
     const Dtype loss_weight = test_net->blob_loss_weights()[output_blob_index];
     ostringstream loss_msg_stream;
+#ifdef USE_MLSL
+    const Dtype mean_score = test_score[i] / (param_.test_iter(test_net_id) * MLSL::GetNumNodes());
+#else /* !USE_MLSL */
     const Dtype mean_score = test_score[i] / param_.test_iter(test_net_id);
+#endif /* USE_MLSL */
     if (loss_weight) {
       loss_msg_stream << " (* " << loss_weight
                       << " = " << loss_weight * mean_score << " loss)";
@@ -497,6 +663,11 @@ void Solver<Dtype>::Test(const int test_net_id) {
 template <typename Dtype>
 void Solver<Dtype>::Snapshot() {
   CHECK(Caffe::root_solver());
+
+#ifdef USE_MLSL
+  if(MLSL::GetNodeId() != 0) return;
+#endif /* USE_MLSL */
+
   string model_filename;
   switch (param_.snapshot_format()) {
   case caffe::SolverParameter_SnapshotFormat_BINARYPROTO:

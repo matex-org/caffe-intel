@@ -10,7 +10,6 @@ Copyright (c) 2014, 2015, the respective contributors
 All rights reserved.
 For the list of contributors go to https://github.com/BVLC/caffe/blob/master/CONTRIBUTORS.md
 
-
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
 
@@ -45,6 +44,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "caffe/solver_factory.hpp"
 #include "caffe/util/benchmark.hpp"
 
+#include "caffe/util/benchmark.hpp"
+
 namespace caffe {
 
 /**
@@ -57,6 +58,7 @@ namespace caffe {
   */
   namespace SolverAction {
     enum Enum {
+      UNKNOWN = -1,
       NONE = 0,  // Take no special action.
       STOP = 1,  // Stop training. snapshot_after_train controls whether a
                  // snapshot is created.
@@ -111,6 +113,8 @@ class Solver {
   }
   int iter() { return iter_; }
   void set_iter(int value) { iter_ = value; }
+  float scale_on_apply() { return scale_on_apply_; }
+  void set_scale_on_apply(float value) { scale_on_apply_ = value; }
 
   // Invoked at specific points during an iteration
   class Callback {
@@ -149,6 +153,22 @@ class Solver {
 
   void TestAll();
 
+#ifdef CAFFE_PER_LAYER_TIMINGS
+  /* Timers for performance measurements */
+  Timer timer;
+  std::vector<double> forward_time_per_layer;
+  std::vector<double> backward_time_per_layer;
+  std::vector<double> update_time_per_layer;
+
+  std::vector<double> forward_time_per_layer_total;
+  std::vector<double> backward_time_per_layer_total;
+  std::vector<double> update_time_per_layer_total;
+
+  void InitTimers();
+  void ResetTimers();
+  void PrintTimers(bool printTotal);
+#endif /* CAFFE_PER_LAYER_TIMINGS */
+
  protected:
   string SnapshotFilename(const string extension);
   string SnapshotToBinaryProto();
@@ -184,6 +204,8 @@ class Solver {
   // Timing information
   Timer iteration_timer_;
   float iterations_last_;
+  // Scale gradients during apply
+  float scale_on_apply_;
 
   ForwardBackwardFunc forward_backward_;
 

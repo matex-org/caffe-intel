@@ -10,7 +10,6 @@ Copyright (c) 2014, 2015, the respective contributors
 All rights reserved.
 For the list of contributors go to https://github.com/BVLC/caffe/blob/master/CONTRIBUTORS.md
 
-
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
 
@@ -66,7 +65,13 @@ namespace bp = boost::python;
 #include "caffe/parallel/mpi_sync_layers_cpu.hpp"
 #include "caffe/parallel/mpi_sync_params_cpu.hpp"
 #endif
+#include "caffe/training_utils.hpp"
 #include "caffe/util/signal_handler.h"
+
+#ifdef USE_MLSL
+#include "caffe/multinode/MlslSync.hpp"
+#include "caffe/internode/mlsl_util.hpp"
+#endif /* USE_MLSL */
 
 using caffe::Blob;
 using caffe::Caffe;
@@ -121,6 +126,10 @@ DEFINE_int32(comm_threads, 1,
     " The number of threads used by communication code.");
 DEFINE_bool(forward_only, false,
     "Optional; Execute only forward pass");
+DEFINE_string(engine, "",
+    "Optional; Engine sequence in format: engine:subengine_1,subengine_2,...");
+DEFINE_string(par, "",
+    "Optional; parallelization strategy, e.g., MPISyncCPU");
 
 // A simple registry for caffe commands.
 typedef int (*BrewFunction)();
@@ -187,13 +196,6 @@ caffe::Phase get_phase_from_flags(caffe::Phase default_value) {
   return caffe::TRAIN;  // Avoid warning
 }
 
-// Parse stages from flags
-vector<string> get_stages_from_flags() {
-  vector<string> stages;
-  boost::split(stages, FLAGS_stage, boost::is_any_of(","));
-  return stages;
-}
-
 // caffe commands to call by
 //     caffe <command> <args>
 //
@@ -241,6 +243,7 @@ caffe::SolverAction::Enum GetRequestedAction(
     return caffe::SolverAction::NONE;
   }
   LOG(FATAL) << "Invalid signal effect \""<< flag_value << "\" was specified";
+  return caffe::SolverAction::UNKNOWN;
 }
 
 // Train / Finetune a model.
@@ -249,15 +252,26 @@ int train() {
   CHECK(!FLAGS_snapshot.size() || !FLAGS_weights.size())
       << "Give a snapshot to resume training or weights to finetune "
       "but not both.";
-  vector<string> stages = get_stages_from_flags();
 
   caffe::SolverParameter solver_param;
-  caffe::ReadSolverParamsFromTextFileOrDie(FLAGS_solver, &solver_param);
-
-  solver_param.mutable_train_state()->set_level(FLAGS_level);
-  for (int i = 0; i < stages.size(); i++) {
-    solver_param.mutable_train_state()->add_stage(stages[i]);
+  if (!caffe::ReadProtoFromTextFile(FLAGS_solver, &solver_param)) {
+    caffe::MultiPhaseSolverParameter multi_solver_params;
+    CHECK(caffe::ReadProtoFromTextFile(FLAGS_solver, &multi_solver_params))
+      << "Failed to parse SolverParameter file: "  <<  FLAGS_solver;
+    return multiphase_train(
+      &multi_solver_params,
+      FLAGS_solver,
+      FLAGS_engine,
+      FLAGS_level,
+      FLAGS_stage);
   }
+
+  use_flags(
+    &solver_param,
+    FLAGS_solver,
+    FLAGS_engine,
+    FLAGS_level,
+    FLAGS_stage);
 
   // If the gpus flag is not provided, allow the mode and device to be set
   // in the solver prototxt.
@@ -314,13 +328,40 @@ int train() {
   if (FLAGS_param_server != "") {
     LOG(INFO) << "Configuring multinode setup";
 
-      if (FLAGS_param_server != "mpi") {
+#ifdef USE_MLSL
+      if (FLAGS_param_server != "mlsl")
+#else
+      if (FLAGS_param_server != "mpi")
+#endif /* USE_MLSL */
+      {
+
         LOG(ERROR) << "currently unsupported";
         return 1;
       }
-      caffe::SynchronousNode<float> sync(solver, FLAGS_comm_threads);
-      LOG(INFO) << "Starting Multi-node Optimization in mpi environment";
-      sync.run();
+
+#ifdef USE_MLSL
+      if (FLAGS_param_server == "mlsl") {
+        caffe::MlslSync<float> sync(solver);
+        LOG(INFO) << "Starting Multi-node Optimization in MLSL environment";
+        sync.run();
+      }
+#else /* !USE_MLSL */
+      if (FLAGS_param_server == "mpi") {
+        caffe::SynchronousNode<float> sync(solver, FLAGS_comm_threads);
+        LOG(INFO) << "Starting Multi-node Optimization in mpi environment";
+        sync.run();
+      }
+#endif /* USE_MLSL */
+
+  } else if (FLAGS_par != "") {
+    if (FLAGS_par == "MPISyncCPU") {
+      caffe::MPISyncCPU<float> sync(solver);
+      sync.Run();
+    }
+    else {
+      LOG(ERROR) << "unrecognized -par value: " << FLAGS_par;
+      return 1;
+    }
   } else if (gpus.size() > 1) {
     caffe::P2PSync<float> sync(solver, NULL, solver->param());
     sync.Run(gpus);
@@ -402,7 +443,7 @@ RegisterBrewFunction(data_server);
 int test() {
   CHECK_GT(FLAGS_model.size(), 0) << "Need a model definition to score.";
   CHECK_GT(FLAGS_weights.size(), 0) << "Need model weights to score.";
-  vector<string> stages = get_stages_from_flags();
+  vector<string> stages = get_stages_from_flags(FLAGS_stage);
 
   // Set device id and mode
   vector<int> gpus;
@@ -421,7 +462,8 @@ int test() {
     Caffe::set_mode(Caffe::CPU);
   }
   // Instantiate the caffe net.
-  Net<float> caffe_net(FLAGS_model, caffe::TEST, FLAGS_level, &stages);
+  Net<float> caffe_net(FLAGS_model, caffe::TEST, FLAGS_level, &stages, NULL,
+                       FLAGS_engine);
   caffe_net.CopyTrainedLayersFrom(FLAGS_weights);
   LOG(INFO) << "Running for " << FLAGS_iterations << " iterations.";
 
@@ -470,12 +512,11 @@ int test() {
 }
 RegisterBrewFunction(test);
 
-
 // Time: benchmark the execution time of a model.
 int time() {
   CHECK_GT(FLAGS_model.size(), 0) << "Need a model definition to time.";
   caffe::Phase phase = get_phase_from_flags(caffe::TRAIN);
-  vector<string> stages = get_stages_from_flags();
+  vector<string> stages = get_stages_from_flags(FLAGS_stage);
 
   // Set device id and mode
   vector<int> gpus;
@@ -489,7 +530,8 @@ int time() {
     Caffe::set_mode(Caffe::CPU);
   }
   // Instantiate the caffe net.
-  Net<float> caffe_net(FLAGS_model, phase, FLAGS_level, &stages);
+  Net<float> caffe_net(FLAGS_model, phase, FLAGS_level, &stages, NULL,
+                       FLAGS_engine);
 
   // Do a clean forward and backward pass, so that memory allocation are done
   // and future iterations will be more stable.
@@ -572,7 +614,6 @@ int time() {
   return 0;
 }
 RegisterBrewFunction(time);
-
 
 // collect & compare: Debugging extansion for CPU-GPU functional comparison
 #include <stdio.h>
@@ -767,9 +808,14 @@ int compare() {
 }
 RegisterBrewFunction(compare);
 
-
 int main(int argc, char** argv) {
+
+#ifdef USE_MLSL
+  caffe::internode::mlsl_init(argc, argv);
+#else /* !USE_MLSL */
   caffe::internode::mpi_init(argc, argv);
+#endif /* USE_MLSL */
+
   // Print output to stderr (while still logging).
   FLAGS_alsologtostderr = 1;
   // Set version
@@ -801,18 +847,36 @@ int main(int argc, char** argv) {
     try {
 #endif
       int ret = GetBrewFunction(caffe::string(argv[1]))();
+
+#ifdef USE_MLSL
+      caffe::internode::mlsl_finalize();
+#else /* !USE_MLSL */
       caffe::internode::mpi_finalize();
+#endif /* USE_MLSL */
+
       return ret;
 #ifdef WITH_PYTHON_LAYER
     } catch (bp::error_already_set) {
       PyErr_Print();
+
+#ifdef USE_MLSL
+      caffe::internode::mlsl_finalize();
+#else /* USE_MLSL */
       caffe::internode::mpi_finalize();
+#endif /* USE_MLSL */
+
       return 1;
     }
 #endif
   } else {
     gflags::ShowUsageWithFlagsRestrict(argv[0], "tools/caffe");
   }
-  caffe::internode::mpi_finalize();
+
+#ifdef USE_MLSL
+      caffe::internode::mlsl_finalize();
+#else /* !USE_MLSL */
+      caffe::internode::mpi_finalize();
+#endif /* USE_MLSL */
+
   return 0;
 }

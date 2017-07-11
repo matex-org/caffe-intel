@@ -1,19 +1,19 @@
-# 
+#
 # All modification made by Intel Corporation: © 2016 Intel Corporation
-# 
+#
 # All contributions by the University of California:
 # Copyright (c) 2014, 2015, The Regents of the University of California (Regents)
 # All rights reserved.
-# 
+#
 # All other contributions:
 # Copyright (c) 2014, 2015, the respective contributors
 # All rights reserved.
 # For the list of contributors go to https://github.com/BVLC/caffe/blob/master/CONTRIBUTORS.md
-# 
-# 
+#
+#
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
-# 
+#
 #     * Redistributions of source code must retain the above copyright notice,
 #       this list of conditions and the following disclaimer.
 #     * Redistributions in binary form must reproduce the above copyright
@@ -22,7 +22,7 @@
 #     * Neither the name of Intel Corporation nor the names of its contributors
 #       may be used to endorse or promote products derived from this software
 #       without specific prior written permission.
-# 
+#
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 # AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 # IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -58,6 +58,39 @@ else
 	BUILD_DIR := $(RELEASE_BUILD_DIR)
 	OTHER_BUILD_DIR := $(DEBUG_BUILD_DIR)
 endif
+
+#################### MLSL ####################
+
+ifeq ($(USE_MLSL), 1)
+ifdef I_MPI_ROOT
+	MPI_H_EXIST := $(shell test -f $(I_MPI_ROOT)/intel64/include/mpi.h; echo $$?)
+ifeq ($(MPI_H_EXIST),0)
+	COMMON_FLAGS += -DUSE_MLSL=1 -I$(I_MPI_ROOT)/intel64/include
+else
+	COMMON_FLAGS += -DUSE_MLSL=1 $(shell pkg-config --cflags mpich)
+endif
+else
+	COMMON_FLAGS += -DUSE_MLSL=1 $(shell pkg-config --cflags mpich)
+endif
+	LIBRARIES += mlsl mpi
+	INCLUDE_DIRS += $(MLSL_ROOT)/intel64/include
+	LIBRARY_DIRS += $(MLSL_ROOT)/intel64/lib
+
+ifeq ($(DISTR_WEIGHT_UPDATE), 1)
+	COMMON_FLAGS += -DDISTR_WEIGHT_UPDATE
+endif
+
+ifeq ($(CAFFE_PER_LAYER_TIMINGS), 1)
+	COMMON_FLAGS += -DCAFFE_PER_LAYER_TIMINGS
+endif
+
+ifeq ($(CAFFE_MLSL_SHUFFLE), 1)
+        COMMON_FLAGS += -DCAFFE_MLSL_SHUFFLE
+endif
+
+endif
+
+#################### MLSL ####################
 
 # All of the directories containing code.
 SRC_DIRS := $(shell find * -type d -exec bash -c "find {} -maxdepth 1 \
@@ -238,12 +271,12 @@ ifeq ($(USE_REMOTE_INDEX_SFTP), 1)
 	LIBRARIES += ssh
 endif
 ifeq ($(USE_OPENCV), 1)
-	LIBRARIES += opencv_core opencv_highgui opencv_imgproc 
+	LIBRARIES += opencv_core opencv_highgui opencv_imgproc
 
 	ifeq ($(OPENCV_VERSION), 3)
 		LIBRARIES += opencv_imgcodecs
 	endif
-		
+
 endif
 PYTHON_LIBRARIES ?= boost_python python2.7
 WARNINGS := -Wall -Wno-sign-compare
@@ -282,7 +315,6 @@ DOXYGEN_SOURCES := $(shell find \
 	-name "*.cpp" -or -name "*.hpp" -or -name "*.cu" -or -name "*.cuh" -or \
         -name "*.py" -or -name "*.m")
 DOXYGEN_SOURCES += $(DOXYGEN_CONFIG_FILE)
-
 
 ##############################
 # Configure build
@@ -360,7 +392,7 @@ else ifneq (,$(findstring g++,$(CXX)))
 		CXX_HARDENING_FLAGS += -fPIE -fstack-protector-strong
 	else
 		CXX_HARDENING_FLAGS += -fPIE -fstack-protector
-	endif	
+	endif
 endif
 
 # Linker flags
@@ -453,13 +485,18 @@ endif
 
 ifeq ($(KNL), 1)
 	COMMON_FLAGS += -DKNL
-	LIBRARIES += memkind 
+	LIBRARIES += memkind
 endif
 
 # Python layer support
 ifeq ($(WITH_PYTHON_LAYER), 1)
  COMMON_FLAGS += -DWITH_PYTHON_LAYER
 	LIBRARIES += $(PYTHON_LIBRARIES)
+endif
+
+# Performance monitoring
+ifeq ($(PERFORMANCE_MONITORING), 1)
+	CXXFLAGS += -DPERFORMANCE_MONITORING
 endif
 
 # MKLDNN configuration
@@ -471,7 +508,7 @@ ifneq ("$(wildcard $(MKLDNN_INCLUDE)/mkldnn.hpp)","")
 	ifeq ($(USE_MKLDNN_AS_DEFAULT_ENGINE), 1)
 	CXXFLAGS += -DUSE_MKLDNN_AS_DEFAULT_ENGINE
 	endif
-	LIBRARIES += mkldnn
+	MKLDNN_LDFLAGS+=-lmkldnn
 	MKLDNN_LDFLAGS+=-L$(MKLDNNROOT)/lib -Wl,-rpath,$(MKLDNNROOT)/lib
 endif
 
@@ -580,7 +617,7 @@ endif
 	superclean supercleanlist supercleanfiles warn everything
 
 # Following section detects if compiler supports OpenMP and updated compilation/linking flags accordingly
-# if no openmp is supported in compiler then openmp compiler flags are not to be updated 
+# if no openmp is supported in compiler then openmp compiler flags are not to be updated
 # TODO: FIX for ICC?
 USE_OPENMP ?= 1
 ifeq ($(USE_OPENMP), 1)
@@ -660,7 +697,6 @@ $(LINT_OUTPUTS): $(LINT_OUTPUT_DIR)/%.lint.txt : % $(LINT_SCRIPT) | $(LINT_OUTPU
 		| grep -v "^Total errors found: 0" \
 		> $@ \
 		|| true
-
 
 test: $(TEST_ALL_BIN) $(TEST_ALL_DYNLINK_BIN) $(TEST_BINS)
 

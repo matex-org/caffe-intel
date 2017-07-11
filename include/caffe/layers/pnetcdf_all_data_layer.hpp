@@ -52,4 +52,3 @@ class PnetCDFAllDataLayer : public BasePrefetchingDataLayer<Dtype> {
 }  // namespace caffe
 
 #endif  // PNETCDF_ALL_CAFFE_DATA_LAYER_HPP_
-

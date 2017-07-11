@@ -43,7 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "caffe/filler.hpp"
 #include "caffe/layer.hpp"
 #include "caffe/layers/mkldnn_layers.hpp"
-#include "mkl_service.h"
+//#include "mkl_service.h"
 
 #if 0
 #include "mkldnn_types.h"
@@ -57,9 +57,9 @@ namespace caffe {
 template <typename Dtype>
 MKLDNNInnerProductLayer<Dtype>::MKLDNNInnerProductLayer(const LayerParameter& param)
             : MKLDNNLayer<Dtype>(), InnerProductLayer<Dtype>(param)
-            , fwd_bottom_data(NULL), fwd_top_data(NULL), fwd_weights_data(NULL), fwd_bias_data(NULL)
-            , ipFwd_pd(NULL), output_memory(NULL)
-            , input_primitive(NULL), weights_primitive(NULL), bias_primitive(NULL)
+            , fwd_bottom_data(), fwd_top_data(), fwd_weights_data(), fwd_bias_data()
+            , ipFwd_pd(), output_memory()
+            , input_primitive(), weights_primitive(), bias_primitive()
             , w_(0), h_(0)
 {
 }
@@ -126,9 +126,24 @@ void MKLDNNInnerProductLayer<Dtype>::InitInnerProduct(const vector<Blob<Dtype>*>
                                                 , init_output_md));
     }
 
-    engine cpu_engine = CpuEngine::Instance().get_engine();
+    // ---- Determining engine to use -----------------------
+    std::string subengines = this->layer_param_.engine();
+    if (subengines == "" || subengines == "MKLDNN")
+      subengines = "MKLDNN:CPU";
+    EngineParser ep(subengines);
+    unsigned subEngineIndex = 0;
+    for(; subEngineIndex < ep.getNumberOfSubEngines(); subEngineIndex++) {
+      try {
+        ipFwd_pd.reset(new inner_product_forward::primitive_desc(*ipFwd_desc,
+                ep.getMKLDNNSubEngine(subEngineIndex)));
+      }
+      catch(...) {
+        continue;
+      }
+      break;
+    }
 
-    ipFwd_pd.reset(new inner_product_forward::primitive_desc(*ipFwd_desc, cpu_engine));
+    CHECK(ipFwd_pd);
 
     // Create priv memory primitive descriptors stored as class members
     typedef typename memory::primitive_desc MemPD; // short name for memory::primitive_desc
@@ -139,6 +154,7 @@ void MKLDNNInnerProductLayer<Dtype>::InitInnerProduct(const vector<Blob<Dtype>*>
     shared_ptr<MemPD> prv_weights_memory_pd(new MemPD(ipFwd_pd->weights_primitive_desc()));
 
     // Create usr memory primitive descriptors stored as class members
+    engine cpu_engine = CpuEngine::Instance().get_engine();
     memory::format input_mfmt = has_spatial ? memory::format::nchw : memory::format::nc;
     shared_ptr<MemPD> usr_input_memory_pd(new MemPD({{input_tz}, mpcsn, input_mfmt}, cpu_engine));
     shared_ptr<MemPD> usr_bias_memory_pd(new MemPD({{bias_tz}, mpcsn, memory::format::x}, cpu_engine));

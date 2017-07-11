@@ -132,7 +132,7 @@ void MKLDNNBatchNormLayer<Dtype>::InitBatchNorm(const vector<Blob<Dtype>*>& bott
     memory::data_type mpcsn = memory::data_type::f32;
     // ---- Initialize memory descriptors -------------
     shared_ptr<memory::desc> input_md, output_md, scaleshift_md;
-    shared_ptr<memory::primitive_desc> usr_mpd(NULL), prv_mpd(NULL), scaleshift_mpd(NULL);
+    shared_ptr<memory::primitive_desc> usr_mpd, prv_mpd, scaleshift_mpd;
     if (bottom_data_is_prv) {
         shared_ptr<MKLDNNMemoryDescriptor<Dtype, false> > mem_descr
             = get_mkldnn_prv_descriptor<Dtype, false>(bottom[0]);
@@ -147,7 +147,25 @@ void MKLDNNBatchNormLayer<Dtype>::InitBatchNorm(const vector<Blob<Dtype>*>& bott
 
     // ---- Initialize BatchNorm primitive descriptor -------------
     batch_normalization_forward::desc BatchNormFwd_desc(propagation, *input_md, eps_);
-    BatchNormFwd_pd.reset(new batch_normalization_forward::primitive_desc(BatchNormFwd_desc, cpu_engine));
+    // ---- Determining engine to use -----------------------
+    std::string subengines = this->layer_param_.engine();
+    if (subengines == "" || subengines == "MKLDNN")
+      subengines = "MKLDNN:CPU";
+    EngineParser ep(subengines);
+    unsigned subEngineIndex = 0;
+    for(; subEngineIndex < ep.getNumberOfSubEngines(); subEngineIndex++) {
+      try {
+        BatchNormFwd_pd.reset(new batch_normalization_forward::primitive_desc(BatchNormFwd_desc,
+                ep.getMKLDNNSubEngine(subEngineIndex)));
+      }
+      catch(...) {
+        continue;
+      }
+      break;
+    }
+
+    CHECK(BatchNormFwd_pd);
+
     // ---- Create memory  ---------------------
     scaleshift_memory.reset(new memory(BatchNormFwd_pd->weights_primitive_desc()));
 

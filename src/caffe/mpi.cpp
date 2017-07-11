@@ -349,4 +349,3 @@ int dummy();
 
 } // namespace mpi
 } // namespace caffe
-

@@ -14,8 +14,8 @@
 #include "caffe/mpi.hpp"
 #include "caffe/parallel/mpi_sync_cpu.hpp"
 
-DEFINE_string(par, "",
-    "Optional; select parallelization strategy, e.g., MPISyncCPU");
+//DEFINE_string(par, "",
+//    "Optional; select parallelization strategy, e.g., MPISyncCPU");
 DEFINE_int32(buffer_depth, 2,
     "Optional; parallel mode, the number of buffers used by "
     "communication code.");
@@ -40,6 +40,7 @@ MPISyncCPU<Dtype>::MPISyncCPU(shared_ptr<Solver<Dtype> > root_solver)
   this->configure(solver_.get());
   solver_->add_callback(this);
   caffe::mpi::bcast(data_, size_, 0, comm_);
+  solver_->set_scale_on_apply(Dtype(1.0 / comm_size_));
 #else
   NO_MPI;
 #endif
@@ -60,9 +61,6 @@ void MPISyncCPU<Dtype>::on_gradients_ready() {
 #ifdef USE_MPI
   // Sum gradients
   caffe::mpi::allreduce(diff_, size_, MPI_SUM, comm_);
-  if (!FLAGS_scale_on_apply) {
-    caffe_scal(size_, Dtype(1.0 / comm_size_), diff_);
-  }
 #else
   NO_MPI;
 #endif
@@ -87,4 +85,3 @@ void MPISyncCPU<Dtype>::Step(int iters) {
 INSTANTIATE_CLASS(MPISyncCPU);
 
 }  // namespace caffe
-

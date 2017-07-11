@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "caffe/layers/mkl_layers.hpp"
 #include "caffe/util/math_functions.hpp"
+#include "caffe/util/performance.hpp"
 
 namespace caffe {
 
@@ -91,9 +92,38 @@ void MKLEltwiseLayer<Dtype>::Init(const vector<Blob<Dtype>*>& bottom,
                                              false);
   }
 
-  fwd_top_data->create_user_layout(dim_src, sizes_src, strides_src,false);
+  fwd_top_data->create_user_layout(dim_src, sizes_src, strides_src, false);
 
   dnnDelete<Dtype>(sumPrimitive);
+
+#ifdef USE_MLSL
+
+  DataType dt = (sizeof(Dtype) == 4)? DT_FLOAT : DT_DOUBLE;
+  ComputeOpRegInfo *myRegInfo;
+  myRegInfo = new ComputeOpRegInfo(COMP_OP_TYPE_CONCAT);
+  myRegInfo->SetName(this->layer_param_.name().c_str());
+  for(int i=0; i<bottom.size(); i++)
+  {
+      int ic = bottom[i]->channels();
+      int iw = bottom[i]->width();
+      int ih = bottom[i]->height();
+      myRegInfo->AddInputFeatureMap(ic, iw*ih, dt);
+  }
+
+  for(int i=0; i<top.size(); i++)
+  {
+      int oc = bottom[0]->channels();
+      int ow = bottom[0]->width();
+      int oh = bottom[0]->height();
+      myRegInfo->AddOutputFeatureMap(oc, ow*oh, dt);
+  }
+
+  myRegInfo->Validate();
+  this->layerOp = new ComputeOp(myRegInfo, caffe::internode::data_parallelism);
+  delete myRegInfo;
+
+#endif /* USE_MLSL */
+
 }
 
 
@@ -112,13 +142,12 @@ void MKLEltwiseLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
     EltwiseParameter_EltwiseOp_SUM)
       << "MKLEltwise Layer only process summation.";
 
-  Init(bottom,top);
+  Init(bottom, top);
 }
 
 template <typename Dtype>
 void MKLEltwiseLayer<Dtype>::Reshape(const vector<Blob<Dtype>*>& bottom,
       const vector<Blob<Dtype>*>& top) {
-
   for (int i = 1; i < bottom.size(); ++i) {
     CHECK(bottom[i]->shape() == bottom[0]->shape());
   }
@@ -137,7 +166,7 @@ void MKLEltwiseLayer<Dtype>::Reshape(const vector<Blob<Dtype>*>& bottom,
     return;
   }
 
-  Init(bottom,top);
+  Init(bottom, top);
 }
 
 template <typename Dtype>
@@ -217,7 +246,11 @@ void MKLEltwiseLayer<Dtype>::Forward_cpu(
         reinterpret_cast<void*>(const_cast<Dtype*>(top[0]->mutable_cpu_data()));
     }
 
-    e = dnnExecute<Dtype>(sumPrimitive, eltwise_res);
+    { // local scope needed since the macro below contains variable declaration
+      PERFORMANCE_MEASUREMENT_BEGIN();
+      e = dnnExecute<Dtype>(sumPrimitive, eltwise_res);
+      PERFORMANCE_MEASUREMENT_END_STATIC("FW_mkl_eltwise");
+    }
     CHECK_EQ(e, E_SUCCESS);
 
     break;
@@ -233,21 +266,7 @@ template <typename Dtype>
 void MKLEltwiseLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top,
     const vector<bool>& propagate_down, const vector<Blob<Dtype>*>& bottom) {
 
-  const Dtype* top_diff = top[0]->prv_diff();
-  int count = 0;
-  bool is_top_diff_prv = false;
-
-  // If there is no diff in prv layout
-  // then we are given cpu layout
-  // and we will produce bottom at cpu layout as well
-  if (top_diff == NULL) {
-    top_diff = top[0]->cpu_diff();
-    count = top[0]->count();
-  } else {
-    count = top[0]->prv_diff_count();
-    is_top_diff_prv = true;
-  }
-  Dtype* bottom_diff = NULL;
+  bool is_top_diff_prv = top[0]->prv_diff() == NULL ? false : true;
 
   for (int i = 0; i < bottom.size(); ++i) {
     if (propagate_down[i]) {
@@ -255,7 +274,7 @@ void MKLEltwiseLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top,
       case EltwiseParameter_EltwiseOp_SUM:
         CHECK_EQ(coeffs_[i], Dtype(1)) << "Not supported yet";
         if (is_top_diff_prv == false) {
-          bottom_diff = bottom[i]->mutable_cpu_diff();
+          bottom[i]->set_cpu_diff(top[0]->mutable_cpu_diff());
         } else {
           if (!bwd_bottom_diff[i]->layout_int) {
             bwd_bottom_diff[i]->create_internal_layout(sumPrimitive,
@@ -263,10 +282,8 @@ void MKLEltwiseLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top,
           }
           CHECK_EQ(true, bwd_bottom_diff[i]->layout_compare(
                   top[0]->get_prv_diff_descriptor()));
-          bottom[i]->set_prv_diff_descriptor(bwd_bottom_diff[i]);
-          bottom_diff = bottom[i]->mutable_prv_diff();
+          bottom[i]->set_prv_diff_descriptor(top[0]->get_prv_diff_descriptor(), true);
         }
-        caffe_copy(count, top_diff, bottom_diff);
         break;
       case EltwiseParameter_EltwiseOp_MAX:
       case EltwiseParameter_EltwiseOp_PROD:

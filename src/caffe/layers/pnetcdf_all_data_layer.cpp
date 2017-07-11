@@ -427,7 +427,7 @@ void PnetCDFAllDataLayer<Dtype>::load_batch(Batch<Dtype>* batch, bool in_thread)
     {
       Datum datum = masterDatum;
       datum.set_data(this->data_.get() + pnetcdf_offset, datum_size);
-      
+
       int offset = batch->data_.offset(item_id);
 #ifdef _OPENMP
       Blob<Dtype> tmp_data;
@@ -445,7 +445,7 @@ void PnetCDFAllDataLayer<Dtype>::load_batch(Batch<Dtype>* batch, bool in_thread)
     }
     trans_time += timer.MicroSeconds();
   }
-  
+
   current_row_+=batch_size;
 
   timer.Stop();
@@ -469,4 +469,3 @@ INSTANTIATE_CLASS(PnetCDFAllDataLayer);
 REGISTER_LAYER_CLASS(PnetCDFAllData);
 
 }  // namespace caffe
-

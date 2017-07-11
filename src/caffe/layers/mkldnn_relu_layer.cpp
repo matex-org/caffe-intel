@@ -86,7 +86,7 @@ void MKLDNNReLULayer<Dtype>::InitReLU(const vector<Blob<Dtype>*>& bottom, const 
     memory::data_type mpcsn = memory::data_type::f32;
     // ---- Initialize memory descriptors -------------
     shared_ptr<memory::desc> input_md, output_md;
-    shared_ptr<memory::primitive_desc> usr_mpd(NULL), prv_mpd(NULL);
+    shared_ptr<memory::primitive_desc> usr_mpd, prv_mpd;
     if (bottom_data_is_prv) {
         shared_ptr<MKLDNNMemoryDescriptor<Dtype, false> > mem_descr
             = get_mkldnn_prv_descriptor<Dtype, false>(bottom[0]);
@@ -101,7 +101,25 @@ void MKLDNNReLULayer<Dtype>::InitReLU(const vector<Blob<Dtype>*>& bottom, const 
 
     // ---- Initialize relu primitive descriptor -------------
     relu_forward::desc reluFwd_desc(propagation, *input_md, negative_slope);
-    reluFwd_pd.reset(new relu_forward::primitive_desc(reluFwd_desc, cpu_engine));
+
+    // ---- Determining engine to use -----------------------
+    std::string subengines = this->layer_param_.engine();
+    if (subengines == "" || subengines == "MKLDNN")
+      subengines = "MKLDNN:CPU";
+    EngineParser ep(subengines);
+    unsigned subEngineIndex = 0;
+    for(; subEngineIndex < ep.getNumberOfSubEngines(); subEngineIndex++) {
+      try {
+        reluFwd_pd.reset(new relu_forward::primitive_desc(reluFwd_desc,
+                ep.getMKLDNNSubEngine(subEngineIndex)));
+      }
+      catch(...) {
+        continue;
+      }
+      break;
+    }
+
+    CHECK(reluFwd_pd);
 
     // ---  init primitive and prv_memory descriptors ----------------------
     fwd_bottom_data.reset(new MKLDNNData<Dtype>(usr_mpd, prv_mpd, bottom[0], this));

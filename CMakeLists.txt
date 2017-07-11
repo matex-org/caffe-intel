@@ -42,8 +42,10 @@ caffe_option(USE_LEVELDB "Build with levelDB" ON)
 caffe_option(USE_LMDB "Build with lmdb" ON)
 caffe_option(ALLOW_LMDB_NOLOCK "Allow MDB_NOLOCK when reading LMDB files (only if necessary)" OFF)
 caffe_option(USE_SYSTEMTAP "Build for SystemTap" OFF)
-
+#caffe_option(USE_GITHUB_MKLDNN "Download and use MKL-DNN available on github" OFF)
+ 
 # ---[ Dependencies
+include(cmake/MKLDNN.cmake)
 include(cmake/Dependencies.cmake)
 
 # ---[ Flags
@@ -80,9 +82,9 @@ if(UNIX OR APPLE)
   
   # Generic flags.
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC -fno-operator-names -Wformat -Wformat-security -Wall")
-  if(CPU_ONLY)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-  endif()
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+  # Dot not forward c++11 flag to GPU beucause it is not supported
+  set( CUDA_PROPAGATE_HOST_FLAGS OFF )
   set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -D_FORTIFY_SOURCE=2")
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -pie")
 endif()
