@@ -257,6 +257,8 @@ USE_LEVELDB ?= 1
 USE_LMDB ?= 1
 USE_PNETCDF ?= 1
 USE_OPENCV ?= 1
+USE_REMOTE_INDEX ?= 1
+USE_REMOTE_INDEX_SFTP ?= 1
 
 ifeq ($(USE_LEVELDB), 1)
 	LIBRARIES += leveldb snappy
@@ -267,8 +269,11 @@ endif
 ifeq ($(USE_PNETCDF), 1)
 	LIBRARIES += pnetcdf
 endif
+ifeq ($(USE_REMOTE_INDEX_SFTP), 1)
+	LIBRARIES += ssh
+endif
 ifeq ($(USE_OPENCV), 1)
-	LIBRARIES += opencv_core opencv_highgui opencv_imgproc 
+	LIBRARIES += opencv_core opencv_highgui opencv_imgproc
 
 	ifeq ($(OPENCV_VERSION), 3)
 		LIBRARIES += opencv_imgcodecs
@@ -312,7 +317,6 @@ DOXYGEN_SOURCES := $(shell find \
 	-name "*.cpp" -or -name "*.hpp" -or -name "*.cu" -or -name "*.cuh" -or \
         -name "*.py" -or -name "*.m")
 DOXYGEN_SOURCES += $(DOXYGEN_CONFIG_FILE)
-
 
 ##############################
 # Configure build
@@ -390,7 +394,7 @@ else ifneq (,$(findstring g++,$(CXX)))
 		CXX_HARDENING_FLAGS += -fPIE -fstack-protector-strong
 	else
 		CXX_HARDENING_FLAGS += -fPIE -fstack-protector
-	endif	
+	endif
 endif
 
 # Linker flags
@@ -439,7 +443,7 @@ ifeq ($(DEBUG), 1)
 else ifneq (,$(findstring icpc,$(CXX)))
 	COMMON_FLAGS += -DNDEBUG -O3 -xCORE-AVX2 -no-prec-div -fp-model fast=2
 else
-	COMMON_FLAGS += -DNDEBUG -O3
+	COMMON_FLAGS += -DNDEBUG -O3 -g -lopencv_highgui
 endif
 
 # cuDNN acceleration configuration.
@@ -464,6 +468,15 @@ endif
 ifeq ($(USE_PNETCDF), 1)
 	COMMON_FLAGS += -DUSE_PNETCDF
 endif
+ifeq ($(USE_REMOTE_INDEX), 1)
+	COMMON_FLAGS += -DUSE_REMOTE_INDEX
+endif
+ifeq ($(USE_REMOTE_INDEX_SFTP), 1)
+	COMMON_FLAGS += -DUSE_REMOTE_INDEX_SFTP
+endif
+ifeq ($(USE_DEEPMEM), 1)
+	COMMON_FLAGS += -DUSE_DEEPMEM
+endif 
 
 # CPU-only configuration
 ifeq ($(CPU_ONLY), 1)
@@ -473,6 +486,11 @@ ifeq ($(CPU_ONLY), 1)
 	ALL_WARNS := $(ALL_CXX_WARNS)
 	TEST_FILTER := --gtest_filter="-*GPU*"
 	COMMON_FLAGS += -DCPU_ONLY
+endif
+
+ifeq ($(KNL), 1)
+	COMMON_FLAGS += -DKNL
+	LIBRARIES += memkind
 endif
 
 # Python layer support
@@ -873,6 +891,23 @@ superclean: clean supercleanfiles
 $(DIST_ALIASES): $(DISTRIBUTE_DIR)
 
 $(DISTRIBUTE_DIR): all py | $(DISTRIBUTE_SUBDIRS)
+	# add proto
+	cp -r src/caffe/proto $(DISTRIBUTE_DIR)/
+	# add include
+	cp -r include $(DISTRIBUTE_DIR)/
+	mkdir -p $(DISTRIBUTE_DIR)/include/caffe/proto
+	cp $(PROTO_GEN_HEADER_SRCS) $(DISTRIBUTE_DIR)/include/caffe/proto
+	# add tool and example binaries
+	cp $(TOOL_BINS) $(DISTRIBUTE_DIR)/bin
+	cp $(EXAMPLE_BINS) $(DISTRIBUTE_DIR)/bin
+	# add libraries
+	cp $(STATIC_NAME) $(DISTRIBUTE_DIR)/lib
+	install -m 644 $(DYNAMIC_NAME) $(DISTRIBUTE_DIR)/lib
+	cd $(DISTRIBUTE_DIR)/lib; rm -f $(DYNAMIC_NAME_SHORT);   ln -s $(DYNAMIC_VERSIONED_NAME_SHORT) $(DYNAMIC_NAME_SHORT)
+	# add python - it's not the standard way, indeed...
+	cp -r python $(DISTRIBUTE_DIR)/python
+
+install: all py | $(DISTRIBUTE_SUBDIRS)
 	# add proto
 	cp -r src/caffe/proto $(DISTRIBUTE_DIR)/
 	# add include

@@ -53,7 +53,23 @@ namespace bp = boost::python;
 #include "caffe/caffe.hpp"
 #include "caffe/internode/mpiutil.hpp"
 #include "caffe/multinode/multinode.hpp"
+#ifdef USE_DEEPMEM
+#if 0
+#include "caffe/parallel/mpi_async_cpu.hpp"
+#include "caffe/parallel/mpi_async_layers_cpu.hpp"
+#include "caffe/parallel/mpi_async_params_cpu.hpp"
+#include "caffe/parallel/mpi_async_params_cpu2.hpp"
+#include "caffe/parallel/mpi_async_params_lazy_cpu.hpp"
+#include "caffe/parallel/mpi_async_lazy_cpu.hpp"
+#endif
+#endif 
 #include "caffe/parallel/mpi_sync_cpu.hpp"
+#ifdef USE_DEEPMEM
+#if 0
+#include "caffe/parallel/mpi_sync_layers_cpu.hpp"
+#include "caffe/parallel/mpi_sync_params_cpu.hpp"
+#endif
+#endif 
 #include "caffe/training_utils.hpp"
 #include "caffe/util/signal_handler.h"
 
@@ -73,6 +89,13 @@ using caffe::Timer;
 using caffe::vector;
 using std::ostringstream;
 
+#ifdef USE_DEEPMEM
+#ifdef USE_MPI
+DECLARE_string(par);
+DECLARE_int32(buffer_depth);
+DECLARE_bool(scale_on_apply);
+#endif
+#endif 
 DEFINE_string(gpu, "",
     "Optional; run in GPU mode on given device IDs separated by ','."
     "Use '-gpu all' to run on all available GPUs. The effective training "
@@ -349,6 +372,41 @@ int train() {
   } else if (gpus.size() > 1) {
     caffe::P2PSync<float> sync(solver, NULL, solver->param());
     sync.Run(gpus);
+#ifdef USE_DEEPMEM
+  } else if (FLAGS_par != "") {
+    if (FLAGS_par == "MPISyncCPU") {
+      caffe::MPISyncCPU<float> sync(solver);
+      sync.Run();
+#if 0
+    } else if (FLAGS_par == "MPISyncParamsCPU") {
+      caffe::MPISyncParamsCPU<float> sync(solver);
+      sync.Run();
+    } else if (FLAGS_par == "MPISyncLayersCPU") {
+      caffe::MPISyncLayersCPU<float> sync(solver);
+      sync.Run();
+    } else if (FLAGS_par == "MPIAsyncCPU") {
+      caffe::MPIAsyncCPU<float> sync(solver, FLAGS_buffer_depth, FLAGS_comm_threads);
+      sync.Run();
+    } else if (FLAGS_par == "MPIAsyncParamsCPU") {
+      caffe::MPIAsyncParamsCPU<float> sync(solver, FLAGS_comm_threads);
+      sync.Run();
+    } else if (FLAGS_par == "MPIAsyncParamsCPU2") {
+      caffe::MPIAsyncParamsCPU2<float> sync(solver, FLAGS_comm_threads);
+      sync.Run();
+    } else if (FLAGS_par == "MPIAsyncLayersCPU") {
+      caffe::MPIAsyncLayersCPU<float> sync(solver, FLAGS_comm_threads);
+      sync.Run();
+    } else if (FLAGS_par == "MPIAsyncParamsLazyCPU") {
+      caffe::MPIAsyncParamsLazyCPU<float> sync(solver, FLAGS_buffer_depth, FLAGS_comm_threads);
+      sync.Run();
+    } else if (FLAGS_par == "MPIAsyncLazyCPU") {
+      caffe::MPIAsyncLazyCPU<float> sync(solver, FLAGS_buffer_depth, FLAGS_comm_threads);
+      sync.Run();
+#endif
+    } else {
+      LOG(ERROR) << "unknown -par value '" << FLAGS_par << "'";
+    }
+#endif
   } else {
     LOG(INFO) << "Starting Optimization";
     solver->Solve();
@@ -788,6 +846,17 @@ int main(int argc, char** argv) {
   // Run tool or show usage.
   caffe::GlobalInit(&argc, &argv);
   if (argc == 2) {
+#ifdef USE_DEEPMEM
+#ifdef USE_MPI
+    if (FLAGS_par != "") {
+      // only log info from master
+      if (caffe::mpi::comm_rank() > 0) {
+        FLAGS_minloglevel = 2;
+      }
+      LOG(INFO) << "MPI is initialized, disabling logging from other ranks";
+    }
+#endif
+#endif 
 #ifdef WITH_PYTHON_LAYER
     try {
 #endif

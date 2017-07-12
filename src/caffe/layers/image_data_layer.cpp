@@ -138,7 +138,11 @@ void ImageDataLayer<Dtype>::ShuffleImages() {
 }
 
 template <typename Dtype>
+#ifdef USE_DEEPMEM
+void ImageDataLayer<Dtype>::load_batch(Batch<Dtype>* batch, bool in_thread) {
+#else
 void ImageDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
+#endif
   CPUTimer batch_timer;
   batch_timer.Start();
   double read_time = 0;

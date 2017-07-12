@@ -322,11 +322,24 @@ bool OpenMpManager::isMajorThread(boost::thread::id currentThread) {
 // only one thread exists then bind to primary one
 void OpenMpManager::bindCurrentThreadToNonPrimaryCoreIfPossible() {
   OpenMpManager &openMpManager = getInstance();
+#ifdef USE_DEEPMEM
+ static int slot=0;
+  //if (openMpManager.isThreadsBindAllowed()) {
+  if (1) {
+    int totalNumberOfAvailableCores = CPU_COUNT(&openMpManager.currentCoreSet);
+    //int logicalCoreToBindTo = totalNumberOfAvailableCores > 1 ? 1 : 0;
+    int logicalCoreToBindTo = omp_get_max_threads()+slot;
+    openMpManager.bindCurrentThreadToLogicalCoreCpu(logicalCoreToBindTo);
+    LOG(INFO) << "Bind " << logicalCoreToBindTo;
+    slot++;
+  }
+#else
   if (openMpManager.isThreadsBindAllowed()) {
     int totalNumberOfAvailableCores = CPU_COUNT(&openMpManager.currentCoreSet);
     int logicalCoreToBindTo = totalNumberOfAvailableCores > 1 ? 1 : 0;
     openMpManager.bindCurrentThreadToLogicalCoreCpus(logicalCoreToBindTo);
   }
+#endif
 }
 
 void OpenMpManager::bindOpenMpThreads() {
@@ -429,7 +442,11 @@ void OpenMpManager::setOpenMpThreadNumberLimit() {
 }
 
 void OpenMpManager::bindCurrentThreadToLogicalCoreCpu(unsigned logicalCoreId) {
+#ifdef USE_DEEPMEM
+  unsigned physicalCoreId = logicalCoreId;
+#else
   unsigned physicalCoreId = getPhysicalCoreId(logicalCoreId);
+#endif
 
   cpu_set_t set;
   CPU_ZERO(&set);

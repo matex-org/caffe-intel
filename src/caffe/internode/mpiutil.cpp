@@ -46,6 +46,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #endif
 
 namespace caffe {
+#ifdef USE_DEEPMEM
+extern double allreducecopy_time;
+extern double allreduce_time;
+extern double bcast_time;
+extern long unsigned int allreduce_data;
+#endif 
 namespace internode {
 
 int init_count = 0;
@@ -160,6 +166,12 @@ void mpi_finalize() {
   int rank = 0;
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   LOG(INFO) << "Process rank " << rank << " exitted";
+#ifdef USE_DEEPMEM
+  LOG(INFO) << "ALLREDUCE_COPY Time:" << allreducecopy_time << " s";
+  LOG(INFO) << "ALLREDUCE Time:" << allreduce_time << " s";
+  LOG(INFO) << "BCAST Time:" << bcast_time << " s";
+  LOG(INFO) << "ALLREDUCE COUNT:" << allreduce_data;
+#endif
   MPI_Finalize();
 #endif
 }

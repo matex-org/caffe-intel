@@ -70,7 +70,11 @@ DEFINE_bool(gray, false,
 DEFINE_bool(shuffle, false,
     "Randomly shuffle the order of images and their labels");
 DEFINE_string(backend, "lmdb",
+#ifdef USE_DEEPMEM
+	"The backend {lmdb, leveldb, remote_index} for storing the result");
+#else
         "The backend {lmdb, leveldb} for storing the result");
+#endif
 DEFINE_int32(resize_width, 0, "Width images are resized to");
 DEFINE_int32(resize_height, 0, "Height images are resized to");
 DEFINE_bool(check_size, false,
@@ -90,7 +94,11 @@ int main(int argc, char** argv) {
   namespace gflags = google;
 #endif
 
+#ifdef USE_DEEPMEM
+  gflags::SetUsageMessage("Convert a set of images to the leveldb/lmdb/remoteIndex\n"
+#else
   gflags::SetUsageMessage("Convert a set of images to the leveldb/lmdb\n"
+#endif
         "format used as input for Caffe.\n"
         "Usage:\n"
         "    convert_imageset [FLAGS] ROOTFOLDER/ LISTFILE DB_NAME\n"

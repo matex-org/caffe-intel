@@ -728,10 +728,38 @@ message CropParameter {
   repeated uint32 offset = 2;
 }
 
+// USE_DEEPMEM
+message CacheParameter {
+  enum CacheStoragePolicy {
+    HEAP = 0;
+    HBM = 1;
+    DISK = 2;
+    REMOTE = 3;
+  }
+  enum CacheReplacementPolicy {
+    RATE = 0;
+    LAST_ERROR = 1;
+    LAST_LOSS = 2;
+  }
+  
+  optional uint32 size = 1 [default = 0];
+  optional bool thread_safe = 2 [default = false];
+  optional CacheReplacementPolicy replace = 3 [default = RATE];
+  optional CacheStoragePolicy type = 4 [default = HEAP] ;
+  optional uint32 eviction_rate = 5 [default = 0];
+  optional string disk_location = 6 [default = "./"];
+  
+}
+//end USE_DEEPMEM
+
 message DataParameter {
   enum DB {
     LEVELDB = 0;
     LMDB = 1;
+// USE_DEEPMEM
+    REMOTE_INDEX = 2;
+    REMOTE_INDEX_SFTP = 3;
+//end USE_DEEPMEM
   }
   // Specify the data source.
   optional string source = 1;
@@ -762,6 +790,14 @@ message DataParameter {
   optional uint32 prefetch = 10 [default = 4];
   // Whether or not DataLayer should shuffle the images at every epoch.
   optional bool shuffle = 11 [default = false];
+
+// USE_DEEPMEM  
+  optional string server = 12 [default = "127.0.0.1"];
+  optional string username = 13;
+  optional string password = 14;
+
+  repeated CacheParameter cache = 15;
+//end USE_DEEPMEM
 }
 
 message RemoteDataParameter {
