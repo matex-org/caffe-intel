@@ -540,32 +540,6 @@ void SGDSolver<Dtype>::RestoreSolverStateFromHDF5(const string& state_file) {
   H5Fclose(file_hid);
 }
 
-#ifdef YY_SYNC
-template <typename Dtype>
-void SGDSolver<Dtype>::HistoryAllreduce() {
-  CHECK(Caffe::root_solver());
-#ifdef USE_MPI
-  DLOG(INFO) << "AdaptiveBatchAllReduce(), rank:"  << comm_rank_;
-  std::size_t buf_count = 0;
-  for (int i = 0 ; i < history_.size(); ++i) {
-    memcpy(&historyBuffer_[buf_count], history_[i]->mutable_cpu_data(), history_[i]->count() * sizeof(Dtype));
-      buf_count += history_[i]->count();
-  }
-  CHECK(buf_count == historySize_);
-  caffe::mpi::allreduce(historyBuffer_, buf_count, MPI_SUM, comm_);
-  caffe_scal(buf_count, Dtype(1.0 / comm_size_), historyBuffer_);
-
-  buf_count = 0;
-  for (int i = 0 ; i < history_.size(); ++i) {
-    memcpy(history_[i]->mutable_cpu_data(), &historyBuffer_[buf_count], history_[i]->count() * sizeof(Dtype));
-    buf_count += history_[i]->count();
-  }
-#else
-  NO_MPI;
-#endif 
-}
-#endif
-
 INSTANTIATE_CLASS(SGDSolver);
 REGISTER_SOLVER_CLASS(SGD);
 

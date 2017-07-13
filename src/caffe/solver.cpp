@@ -417,18 +417,6 @@ void Solver<Dtype>::yy_sync(bool update, bool allreduce) {
   }
 
 }
-
-template <typename Dtype>
-void Solver<Dtype>::history_allreduce() {
-  HistoryAllreduce();
-}
-
-template <typename Dtype>
-void Solver<Dtype>::data_allreduce() {
-  for(int i = 0; i < callbacks_.size(); ++i) {
-    callbacks_[i]->data_allreduce();
-  }
-}
 #endif
 
 #ifdef CAFFE_PER_LAYER_TIMINGS

@@ -43,26 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "caffe/solver.hpp"
 
-#ifdef YY_SYNC
-#include <memory>
-#include "caffe/mpi.hpp"
-#include "caffe/parallel/cpu_params.hpp"
-#endif 
-
 namespace caffe {
-
-#ifdef YY_SYNC
-/// Buffer size necessary to store given blobs
-template<typename Dtype>
-static size_t total_size_buf(const vector<Blob<Dtype>*>& params) {
-  size_t size = 0;
-  for (int i = 0; i < params.size(); ++i)
-    size += params[i]->count();
-  // Size have at least one byte, otherwise cudaMalloc fails if net has no
-  // learnable parameters.
-  return (size > 0) ? size : 1;
-}
-#endif
 
 /**
  * @brief Optimizes the parameters of a Net using
@@ -72,48 +53,9 @@ template <typename Dtype>
 class SGDSolver : public Solver<Dtype> {
  public:
   explicit SGDSolver(const SolverParameter& param)
-      : Solver<Dtype>(param) 
-#ifdef YY_SYNC
-        , comm_() 
-    {
-        comm_ = caffe::mpi::comm_dup();
-        comm_size_ = caffe::mpi::comm_size(comm_);
-        comm_rank_ = caffe::mpi::comm_rank(comm_);
-        historySize_ = total_size_buf<Dtype>(this->net_->learnable_params());
-        historyBuffer_ = new Dtype[historySize_];
-
-        const vector<Blob<Dtype>*>& params = this->net_->learnable_params();
-#else
-    {
-#endif
-     PreSolve(); 
-    }
-
+      : Solver<Dtype>(param) { PreSolve(); }
   explicit SGDSolver(const string& param_file)
-      : Solver<Dtype>(param_file) 
-#ifdef YY_SYNC
-        , comm_()
-    {
-        comm_ = caffe::mpi::comm_dup();
-        comm_size_ = caffe::mpi::comm_size(comm_);
-        comm_rank_ = caffe::mpi::comm_rank(comm_);
-        historySize_ = total_size_buf<Dtype>(this->net_->learnable_params());
-        historyBuffer_ = new Dtype[historySize_];
-
-        const vector<Blob<Dtype>*>& params = this->net_->learnable_params();
-#else
-    { 
-#endif
-          PreSolve(); 
-    }
-
-#ifdef YY_SYNC
-    ~SGDSolver()
-    {
-        delete [] historyBuffer_;
-    }
-#endif   
-
+      : Solver<Dtype>(param_file) { PreSolve(); }
   virtual inline const char* type() const { return "SGD"; }
 
   const vector<shared_ptr<Blob<Dtype> > >& history() { return history_; }
@@ -134,9 +76,6 @@ class SGDSolver : public Solver<Dtype> {
   virtual void SnapshotSolverStateToHDF5(const string& model_filename);
   virtual void RestoreSolverStateFromHDF5(const string& state_file);
   virtual void RestoreSolverStateFromBinaryProto(const string& state_file);
-#ifdef YY_SYNC
-  virtual void HistoryAllreduce();
-#endif 
   // history maintains the historical momentum data.
   // update maintains update related data and is not needed in snapshots.
   // temp maintains other information that might be needed in computation
@@ -144,15 +83,6 @@ class SGDSolver : public Solver<Dtype> {
   vector<shared_ptr<Blob<Dtype> > > history_, update_, temp_;
 
   DISABLE_COPY_AND_ASSIGN(SGDSolver);
-#ifdef YY_SYNC
-  #ifdef USE_MPI
-    MPI_Comm comm_;
-    int comm_size_;
-    int comm_rank_;
-  #endif
-    Dtype* historyBuffer_;
-    std::size_t historySize_;
-#endif 
 };
 
 template <typename Dtype>
