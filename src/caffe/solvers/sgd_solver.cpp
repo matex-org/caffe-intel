@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "caffe/mpi.hpp"
 #include "caffe/sgd_solvers.hpp"
 #include "caffe/util/hdf5.hpp"
 #include "caffe/util/io.hpp"
@@ -106,7 +107,9 @@ void SGDSolver<Dtype>::PreSolve() {
   history_.clear();
   update_.clear();
   temp_.clear();
+  history_buffer_size_ = 0;
   for (int i = 0; i < net_params.size(); ++i) {
+    history_buffer_size_ += net_params[i]->count();
     const vector<int>& shape = net_params[i]->shape();
 
     // TODO: allocate these buffers taking into account owned_count to reduce memory footprint
@@ -114,6 +117,23 @@ void SGDSolver<Dtype>::PreSolve() {
     update_.push_back(shared_ptr<Blob<Dtype> >(new Blob<Dtype>(shape)));
     temp_.push_back(shared_ptr<Blob<Dtype> >(new Blob<Dtype>(shape)));
   }
+
+  // allocate contiguous buffer for history, reassign pointers
+  history_buffer_ = new Dtype[history_buffer_size_];
+  Dtype *ptr = history_buffer_;
+  for (int i = 0; i < net_params.size(); ++i) {
+      history_[i]->data()->set_cpu_data(ptr);
+      ptr += history_[i]->count();
+  }
+
+  comm_ = caffe::mpi::comm_dup();
+  comm_size_ = caffe::mpi::comm_size(comm_);
+}
+
+template <typename Dtype>
+void SGDSolver<Dtype>::HistoryAllReduce() {
+    caffe::mpi::allreduce(history_buffer_, history_buffer_size_, MPI_SUM, comm_);
+    caffe_scal(history_buffer_size_, Dtype(1.0/comm_size_), history_buffer_);
 }
 
 template <typename Dtype>

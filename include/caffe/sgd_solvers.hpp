@@ -42,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "caffe/solver.hpp"
+#include "caffe/mpi.hpp"
 
 namespace caffe {
 
@@ -59,6 +60,8 @@ class SGDSolver : public Solver<Dtype> {
   virtual inline const char* type() const { return "SGD"; }
 
   const vector<shared_ptr<Blob<Dtype> > >& history() { return history_; }
+
+  void HistoryAllReduce();
 
   using Solver<Dtype>::scale_on_apply;
 
@@ -81,6 +84,10 @@ class SGDSolver : public Solver<Dtype> {
   // temp maintains other information that might be needed in computation
   //   of gradients/updates and is not needed in snapshots
   vector<shared_ptr<Blob<Dtype> > > history_, update_, temp_;
+  Dtype *history_buffer_;
+  size_t history_buffer_size_;
+  MPI_Comm comm_;
+  int comm_size_;
 
   DISABLE_COPY_AND_ASSIGN(SGDSolver);
 };
