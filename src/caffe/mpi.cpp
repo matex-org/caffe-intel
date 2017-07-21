@@ -334,7 +334,8 @@ std::tuple<int,bool> allreduce(float& buffer, MPI_Op op, MPI_Comm comm) {
 
   std::get<0>(ret_val)
       = MPI_Allreduce(MPI_IN_PLACE, &buffer, 1, MPI_FLOAT, op, comm);
-  if(std::get<0>(ret_val) != MPI_SUCCESS) {
+  // if(std::get<0>(ret_val) != MPI_SUCCESS) {
+  while(std::get<0>(ret_val) != MPI_SUCCESS) {
     int rc2;
     // caffe::mpi::error_report(std::get<0>(ret_val), &comm);
     // MPIX_Comm_failure_awk(comm);
@@ -348,7 +349,7 @@ std::tuple<int,bool> allreduce(float& buffer, MPI_Op op, MPI_Comm comm) {
       << trank << ", Size: " << tsize;
     std::get<1>(ret_val) = true;
     std::get<0>(ret_val) = MPI_Allreduce(MPI_IN_PLACE, &buffer, 1, MPI_FLOAT, op, comm);
-    return ret_val;
+    //return ret_val;
   }
   return ret_val;
 }
@@ -367,7 +368,8 @@ std::tuple<int,bool> allreduce(double& buffer, MPI_Op op, MPI_Comm comm) {
 
   std::get<0>(ret_val)
       = MPI_Allreduce(MPI_IN_PLACE, &buffer, 1, MPI_DOUBLE, op, comm);
-  if(std::get<0>(ret_val) != MPI_SUCCESS) {
+  // if(std::get<0>(ret_val) != MPI_SUCCESS) {
+  while(std::get<0>(ret_val) != MPI_SUCCESS) {
     int rc2;
     // caffe::mpi::error_report(std::get<0>(ret_val), &comm);
     // MPIX_Comm_failure_awk(comm);
@@ -381,8 +383,7 @@ std::tuple<int,bool> allreduce(double& buffer, MPI_Op op, MPI_Comm comm) {
       << trank << ", Size: " << tsize;
     std::get<1>(ret_val) = true;
     std::get<0>(ret_val) = MPI_Allreduce(MPI_IN_PLACE, &buffer, 1, MPI_DOUBLE, op, comm);
-
-    return ret_val;
+    // return ret_val;
   }
 
   return ret_val;
@@ -403,7 +404,8 @@ std::tuple<int, bool> allreduce(float* buffer, int count, MPI_Op op, MPI_Comm co
   std::get<0>(ret_val)
       = MPI_Allreduce(MPI_IN_PLACE, buffer, count, MPI_FLOAT, op, comm);
 
-  if(std::get<0>(ret_val) != MPI_SUCCESS) {
+  // if(std::get<0>(ret_val) != MPI_SUCCESS) {
+  while(std::get<0>(ret_val) != MPI_SUCCESS) {
     int rc2;
     // caffe::mpi::error_report(std::get<0>(ret_val), &comm);
     // MPIX_Comm_failure_awk(comm);
@@ -417,7 +419,7 @@ std::tuple<int, bool> allreduce(float* buffer, int count, MPI_Op op, MPI_Comm co
       << trank << ", Size: " << tsize;
     std::get<1>(ret_val) = true;
     std::get<0>(ret_val) = MPI_Allreduce(MPI_IN_PLACE, buffer, count, MPI_FLOAT, op, comm);
-    return ret_val;
+    // return ret_val;
   }
   return ret_val;
 }
@@ -436,7 +438,8 @@ std::tuple<int, bool> allreduce(double* buffer, int count, MPI_Op op, MPI_Comm c
 
   std::get<0>(ret_val)
       = MPI_Allreduce(MPI_IN_PLACE, buffer, count, MPI_DOUBLE, op, comm);
-  if(std::get<0>(ret_val) != MPI_SUCCESS) {
+  // if(std::get<0>(ret_val) != MPI_SUCCESS) {
+  while(std::get<0>(ret_val) != MPI_SUCCESS) {
     int rc2;
     // caffe::mpi::error_report(std::get<0>(ret_val), &comm);
     // MPIX_Comm_failure_awk(comm);
@@ -451,7 +454,7 @@ std::tuple<int, bool> allreduce(double* buffer, int count, MPI_Op op, MPI_Comm c
     std::get<1>(ret_val) = true;
     std::get<0>(ret_val) = MPI_Allreduce(MPI_IN_PLACE, buffer, count, MPI_DOUBLE, op, comm);
 
-    return ret_val;
+    // return ret_val;
   }
   return ret_val;
 }

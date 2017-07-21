@@ -10,7 +10,6 @@ Copyright (c) 2014, 2015, the respective contributors
 All rights reserved.
 For the list of contributors go to https://github.com/BVLC/caffe/blob/master/CONTRIBUTORS.md
 
-
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
 
@@ -208,7 +207,7 @@ void Net<Dtype>::Init(const NetParameter& in_param) {
     bool need_backward = false;
 
     // Figure out this layer's input and output
-    DLOG(INFO) << "Input/s (blobs) size for Layer!---" 
+    DLOG(INFO) << "Input/s (blobs) size for Layer!---"
                << layer_param.name() << " ," << layer_param.bottom_size();
     for (int bottom_id = 0; bottom_id < layer_param.bottom_size();
          ++bottom_id) {
@@ -218,7 +217,7 @@ void Net<Dtype>::Init(const NetParameter& in_param) {
       need_backward |= blob_need_backward_[blob_id];
     }
     int num_top = layer_param.top_size();
-    DLOG(INFO) << "Output/s (blobs) size for Layer!--------------------" 
+    DLOG(INFO) << "Output/s (blobs) size for Layer!--------------------"
                << layer_param.name() << " ," << layer_param.bottom_size();
     for (int top_id = 0; top_id < num_top; ++top_id) {
       AppendTop(param, layer_id, top_id, &available_blobs, &blob_name_to_idx);
@@ -291,19 +290,19 @@ void Net<Dtype>::Init(const NetParameter& in_param) {
     } else {
   #ifdef CAFFE_FT
     #ifdef USE_MPI
-      DLOG(INFO) << "Before Layer SetUp called -- " << layer_id << ", rank:" 
-        << rank << ", size" << size <<", bottom_vecSize(blobs)" 
-        << bottom_vecs_[layer_id].size() << ", top_vecSize(blobs)" 
-        << top_vecs_[layer_id].size(); 
+      DLOG(INFO) << "Before Layer SetUp called -- " << layer_id << ", rank:"
+        << rank << ", size" << size <<", bottom_vecSize(blobs)"
+        << bottom_vecs_[layer_id].size() << ", top_vecSize(blobs)"
+        << top_vecs_[layer_id].size();
       layers_[layer_id]->SetUp(bottom_vecs_[layer_id], top_vecs_[layer_id]);
-      DLOG(INFO) << "After Layer Setup__Layer ID: -- " << layer_id << ", rank:" 
-        << rank << ", size" << size <<", bottom_vecSize(blobs)" 
-        << bottom_vecs_[layer_id].size() << ", top_vecSize(blobs)" 
+      DLOG(INFO) << "After Layer Setup__Layer ID: -- " << layer_id << ", rank:"
+        << rank << ", size" << size <<", bottom_vecSize(blobs)"
+        << bottom_vecs_[layer_id].size() << ", top_vecSize(blobs)"
         << top_vecs_[layer_id].size();
     #endif
   #else
       layers_[layer_id]->SetUp(bottom_vecs_[layer_id], top_vecs_[layer_id]);
-  #endif 
+  #endif
     }
     LOG_IF(INFO, Caffe::root_solver())
         << "Setting up " << layer_names_[layer_id];
@@ -508,7 +507,7 @@ void Net<Dtype>::Init(const NetParameter& in_param) {
                                         * sizeof(Dtype);
                   int caffe_weight_size = learnable_params_[param_ids[i]]->count() * sizeof(Dtype);
                   if (mlsl_weight_size < caffe_weight_size)
-                      LOG(FATAL) << "InitNet: ERROR: check weight sizes for layer " << layer->type() << ", layer_id " << layer_id 
+                      LOG(FATAL) << "InitNet: ERROR: check weight sizes for layer " << layer->type() << ", layer_id " << layer_id
                                  << ", param_id " << param_ids[i]
                                  << ", MLSL weight size in bytes " << mlsl_weight_size
                                  << ", CAFFE weight size in bytes " << caffe_weight_size;
@@ -530,21 +529,24 @@ void Net<Dtype>::ReSetUpLayer(const std::string& layer_name) {
   rank = caffe::mpi::comm_rank(temp_comm);
   size = caffe::mpi::comm_size(temp_comm);
 #endif /*USE_MPI*/
-  int layer_id = layer_names_index_.at(layer_name);
-  DLOG(INFO) << "After Fault - Before Layer Update called -- " << layer_id << ", rank:" 
-        << rank << ", size" << size <<", bottom_vecSize(blobs)" 
-        << bottom_vecs_[layer_id].size() << ", top_vecSize(blobs)" 
+  DLOG(INFO) << "layer_names_size:" << layer_names_index_.size();
+
+  //int layer_id = layer_names_index_.at(layer_name);
+  int layer_id = layer_names_index_[layer_name];
+  DLOG(INFO) << "After Fault - Before Layer Update called -- " << layer_id << ", rank:"
+        << rank << ", size" << size <<", bottom_vecSize(blobs)"
+        << bottom_vecs_[layer_id].size() << ", top_vecSize(blobs)"
         << top_vecs_[layer_id].size();
-  // Environment Variable to activate here 
+  // Environment Variable to activate here
   // layers_[layer_id]->SetUp(bottom_vecs_[layer_id], top_vecs_[layer_id]);
-  // Layer update here: 
+  // Layer update here:
   layers_[layer_id]->Update(bottom_vecs_[layer_id], top_vecs_[layer_id]);
-  DLOG(INFO) << "After Fault - After Layer Update __Layer ID: -- " << layer_id << ", rank:" 
-        << rank << ", size" << size <<", bottom_vecSize(blobs)" 
-        << bottom_vecs_[layer_id].size() << ", top_vecSize(blobs)" 
+  DLOG(INFO) << "After Fault - After Layer Update __Layer ID: -- " << layer_id << ", rank:"
+        << rank << ", size" << size <<", bottom_vecSize(blobs)"
+        << bottom_vecs_[layer_id].size() << ", top_vecSize(blobs)"
         << top_vecs_[layer_id].size();
 }
-#endif /*CAFFE_FT*/ 
+#endif /*CAFFE_FT*/
 
 template <typename Dtype>
 void Net<Dtype>::FilterNet(const NetParameter& param,
@@ -662,7 +664,6 @@ void Net<Dtype>::CompilationRuleOne(const NetParameter& param,
     }
   }
 }
-
 
 template <typename Dtype>
 void Net<Dtype>::CompilationRuleTwo(const NetParameter& param,
@@ -1038,8 +1039,6 @@ void Net<Dtype>::AppendParam(const NetParameter& param, const int layer_id,
     }
   }
 }
-
-
 
 template <typename Dtype>
 Dtype Net<Dtype>::ForwardFromTo(int start, int end) {
