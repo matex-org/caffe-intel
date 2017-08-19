@@ -273,6 +273,102 @@ Dtype Solver<Dtype>::ForwardBackward() {
 }
 
 template <typename Dtype>
+void Solver<Dtype>::first_half(int iters) {
+  const int start_iter = iter_;
+  const int stop_iter = iter_ + iters;
+  int average_loss = this->param_.average_loss();
+  losses_.clear();
+  smoothed_loss_ = 0;
+
+  while (iter_ < stop_iter) {
+    if (param_.test_interval() && iter_ % param_.test_interval() == 0
+        && (iter_ > 0 || param_.test_initialization())
+        && Caffe::root_solver()) {
+
+      LOG(INFO) << "TestAll";
+
+      TestAll();
+      if (requested_early_exit_) {
+        break;
+      }
+    }
+
+    for (int i = 0; i < callbacks_.size(); ++i) {
+      callbacks_[i]->on_start();
+    }
+    const bool display = param_.display() && iter_ % param_.display() == 0;
+    net_->set_debug_info(display && param_.debug_info());
+
+    Timer iter_timer;
+    double iter_time = 0;
+    iter_timer.Start();
+
+    Dtype loss = forward_backward_();
+
+    iter_time += iter_timer.MilliSeconds();
+    UpdateSmoothedLoss(loss, start_iter, average_loss);
+    if (display) {
+#ifdef USE_MPI
+      LOG_IF(INFO, Caffe::root_solver())
+             << caffe::internode::mpi_get_current_proc_rank_as_string()
+             << " Iteration " << iter_ << ", loss = " << smoothed_loss_;
+#else
+      LOG_IF(INFO, Caffe::root_solver()) << "Iteration " << iter_
+          << ", loss = " << smoothed_loss_;
+#endif
+      const vector<Blob<Dtype>*>& result = net_->output_blobs();
+      int score_index = 0;
+      for (int j = 0; j < result.size(); ++j) {
+        const Dtype* result_vec = result[j]->cpu_data();
+        const string& output_name =
+            net_->blob_names()[net_->output_blob_indices()[j]];
+        const Dtype loss_weight =
+            net_->blob_loss_weights()[net_->output_blob_indices()[j]];
+        for (int k = 0; k < result[j]->count(); ++k) {
+          ostringstream loss_msg_stream;
+          if (loss_weight) {
+            loss_msg_stream << " (* " << loss_weight
+                            << " = " << loss_weight * result_vec[k] << " loss)";
+          }
+          LOG_IF(INFO, Caffe::root_solver()) << "    Train net output #"
+              << score_index++ << ": " << output_name << " = "
+              << result_vec[k] << loss_msg_stream.str();
+        }
+      }
+
+#ifdef CAFFE_PER_LAYER_TIMINGS
+      PrintTimers(false);
+      ResetTimers();
+//      MLSL::print_mlsl_time();
+#endif
+
+    }
+
+    iter_timer.Start();
+
+    iter_time += iter_timer.MilliSeconds();
+
+#ifdef CAFFE_PER_LAYER_TIMINGS
+    if (MLSL::GetNodeId() == 0)
+        LOG(INFO) << "iter " << iter_ << ", forward_backward_update_time: " << iter_time << " ms";
+#endif
+    ++iter_;
+
+    SolverAction::Enum request = GetRequestedAction();
+
+#ifdef CAFFE_PER_LAYER_TIMINGS
+  ResetTimers();
+  PrintTimers(true);
+#endif
+};
+}
+
+template <typename Dtype>
+void Solver<Dtype>::second_half() {
+      ApplyUpdate();
+}
+
+template <typename Dtype>
 void Solver<Dtype>::Step(int iters) {
   const int start_iter = iter_;
   const int stop_iter = iter_ + iters;

@@ -96,6 +96,8 @@ class Solver {
   // in a non-zero iter number to resume training for a pre-trained net.
   virtual void Solve(const char* resume_file = NULL);
   inline void Solve(const string resume_file) { Solve(resume_file.c_str()); }
+  void first_half(int iters);
+  void second_half();
   void Step(int iters);
 
   virtual Dtype ForwardBackward();

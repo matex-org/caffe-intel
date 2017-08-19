@@ -428,6 +428,8 @@ BOOST_PYTHON_MODULE(_caffe) {
     .add_property("update", &Solver<Dtype>::update)
     .add_property("allreduce", &Solver<Dtype>::allreduce)
     .add_property("iter", &Solver<Dtype>::iter)
+    .def("first_half", &Solver<Dtype>::first_half)
+    .def("second_half", &Solver<Dtype>::second_half)
     .def("add_callback", &Solver_add_callback<Dtype>)
     .def("solve", static_cast<void (Solver<Dtype>::*)(const char*)>(
           &Solver<Dtype>::Solve), SolveOverloads())
@@ -443,9 +445,8 @@ BOOST_PYTHON_MODULE(_caffe) {
   bp::class_<SGDSolver<Dtype>, bp::bases<Solver<Dtype> >,
     shared_ptr<SGDSolver<Dtype> >, boost::noncopyable>(
         "SGDSolver", bp::init<string>())
-        .add_property("history", bp::make_function(&SGDSolver<Dtype>::history,
-            bp::return_internal_reference<>()))
-        .def("history_allreduce", &SGDSolver<Dtype>::HistoryAllReduce);
+    .add_property("history", bp::make_function(&SGDSolver<Dtype>::history,
+        bp::return_internal_reference<>()));
   bp::class_<NesterovSolver<Dtype>, bp::bases<Solver<Dtype> >,
     shared_ptr<NesterovSolver<Dtype> >, boost::noncopyable>(
         "NesterovSolver", bp::init<string>());
