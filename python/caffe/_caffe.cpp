@@ -55,6 +55,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "caffe/layers/memory_data_layer.hpp"
 #include "caffe/layers/python_layer.hpp"
 #include "caffe/sgd_solvers.hpp"
+#include "caffe/parallel/mpi_sync_cpu.hpp"
+#include "caffe/parallel.hpp"
 
 // Temporary solution for numpy < 1.7 versions: old macro, no promises.
 // You're strongly advised to upgrade to >= 1.7.
@@ -408,6 +410,14 @@ BOOST_PYTHON_MODULE(_caffe) {
     .add_property("type", bp::make_function(&Layer<Dtype>::type));
   BP_REGISTER_SHARED_PTR_TO_PYTHON(Layer<Dtype>);
 
+#ifdef USE_MPI
+  bp::class_<MPISyncCPU<Dtype>, shared_ptr<MPISyncCPU<Dtype> >, boost::noncopyable>(
+    "MPISyncCPU", bp::init<shared_ptr<Solver<Dtype> > >())
+    .def("run", &MPISyncCPU<Dtype>::Run)
+    .def("step", &MPISyncCPU<Dtype>::Step);
+  BP_REGISTER_SHARED_PTR_TO_PYTHON(MPISyncCPU<Dtype>);
+#endif
+
   bp::class_<LayerParameter>("LayerParameter", bp::no_init);
 
   bp::class_<Solver<Dtype>, shared_ptr<Solver<Dtype> >, boost::noncopyable>(
@@ -421,12 +431,15 @@ BOOST_PYTHON_MODULE(_caffe) {
           &Solver<Dtype>::Solve), SolveOverloads())
     .def("step", &Solver<Dtype>::Step)
     .def("restore", &Solver<Dtype>::Restore)
+    .def("set_iter", &Solver<Dtype>::set_iter)
     .def("snapshot", &Solver<Dtype>::Snapshot);
   BP_REGISTER_SHARED_PTR_TO_PYTHON(Solver<Dtype>);
 
   bp::class_<SGDSolver<Dtype>, bp::bases<Solver<Dtype> >,
     shared_ptr<SGDSolver<Dtype> >, boost::noncopyable>(
-        "SGDSolver", bp::init<string>());
+        "SGDSolver", bp::init<string>())
+    .add_property("history", bp::make_function(&SGDSolver<Dtype>::history,
+        bp::return_internal_reference<>()));
   bp::class_<NesterovSolver<Dtype>, bp::bases<Solver<Dtype> >,
     shared_ptr<NesterovSolver<Dtype> >, boost::noncopyable>(
         "NesterovSolver", bp::init<string>());
