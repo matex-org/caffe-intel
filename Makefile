@@ -475,7 +475,7 @@ ifeq ($(USE_REMOTE_INDEX_SFTP), 1)
 	COMMON_FLAGS += -DUSE_REMOTE_INDEX_SFTP
 endif
 ifeq ($(USE_DEEPMEM), 1)
-	COMMON_FLAGS += -DUSE_DEEPMEM
+	COMMON_FLAGS += -DUSE_DEEPMEM -g -dynamic
 endif 
 
 # CPU-only configuration

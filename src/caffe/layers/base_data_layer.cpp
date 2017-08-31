@@ -148,6 +148,19 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
       prefetch_free_(), prefetch_full_() {
 #ifdef USE_DEEPMEM
   //LOG(INFO) << "Cache size" << param.data_param().cache_size(0);
+  const char* env_prefetch_count = std::getenv("ENV_PREFETCH_COUNT");
+  const char* env_reuse_count = std::getenv("ENV_REUSE_COUNT");
+  char *garbage1 = NULL, *garbage2 = NULL;
+  prefetch_count =
+    (env_prefetch_count != NULL) ? strtol(env_prefetch_count,&garbage1,0):PREFETCH_COUNT;
+  LOG(INFO) << "Prefetch Count: " << prefetch_count;
+  reuse_count = (env_reuse_count != NULL) ? strtol (env_reuse_count,&garbage2,0):0;
+  LOG(INFO) << "Reuse Count: " << reuse_count;
+   
+  for(std::size_t i = 0; i < prefetch_count; ++i) {
+    prefetch_.push_back(new Batch<Dtype>());
+  }
+
   cache_size_ = param.data_param().cache_size();
   LOG(INFO) << "Caches " << cache_size_;
   prefetch=false;
@@ -242,11 +255,28 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
     else
       caches_[j]->prev = caches_[j-1]; 
   }
+
+  if(cache_size_) {
+    typedef MemoryCache<Dtype> MemCacheType;
+    MemCacheType *memcache;
+
+    if(cache_size_ && ((memcache = dynamic_cast<MemCacheType *>(caches_[0])))) {
+      for (int i = 0; i < memcache->size ; ++i) {
+        LOG(INFO) << "MEMCACHE size: " << memcache->size;
+        memcache->cache[i].count = this->reuse_count;
+        prefetch_free_.push(&memcache->cache[i]);
+      }
+     }
+  } else {
 #endif 
 
   for (int i = 0; i < PREFETCH_COUNT; ++i) {
-    prefetch_free_.push(&prefetch_[i]);
+    // prefetch_free_.push(&prefetch_[i]);
+    prefetch_free_.push(prefetch_[i]);
   }
+#ifdef USE_DEEPMEM
+  }
+#endif
 }
 
 template <typename Dtype>
@@ -260,10 +290,13 @@ void BasePrefetchingDataLayer<Dtype>::LayerSetUp(
 #ifdef USE_DEEPMEM
   randomGen.Init();
 #endif 
-  for (int i = 0; i < PREFETCH_COUNT; ++i) {
-    prefetch_[i].data_.mutable_cpu_data();
+  // for (int i = 0; i < PREFETCH_COUNT; ++i) {
+  for (int i = 0; i < this->prefetch_count; ++i) {
+    // prefetch_[i].data_.mutable_cpu_data();
+    prefetch_[i]->data_.mutable_cpu_data();
     if (this->output_labels_) {
-      prefetch_[i].label_.mutable_cpu_data();
+      // prefetch_[i].label_.mutable_cpu_data();
+      prefetch_[i]->label_.mutable_cpu_data();
     }
   }
 #ifdef USE_DEEPMEM
@@ -273,23 +306,26 @@ void BasePrefetchingDataLayer<Dtype>::LayerSetUp(
 #endif
 #ifndef CPU_ONLY
   if (Caffe::mode() == Caffe::GPU) {
-    for (int i = 0; i < PREFETCH_COUNT; ++i) {
-      prefetch_[i].data_.mutable_gpu_data();
+    // for (int i = 0; i < PREFETCH_COUNT; ++i) {
+    for (int i = 0; i < this->prefetch_count; ++i) {
+      // prefetch_[i].data_.mutable_gpu_data();
+      prefetch_[i]->data_.mutable_gpu_data();
       if (this->output_labels_) {
-        prefetch_[i].label_.mutable_gpu_data();
+        // prefetch_[i].label_.mutable_gpu_data();
+        prefetch_[i]->label_.mutable_gpu_data();
       }
     }
-#ifdef USE_DEEPMEM
-    //Setup the caches data
-    for (int i = 0; i < cache_size_; ++i) {
-      for (int j = 0; j < caches_[i]->size; ++j) {
-        caches_[i]->cache[j].data_.mutable_gpu_data();
-        if (this->output_labels_) {
-          caches_[i]->cache[j].label_.mutable_gpu_data();
-        }
-      }
-    }
-#endif
+// #ifdef USE_DEEPMEM
+//     //Setup the caches data
+//     for (int i = 0; i < cache_size_; ++i) {
+//       for (int j = 0; j < caches_[i]->size; ++j) {
+//         caches_[i]->cache[j].data_.mutable_gpu_data();
+//         if (this->output_labels_) {
+//           caches_[i]->cache[j].label_.mutable_gpu_data();
+//         }
+//       }
+//     }
+// #endif
   }
 #endif
 
@@ -334,6 +370,9 @@ void BasePrefetchingDataLayer<Dtype>::InternalThreadEntry() {
         if(caches_[i]->prefetch)
           (caches_[i]->*(caches_[i]->refill_policy))(1);
       }
+      DLOG(INFO) << "Prefetch_free_queue size before pop:" << prefetch_free_.size();
+      Batch<Dtype>* batch = prefetch_free_.pop("DEEPMEMCACHE DataLayer(CH) Free Queue Empty");
+      prefetch_full_.push(batch);
     }
   }
 #else
@@ -386,6 +425,8 @@ void BasePrefetchingDataLayer<Dtype>::Forward_cpu(
   //If there are any caches
   if(cache_size_)
   {
+    DLOG(INFO) << "Cache_size: " << cache_size_
+               << " --cache used to fetch batch!";
     //Do we handle the refill on l1 cache?
     if(!caches_[0]->prefetch && caches_[0]->empty()) //empty cache
     {
@@ -393,17 +434,21 @@ void BasePrefetchingDataLayer<Dtype>::Forward_cpu(
       //Refill before poping using the policy we have
       (caches_[0]->*(caches_[0]->local_refill_policy))(1);
     }
+    DLOG(INFO) << "L0 Cache SlotSize: " << caches_[0]->size
+               << " Current SlotNo: " << caches_[0]->slot;
     pop_batch = caches_[0]->pop();
     batch = pop_batch.batch;
   }
   else //Use the original unmofified code to get a batch
   {
+    DLOG(INFO) << " --cache not used to fetch batch!";
     //int accuracySize = historical_accuracy.size();
     //for(int i=0; i< accuracySize; i++)
     //  LOG(INFO) << "ACC" << historical_accuracy[i];
     // Here for CPU we do transformation
     //if (Caffe::mode() == Caffe::CPU) {
     if (!prefetch) {
+      DLOG(INFO) << "FCPU_GetBatch called!!!";
       this->GetBatch();
     }
     batch = prefetch_full_.pop("Prefetch cache queue empty");
@@ -433,13 +478,19 @@ void BasePrefetchingDataLayer<Dtype>::Forward_cpu(
   if(cache_size_) // We finished copy the batch so mark it for replacement
     *pop_batch.dirty = true;
   //Use the orginal code if caches are turned off
-  if(cache_size_ == 0 || caches_[0]->size == 0)
-    prefetch_free_.push(batch);
-#endif
-
+  // if(cache_size_ == 0 || caches_[0]->size == 0)
+    batch->count -= 1;
+    if(batch->count > 0) {
+      DLOG(INFO) << "Batch Reuse Count: " << batch->count;
+      batch->dirty = false;
+      prefetch_full_.push(batch);
+    } else {
+      batch->dirty = true;
+      prefetch_free_.push(batch);
+    }
+    // prefetch_free_.push(batch);
+#else
   // TODO: Consider prefetch_data_array and prefetch_label_array
-
-#ifdef USE_DEEPMEM
   prefetch_free_.push(batch);
 #endif
 }

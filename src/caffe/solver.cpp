@@ -326,7 +326,8 @@ void Solver<Dtype>::Step(int iters) {
           << " Iteration " << iter_
           << " (" << per_s << " iter/s, " << lapse << "s/"
           << param_.display() <<" iter), loss = " << smoothed_loss_
-          << ", " << total_per_s << " iter/s avg";
+          << ", " << total_per_s << " iter/s avg"
+          << ", " << lapse_total << " lapse_time_till_now(s)";
   #else
           << caffe::internode::mpi_get_current_proc_rank_as_string()
           << " Iteration " << iter_ << ", loss = " << smoothed_loss_;

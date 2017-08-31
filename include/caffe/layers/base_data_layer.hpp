@@ -43,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <iostream>
 #include <fstream>
 #include "caffe/util/cache.hpp"
+#include <cstdlib>
 #endif
 
 #include "caffe/blob.hpp"
@@ -146,8 +147,11 @@ class BasePrefetchingDataLayer :
   
 
   GenRandNumbers randomGen;
+  volatile long prefetch_count;
+  volatile long reuse_count;
 #endif
-  Batch<Dtype> prefetch_[PREFETCH_COUNT];
+  // Batch<Dtype> prefetch_[PREFETCH_COUNT];
+  std::vector<Batch<Dtype>* > prefetch_;
   BlockingQueue<Batch<Dtype>*> prefetch_free_;
   BlockingQueue<Batch<Dtype>*> prefetch_full_;
 

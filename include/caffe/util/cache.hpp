@@ -26,6 +26,8 @@ class Batch {
   //shared_ptr<sync> sync_var;
   //void lock();
   //void unlock();
+  bool dirty;
+  int count;
 };
 
 //Pop Batch strucutre is like a batch but includes a pointer to dirty structure
