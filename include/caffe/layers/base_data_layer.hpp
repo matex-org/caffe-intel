@@ -10,7 +10,6 @@ Copyright (c) 2014, 2015, the respective contributors
 All rights reserved.
 For the list of contributors go to https://github.com/BVLC/caffe/blob/master/CONTRIBUTORS.md
 
-
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
 
@@ -126,7 +125,7 @@ class BasePrefetchingDataLayer :
     historical_accuracy_.push_back(value);
   }
   int cache_size_;
-#endif 
+#endif
 
  protected:
 #ifdef USE_DEEPMEM
@@ -138,13 +137,12 @@ class BasePrefetchingDataLayer :
   virtual void load_batch(Batch<Dtype>* batch, bool in_thread) = 0;
 #else
   virtual void load_batch(Batch<Dtype>* batch) = 0;
-#endif 
+#endif
 
   virtual void GetBatch();
 #ifdef USE_DEEPMEM
   void rate_replace_policy(int next_cache);
   void thread_rate_replace_policy(int next_cache);
-  
 
   GenRandNumbers randomGen;
   volatile long prefetch_count;
@@ -155,18 +153,22 @@ class BasePrefetchingDataLayer :
   BlockingQueue<Batch<Dtype>*> prefetch_free_;
   BlockingQueue<Batch<Dtype>*> prefetch_full_;
 
-#ifdef USE_DEEPMEM  
+  std::vector<PopBatch<Dtype>* > pop_prefetch_;
+  BlockingQueue<PopBatch<Dtype> > pop_prefetch_free_;
+  BlockingQueue<PopBatch<Dtype> > pop_prefetch_full_;
+
+#ifdef USE_DEEPMEM
   Cache<Dtype> ** caches_;
   vector<Dtype> historical_accuracy_;
 #endif
 
   Blob<Dtype> transformed_data_;
 
-#ifdef USE_DEEPMEM  
+#ifdef USE_DEEPMEM
   friend class Cache<Dtype>;
   friend class MemoryCache<Dtype>;
   friend class DiskCache<Dtype>;
-#endif 
+#endif
 };
 
 }  // namespace caffe

@@ -10,7 +10,6 @@ Copyright (c) 2014, 2015, the respective contributors
 All rights reserved.
 For the list of contributors go to https://github.com/BVLC/caffe/blob/master/CONTRIBUTORS.md
 
-
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
 
@@ -125,6 +124,10 @@ size_t BlockingQueue<T>::size() const {
 
 template class BlockingQueue<Batch<float>*>;
 template class BlockingQueue<Batch<double>*>;
+template class BlockingQueue<PopBatch<float>*>;
+template class BlockingQueue<PopBatch<double>*>;
+template class BlockingQueue<PopBatch<float> >;
+template class BlockingQueue<PopBatch<double> >;
 template class BlockingQueue<std::string*>;
 template class BlockingQueue<shared_ptr<DataReader::QueuePair> >;
 template class BlockingQueue<P2PSync<float>*>;

@@ -10,7 +10,6 @@ Copyright (c) 2014, 2015, the respective contributors
 All rights reserved.
 For the list of contributors go to https://github.com/BVLC/caffe/blob/master/CONTRIBUTORS.md
 
-
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
 
@@ -114,8 +113,10 @@ void ImageDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bottom,
   const int batch_size = this->layer_param_.image_data_param().batch_size();
   CHECK_GT(batch_size, 0) << "Positive batch size required";
   top_shape[0] = batch_size;
-  for (int i = 0; i < this->PREFETCH_COUNT; ++i) {
-    this->prefetch_[i].data_.Reshape(top_shape);
+  // for (int i = 0; i < this->PREFETCH_COUNT; ++i) {
+  for (int i = 0; i < this->prefetch_count; ++i) {
+    // this->prefetch_[i].data_.Reshape(top_shape);
+    this->prefetch_[i]->data_.Reshape(top_shape);
   }
   top[0]->Reshape(top_shape);
 
@@ -125,8 +126,10 @@ void ImageDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bottom,
   // label
   vector<int> label_shape(1, batch_size);
   top[1]->Reshape(label_shape);
-  for (int i = 0; i < this->PREFETCH_COUNT; ++i) {
-    this->prefetch_[i].label_.Reshape(label_shape);
+  // for (int i = 0; i < this->PREFETCH_COUNT; ++i) {
+  for (int i = 0; i < this->prefetch_count; ++i) {
+    // this->prefetch_[i].label_.Reshape(label_shape);
+    this->prefetch_[i]->label_.Reshape(label_shape);
   }
 }
 
@@ -213,7 +216,7 @@ void ImageDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
         Blob<Dtype> tmp_data;
         tmp_data.Reshape(top_shape);
         tmp_data.set_cpu_data(prefetch_data + offset);
-        this->data_transformer_->Transform(cv_img, &tmp_data, 
+        this->data_transformer_->Transform(cv_img, &tmp_data,
                                                   precalculated_rand_numbers);
     }
 #endif
@@ -236,9 +239,6 @@ void ImageDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
   DLOG(INFO) << "     Read time: " << read_time / 1000 << " ms.";
   DLOG(INFO) << "Transform time: " << trans_time / 1000 << " ms.";
 }
-
-
-
 
 INSTANTIATE_CLASS(ImageDataLayer);
 REGISTER_LAYER_CLASS(ImageData);

@@ -10,7 +10,6 @@ Copyright (c) 2014, 2015, the respective contributors
 All rights reserved.
 For the list of contributors go to https://github.com/BVLC/caffe/blob/master/CONTRIBUTORS.md
 
-
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
 
@@ -37,7 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #ifdef USE_DEEPMEM
 #include <unistd.h>
-#endif  
+#endif
 #include <boost/thread.hpp>
 #include <vector>
 
@@ -78,7 +77,6 @@ void BaseDataLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
   // The subclasses should setup the size of bottom and top
   DataLayerSetUp(bottom, top);
 
-
 #ifdef USE_MLSL
 
   DataType dt = (sizeof(Dtype) == 4)? DT_FLOAT : DT_DOUBLE;
@@ -87,7 +85,7 @@ void BaseDataLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
   myRegInfo->SetName(this->layer_param_.name().c_str());
   myRegInfo->AddOutputFeatureMap(top[0]->channels(), top[0]->width()*top[0]->height(), dt);
   myRegInfo->AddOutputFeatureMap(top[1]->channels(), top[1]->width()*top[1]->height(), dt);
-  
+
   myRegInfo->Validate();
   this->layerOp = new ComputeOp(myRegInfo, caffe::internode::data_parallelism);
   delete myRegInfo;
@@ -156,21 +154,21 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
   LOG(INFO) << "Prefetch Count: " << prefetch_count;
   reuse_count = (env_reuse_count != NULL) ? strtol (env_reuse_count,&garbage2,0):0;
   LOG(INFO) << "Reuse Count: " << reuse_count;
-   
+
   for(std::size_t i = 0; i < prefetch_count; ++i) {
     prefetch_.push_back(new Batch<Dtype>());
   }
 
   cache_size_ = param.data_param().cache_size();
   LOG(INFO) << "Caches " << cache_size_;
-  prefetch=false;
+  prefetch=true; // false;
   if(cache_size_)
   {
     //Allocate array to hold caches on heap or in hbm
     #ifdef KNL
       void * ptr = hbw_malloc(sizeof(Cache<Dtype> *) * cache_size_);
       caches_ = new (ptr) Cache<Dtype> * [cache_size_];
-    #else  
+    #else
       caches_ = new Cache<Dtype> * [cache_size_];
     #endif
 
@@ -179,8 +177,8 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
   {
 
     bool thread_safe = param.data_param().cache(j).thread_safe();
-    
-    //If one cache is thread_save then set this global to turn the prefetcher
+
+    //If one cache is thread_safe then set this global to turn the prefetcher
     //Thread
     if(thread_safe)
       prefetch = true;
@@ -227,13 +225,13 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
       LOG(INFO) << "Cache Type not supported";
       exit(1);
     }
-   
-    //Setup cache to point one level above 
+
+    //Setup cache to point one level above
     if(i-1==cache_size_-1)
-      caches_[i-1]->next = NULL; 
-    else  
-      caches_[i-1]->next = caches_[i]; 
-   
+      caches_[i-1]->next = NULL;
+    else
+      caches_[i-1]->next = caches_[i];
+
     // Pass data_layer (used for filling)
     caches_[i-1]->data_layer = this;
     //Initially needs to be filled
@@ -244,33 +242,38 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
     caches_[i-1]->refill_policy = &Cache<Dtype>::rate_replace_policy;
     caches_[i-1]->local_refill_policy = &Cache<Dtype>::local_rate_replace_policy;
     caches_[i-1]->disk_location = param.data_param().cache(j).disk_location();
+    caches_[i-1]->reuse_count = this->reuse_count;
     LOG(INFO) << "Cacher " <<  param.data_param().cache(j).disk_location() << " " << caches_[i-1]->disk_location;
   }
-  
+
   //Setup cache to point one level below
   for(int j=0; j < cache_size_; j++)
   {
     if(j==0)
-      caches_[j]->prev = NULL; 
+      caches_[j]->prev = NULL;
     else
-      caches_[j]->prev = caches_[j-1]; 
+      caches_[j]->prev = caches_[j-1];
   }
 
   if(cache_size_) {
     typedef MemoryCache<Dtype> MemCacheType;
     MemCacheType *memcache;
 
-    if(cache_size_ && ((memcache = dynamic_cast<MemCacheType *>(caches_[0])))) {
-      for (int i = 0; i < memcache->size ; ++i) {
-        LOG(INFO) << "MEMCACHE size: " << memcache->size;
-        memcache->cache[i].count = this->reuse_count;
-        prefetch_free_.push(&memcache->cache[i]);
-      }
-     }
+  //   if((memcache = dynamic_cast<MemCacheType *>(caches_[0]))) {
+  //     LOG(INFO) << "MEMCACHE size: " << memcache->size;
+  //     for (int i = 0; i < memcache->size ; ++i) {
+  //       PopBatch<Dtype>* pbatch = memcache->pop(); //new PopBatch<Dtype>();
+  //       // memcache->cache[i].count = this->reuse_count;
+  //       // prefetch_free_.push(&memcache->cache[i]);
+  //       // pop_prefetch_free_.push
+  //       pop_prefetch_free_.push(pbatch);
+  //     }
+  //    }
   } else {
-#endif 
+#endif
 
-  for (int i = 0; i < PREFETCH_COUNT; ++i) {
+  //for (int i = 0; i < PREFETCH_COUNT; ++i) {
+  for (int i = 0; i < prefetch_count; ++i) {
     // prefetch_free_.push(&prefetch_[i]);
     prefetch_free_.push(prefetch_[i]);
   }
@@ -289,7 +292,7 @@ void BasePrefetchingDataLayer<Dtype>::LayerSetUp(
   // seems to cause failures if we do not so.
 #ifdef USE_DEEPMEM
   randomGen.Init();
-#endif 
+#endif
   // for (int i = 0; i < PREFETCH_COUNT; ++i) {
   for (int i = 0; i < this->prefetch_count; ++i) {
     // prefetch_[i].data_.mutable_cpu_data();
@@ -315,17 +318,6 @@ void BasePrefetchingDataLayer<Dtype>::LayerSetUp(
         prefetch_[i]->label_.mutable_gpu_data();
       }
     }
-// #ifdef USE_DEEPMEM
-//     //Setup the caches data
-//     for (int i = 0; i < cache_size_; ++i) {
-//       for (int j = 0; j < caches_[i]->size; ++j) {
-//         caches_[i]->cache[j].data_.mutable_gpu_data();
-//         if (this->output_labels_) {
-//           caches_[i]->cache[j].label_.mutable_gpu_data();
-//         }
-//       }
-//     }
-// #endif
   }
 #endif
 
@@ -335,6 +327,21 @@ void BasePrefetchingDataLayer<Dtype>::LayerSetUp(
 #ifdef USE_DEEPMEM
   for (int i = 0; i < cache_size_; ++i) {
     caches_[i]->fill(false);
+  }
+  if(cache_size_) {
+    typedef MemoryCache<Dtype> MemCacheType;
+    MemCacheType *memcache;
+
+    if((memcache = dynamic_cast<MemCacheType *>(caches_[0]))) {
+      LOG(INFO) << "MEMCACHE size: " << memcache->size;
+      for (int i = 0; i < memcache->size ; ++i) {
+        PopBatch<Dtype> pbatch = memcache->pop(); //new PopBatch<Dtype>();
+        // memcache->cache[i].count = this->reuse_count;
+        // prefetch_free_.push(&memcache->cache[i]);
+        // pop_prefetch_free_.push
+        pop_prefetch_free_.push(pbatch);
+      }
+     }
   }
 #endif
 
@@ -361,8 +368,7 @@ void BasePrefetchingDataLayer<Dtype>::InternalThreadEntry() {
 
 #ifdef USE_DEEPMEM
  while (!must_stop()) {
-    if(cache_size_)
-    {
+    if(cache_size_) {
       for(int i=cache_size_-1; i>= 0; i--)
       {
         //If we handle the refilling apply the member pointer to the current
@@ -371,7 +377,16 @@ void BasePrefetchingDataLayer<Dtype>::InternalThreadEntry() {
           (caches_[i]->*(caches_[i]->refill_policy))(1);
       }
       DLOG(INFO) << "Prefetch_free_queue size before pop:" << prefetch_free_.size();
-      Batch<Dtype>* batch = prefetch_free_.pop("DEEPMEMCACHE DataLayer(CH) Free Queue Empty");
+      // Batch<Dtype>* batch = prefetch_free_.pop("DEEPMEMCACHE DataLayer(CH) Free Queue Empty");
+      PopBatch<Dtype> pbatch = pop_prefetch_free_.pop("DEEPMEMCACHE DataLayer(Pop CH) Free Queue Empty");
+      // prefetch_full_.push(batch);
+      pop_prefetch_full_.push(pbatch);
+    }
+    else { // use the default approach
+      DLOG(INFO) << "Cache Less Defualt Prefetch (GetBATCH)";
+      // this->GetBatch();
+      Batch<Dtype>* batch = prefetch_free_.pop();
+      load_batch(batch, false);
       prefetch_full_.push(batch);
     }
   }
@@ -404,7 +419,7 @@ void BasePrefetchingDataLayer<Dtype>::InternalThreadEntry() {
 template <typename Dtype>
 void BasePrefetchingDataLayer<Dtype>::GetBatch() {
   try {
-      Batch<Dtype>* batch = prefetch_free_.pop();
+      Batch<Dtype>* batch = prefetch_free_.pop("Prefetch free cache queue empty");
 #ifdef USE_DEEPMEM
       load_batch(batch, false);
 #else
@@ -421,38 +436,44 @@ void BasePrefetchingDataLayer<Dtype>::Forward_cpu(
     const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top) {
 #ifdef USE_DEEPMEM
   Batch<Dtype> * batch;
-  PopBatch<Dtype> pop_batch;
+  PopBatch<Dtype> pbatch;
   //If there are any caches
   if(cache_size_)
   {
-    DLOG(INFO) << "Cache_size: " << cache_size_
-               << " --cache used to fetch batch!";
-    //Do we handle the refill on l1 cache?
-    if(!caches_[0]->prefetch && caches_[0]->empty()) //empty cache
-    {
-      //LOG(INFO) << "Local Refill ";
-      //Refill before poping using the policy we have
-      (caches_[0]->*(caches_[0]->local_refill_policy))(1);
-    }
-    DLOG(INFO) << "L0 Cache SlotSize: " << caches_[0]->size
-               << " Current SlotNo: " << caches_[0]->slot;
-    pop_batch = caches_[0]->pop();
-    batch = pop_batch.batch;
+  //   //Do we handle the refill on l1 cache?
+  //   // if(!caches_[0]->prefetch && caches_[0]->empty()) //empty cache
+  //   // {
+  //   //   //LOG(INFO) << "Local Refill ";
+  //   //   //Refill before poping using the policy we have
+  //   //   (caches_[0]->*(caches_[0]->local_refill_policy))(1);
+  //   // }
+  //   // DLOG(INFO) << "L0 Cache SlotSize: " << caches_[0]->size
+  //   //            << " Current SlotNo: " << caches_[0]->slot;
+  //   // pop_batch = caches_[0]->pop();
+  //   // batch = pop_batch.batch;
+  //   batch = prefetch_full_.pop("DEEPMEMCACHE DataLayer Full Queue Empty(cache)");
+    // LOG(INFO) << "Here----------1";
+    pbatch = pop_prefetch_full_.pop("DEEPMEMCACHE DataLayer Full Queue Empty(pop cache)");
+    // DLOG(INFO) << "PBATCH _ dirty bit: " << *pbatch->dirty;
+    // batch = pbatch->batch;
+    batch = pbatch.batch;
+    // LOG(INFO) << "Here----------1a";
   }
-  else //Use the original unmofified code to get a batch
-  {
-    DLOG(INFO) << " --cache not used to fetch batch!";
-    //int accuracySize = historical_accuracy.size();
-    //for(int i=0; i< accuracySize; i++)
-    //  LOG(INFO) << "ACC" << historical_accuracy[i];
-    // Here for CPU we do transformation
-    //if (Caffe::mode() == Caffe::CPU) {
-    if (!prefetch) {
-      DLOG(INFO) << "FCPU_GetBatch called!!!";
-      this->GetBatch();
-    }
-    batch = prefetch_full_.pop("Prefetch cache queue empty");
+  else {//Use the original unmodified code to get a batch
+  //   //int accuracySize = historical_accuracy.size();
+  //   //for(int i=0; i< accuracySize; i++)
+  //   //  LOG(INFO) << "ACC" << historical_accuracy[i];
+  //   // Here for CPU we do transformation
+  //   //if (Caffe::mode() == Caffe::CPU) {
+  //   // if (!prefetch) {
+  //   //   DLOG(INFO) << "FCPU_GetBatch called!!!";
+  //   //   this->GetBatch();
+  //   // }
+    //LOG(INFO) << "Here----------2";
+    batch = prefetch_full_.pop("DEEPMEMCACHE DataLayer Full Queue Empty(cache)");
   }
+
+  // batch = prefetch_full_.pop("DEEPMEMCACHE DataLayer Full Queue Empty(cache)");
 #else
   // Here for CPU we do transformation
   if (Caffe::mode() == Caffe::CPU) {
@@ -475,18 +496,33 @@ void BasePrefetchingDataLayer<Dtype>::Forward_cpu(
         top[1]->mutable_cpu_data());
   }
 #ifdef USE_DEEPMEM
-  if(cache_size_) // We finished copy the batch so mark it for replacement
-    *pop_batch.dirty = true;
+  // if(cache_size_) // We finished copy the batch so mark it for replacement
+  //   *pop_batch.dirty = true;
   //Use the orginal code if caches are turned off
   // if(cache_size_ == 0 || caches_[0]->size == 0)
     batch->count -= 1;
     if(batch->count > 0) {
       DLOG(INFO) << "Batch Reuse Count: " << batch->count;
       batch->dirty = false;
-      prefetch_full_.push(batch);
-    } else {
+      if(cache_size_ == 0 || caches_[0]->size == 0) {
+        prefetch_full_.push(batch);
+      }
+      else {
+        // *pbatch->dirty = false;
+        *pbatch.dirty = false;
+        pop_prefetch_full_.push(pbatch);
+      }
+    }
+    else {
       batch->dirty = true;
-      prefetch_free_.push(batch);
+      if(cache_size_ == 0 || caches_[0]->size == 0) {
+        prefetch_free_.push(batch);
+      }
+      else {
+        // *pbatch->dirty = true;
+        *pbatch.dirty = true;
+        pop_prefetch_free_.push(pbatch);
+      }
     }
     // prefetch_free_.push(batch);
 #else

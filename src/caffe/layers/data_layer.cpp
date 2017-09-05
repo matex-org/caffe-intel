@@ -10,7 +10,6 @@ Copyright (c) 2014, 2015, the respective contributors
 All rights reserved.
 For the list of contributors go to https://github.com/BVLC/caffe/blob/master/CONTRIBUTORS.md
 
-
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
 
@@ -169,7 +168,7 @@ void DataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
     {
       Datum datum;
       datum.ParseFromString(*data);
-      (reader_.free()).push(data);  
+      (reader_.free()).push(data);
       // Copy label. We need to copy it before we release datum
       if (this->output_labels_) {
         top_label[item_id] = datum.label();
