@@ -89,10 +89,10 @@ void MKLDNNPoolingLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom
     CHECK_GT(kernel_h_, 0) << "Filter dimensions cannot be zero.";
     CHECK_GT(kernel_w_, 0) << "Filter dimensions cannot be zero.";
     if (!pool_param.has_pad_h()) {
-        pad_h_ = pad_w_ = pool_param.pad();
+        pad_t_ = pad_b_ = pad_l_ = pad_r_ = pool_param.pad();
     } else {
-        pad_h_ = pool_param.pad_h();
-        pad_w_ = pool_param.pad_w();
+        pad_t_ = pad_b_ = pool_param.pad_h();
+        pad_l_ = pad_r_ = pool_param.pad_w();
     }
     if (!pool_param.has_stride_h()) {
         stride_h_ = stride_w_ = pool_param.stride();
@@ -101,33 +101,46 @@ void MKLDNNPoolingLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom
         stride_w_ = pool_param.stride_w();
     }
     if (global_pooling_) {
-        CHECK(pad_h_ == 0 && pad_w_ == 0 && stride_h_ == 1 && stride_w_ == 1)
+        CHECK(pad_t_ == 0 && pad_l_ == 0 && stride_h_ == 1 && stride_w_ == 1)
             << "With Global_pooling: true; only pad = 0 and stride = 1";
     }
-    if (pad_h_ != 0 || pad_w_ != 0) {
+    if (pad_t_ != 0 || pad_l_ != 0) {
         CHECK(this->layer_param_.pooling_param().pool() == PoolingParameter_PoolMethod_AVE
         || this->layer_param_.pooling_param().pool() == PoolingParameter_PoolMethod_MAX)
         << "Padding implemented only for average and max pooling.";
-        CHECK_LT(pad_h_, kernel_h_);
-        CHECK_LT(pad_w_, kernel_w_);
+        CHECK_LT(pad_t_, kernel_h_);
+        CHECK_LT(pad_l_, kernel_w_);
     }
 
     height_out_ = static_cast<int>(ceil(static_cast<float>(
-        bottom[0]->height() + 2 * pad_h_ - kernel_h_) / stride_h_)) + 1;
+        bottom[0]->height() + pad_t_ + pad_b_ - kernel_h_) / stride_h_)) + 1;
     width_out_ = static_cast<int>(ceil(static_cast<float>(
-        bottom[0]->width() + 2 * pad_w_ - kernel_w_) / stride_w_)) + 1;
-    if (pad_h_ || pad_w_) {
+        bottom[0]->width() + pad_r_ + pad_l_ - kernel_w_) / stride_w_)) + 1;
+
+    if (pad_t_ || pad_b_ || pad_r_ || pad_l_) {
         // If we have padding, ensure that the last pooling starts strictly
         // inside the image (instead of at the padding); otherwise clip the last.
-        if ((height_out_ - 1) * stride_h_ >= bottom[0]->height() + pad_h_) {
+        if ((height_out_ - 1) * stride_h_ >= bottom[0]->height() + pad_t_) {
           --height_out_;
         }
-        if ((width_out_ - 1) * stride_w_ >= bottom[0]->height() + pad_w_) {
+        if ((width_out_ - 1) * stride_w_ >= bottom[0]->width() + pad_l_) {
           --width_out_;
         }
-        CHECK_LT((height_out_ - 1) * stride_h_, bottom[0]->height() + pad_h_);
-        CHECK_LT((width_out_ - 1) * stride_w_, bottom[0]->height() + pad_w_);
+        CHECK_LT((height_out_ - 1) * stride_h_, bottom[0]->height() + pad_t_);
+        CHECK_LT((width_out_ - 1) * stride_w_, bottom[0]->width() + pad_l_);
     }
+    else
+    {
+      // If user did not define padding, just use the exclude padding
+      force_exclude_padding_flag_ = true;
+    }
+
+    //Add the pad to make sure h/w + kernel_h/w_ can be exact division by stride_h/w_
+    auto h = bottom[0]->height() + pad_t_;
+    while (h + pad_b_ < stride_h_ * (height_out_ - 1) + kernel_h_) pad_b_++;
+
+    auto w = bottom[0]->width() + pad_l_;
+    while (w + pad_r_ < stride_w_ * (width_out_ - 1) + kernel_w_) pad_r_++;
 }
 
 template <typename Dtype>
@@ -156,7 +169,7 @@ void MKLDNNPoolingLayer<Dtype>::Reshape(const vector<Blob<Dtype>*>& bottom
 }
 
 template <typename Dtype>
-void MKLDNNPoolingLayer<Dtype>::InitPooling(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top)
+void MKLDNNPoolingLayer<Dtype>::InitPoolingFwd(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top)
 {
     if (std::is_same<Dtype, double>::value)  NOT_IMPLEMENTED;
 
@@ -168,7 +181,19 @@ void MKLDNNPoolingLayer<Dtype>::InitPooling(const vector<Blob<Dtype>*>& bottom, 
         pooling_algorithm = algorithm::pooling_max;
         break;
     case PoolingParameter_PoolMethod_AVE:
-        pooling_algorithm = algorithm::pooling_avg;
+        if (this->layer_param_.pooling_param().avg_include_pad()) {
+            pooling_algorithm = algorithm::pooling_avg_include_padding;
+        }else {
+            pooling_algorithm = algorithm::pooling_avg_exclude_padding;
+        }
+        // If user did not define padding
+        // bottom[0]->height/width() + kernel_h/w_ cannot be exact division by stride_h/w_
+        // use the exclude padding to align with the result of Caffe
+        // for exact division situation, exclude padding and include padding will have the same results
+        if (force_exclude_padding_flag_ == true)
+        {
+          pooling_algorithm = algorithm::pooling_avg_exclude_padding;
+        }
         break;
     case PoolingParameter_PoolMethod_STOCHASTIC:
         NOT_IMPLEMENTED;
@@ -190,34 +215,38 @@ void MKLDNNPoolingLayer<Dtype>::InitPooling(const vector<Blob<Dtype>*>& bottom, 
     int32_t sh = this->stride_h_;
     int32_t sw = this->stride_w_;
 
-    int32_t ph = this->pad_h_;
-    int32_t pw = this->pad_w_;
+    int32_t pt = this->pad_t_;
+    int32_t pb = this->pad_b_;
+    int32_t pl = this->pad_l_;
+    int32_t pr = this->pad_r_;
 
     bool bottom_data_is_prv = (const_cast<Dtype*>(bottom[0]->prv_data()) != NULL);
 
     engine cpu_engine = CpuEngine::Instance().get_engine();
     memory::data_type mpcsn = memory::data_type::f32;
-    memory::dims input_tz = {n, c, ih, iw};
-    memory::dims output_tz = {n, c, oh, ow};
+    memory::dims bottom_tz = {n, c, ih, iw};
+    memory::dims top_tz = {n, c, oh, ow};
     memory::format mfmt_nchw = memory::format::nchw;
 
     // ---- Initialize memory descriptors -------------
     typedef typename memory::primitive_desc MemPD; // short name for memory::primitive_desc
-
     memory::format cmfmt = mfmt_nchw;
+
+    shared_ptr<MemPD> usr_bottom_data_mpd(new MemPD({{bottom_tz}, mpcsn, mfmt_nchw}, cpu_engine));
+    shared_ptr<MemPD> usr_top_data_mpd(new MemPD({{top_tz}, mpcsn, mfmt_nchw}, cpu_engine));
+
     if (bottom_data_is_prv) {
         shared_ptr<MKLDNNMemoryDescriptor<Dtype, false> > mem_descr
             = get_mkldnn_prv_descriptor<Dtype, false>(bottom[0]);
         cmfmt = static_cast<memory::format>(mem_descr->prv_memory_pd()->desc().data.format);
+        mpcsn = static_cast<memory::data_type>(mem_descr->prv_memory_pd()->desc().data.data_type);
     }
-    shared_ptr<memory::desc> input_md(new memory::desc({input_tz}, mpcsn, cmfmt));
-    shared_ptr<memory::desc> output_md(new memory::desc({output_tz}, mpcsn, cmfmt));
+    shared_ptr<memory::desc> init_fwd_bottom_md(new memory::desc({bottom_tz}, mpcsn, cmfmt));
+    shared_ptr<memory::desc> init_fwd_top_md(new memory::desc({top_tz}, mpcsn, cmfmt));
 
-    shared_ptr<MemPD> usr_input_mpd(new MemPD({{input_tz}, mpcsn, mfmt_nchw}, cpu_engine));
-    shared_ptr<MemPD> usr_output_mpd(new MemPD({{output_tz}, mpcsn, mfmt_nchw}, cpu_engine));
     // ---- Initialize pooling primitive descriptor -------------
-    pooling_forward::desc poolingFwd_desc(propagation, pooling_algorithm, *input_md,*output_md
-                                        , {sh, sw}, {kh, kw}, {ph, pw}, {ph, pw}, padding_kind::zero);
+    pooling_forward::desc poolingFwd_desc(propagation, pooling_algorithm, *init_fwd_bottom_md,*init_fwd_top_md
+                                        , {sh, sw}, {kh, kw}, {pt, pl}, {pb, pr}, padding_kind::zero);
     // ---- Determining engine to use -----------------------
     std::string subengines = this->layer_param_.engine();
     if (subengines == "" || subengines == "MKLDNN")
@@ -239,14 +268,14 @@ void MKLDNNPoolingLayer<Dtype>::InitPooling(const vector<Blob<Dtype>*>& bottom, 
     engine engine = ep.getMKLDNNSubEngine(subEngineIndex);
 
     // ---- Initialize remaining memory descriptors -------------
-    shared_ptr<MemPD> prv_input_mpd;
-    shared_ptr<MemPD> prv_output_mpd;
+    shared_ptr<MemPD> prv_fwd_bottom_data_mpd;
+    shared_ptr<MemPD> prv_fwd_top_data_mpd;
     if (bottom_data_is_prv) {
-        prv_input_mpd.reset(new MemPD(*input_md, engine));
-        prv_output_mpd.reset(new MemPD(*output_md, engine));
+        prv_fwd_bottom_data_mpd.reset(new MemPD(*init_fwd_bottom_md, engine));
+        prv_fwd_top_data_mpd.reset(new MemPD(*init_fwd_top_md, engine));
     }
 
-    // ---- Create priv memory  ---------------------
+    // ---- Create prv memory  ---------------------
 
     // We'll output the mask to top[1] if it's of size >1.
     uint32_t* mask = NULL;  // suppress warnings about uninitalized variables
@@ -256,21 +285,28 @@ void MKLDNNPoolingLayer<Dtype>::InitPooling(const vector<Blob<Dtype>*>& bottom, 
             : max_idx_.mutable_cpu_data();
 
     // ---  init primitive and prv_memory descriptors ----------------------
-    fwd_bottom_data.reset(new MKLDNNData<Dtype>(usr_input_mpd, prv_input_mpd, bottom[0], this));
-    input_primitive = fwd_bottom_data->create_input(false);
+    fwd_bottom_data.reset(new MKLDNNData<Dtype>(usr_bottom_data_mpd, prv_fwd_bottom_data_mpd, bottom[0], this));
+    fwd_bottom_data_primitive = fwd_bottom_data->create_input(false);
 
-    fwd_top_data.reset(new MKLDNNData<Dtype>(usr_output_mpd, prv_output_mpd, top[0], this));
-    output_memory = fwd_top_data->create_output_memory();
+    fwd_top_data.reset(new MKLDNNData<Dtype>(usr_top_data_mpd, prv_fwd_top_data_mpd, top[0], this));
+    fwd_top_data_memory = fwd_top_data->create_output_memory();
 
-    if ( propagation == prop_kind::forward_training && pooling_algorithm != algorithm::pooling_avg) {
+    if (propagation == prop_kind::forward_training &&
+            pooling_algorithm != algorithm::pooling_avg_exclude_padding &&
+            pooling_algorithm != algorithm::pooling_avg_include_padding) {
         indices_pd.reset(new MemPD(poolingFwd_pd->workspace_primitive_desc()));
         indices_memory.reset(new memory(*indices_pd, reinterpret_cast<void *>(mask)));
-        poolingFwd.reset(new pooling_forward(*poolingFwd_pd, *input_primitive, *output_memory, *indices_memory));
+        poolingFwd.reset(new pooling_forward(*poolingFwd_pd, *fwd_bottom_data_primitive, *fwd_top_data_memory, *indices_memory));
     } else {
-        poolingFwd.reset(new pooling_forward(*poolingFwd_pd, *input_primitive, *output_memory));
+        poolingFwd.reset(new pooling_forward(*poolingFwd_pd, *fwd_bottom_data_primitive, *fwd_top_data_memory));
     }
-    fwd_bottom_data->set_mkldnn_primitive(poolingFwd);
-    fwd_top_data->set_mkldnn_primitive(poolingFwd);
+    //fwd_bottom_data->set_mkldnn_primitive(poolingFwd);  //Wrong passed primitive! (TODO: Checking!)
+    MKLDNNPrimitive<Dtype> fwd_bottom_data_primitive_transfer(fwd_bottom_data_primitive);
+    fwd_bottom_data->set_mkldnn_primitive(fwd_bottom_data_primitive_transfer);
+
+    //fwd_top_data->set_mkldnn_primitive(poolingFwd);     //Wrong passed primitive! (TODO: Checking!)
+    MKLDNNPrimitive<Dtype> fwd_top_data_memory_transfer(fwd_top_data_memory);
+    fwd_top_data->set_mkldnn_primitive(fwd_top_data_memory_transfer);
 }
 
 // TODO(Yangqing): Is there a faster way to do pooling in the channel-first
@@ -280,21 +316,215 @@ void MKLDNNPoolingLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom
                                             ,const vector<Blob<Dtype>*>& top)
 {
     VLOG(1) << "MKLDNNPoolingLayer<Dtype>::Forward_cpu: " << this->layer_param_.name();
+#ifdef DEBUG
+    LOG(INFO) << "MKLDNNPoolingLayer<Dtype>::Forward_cpu: " << this->layer_param_.name();
+#endif
+
     if (NULL == poolingFwd_pd)
-        InitPooling(bottom, top);
+        InitPoolingFwd(bottom, top);
     // making reorders if needed.
-    fwd_bottom_data->sync_before_read(false);
+    fwd_bottom_data->sync_before_read();
     // update top that head at prv
     fwd_top_data->sync_before_write();
 
+    PERFORMANCE_EVENT_ID_INIT(perf_id_fw_, PERFORMANCE_MKLDNN_NAME("FW"));
+    PERFORMANCE_MEASUREMENT_BEGIN();
     poolingFwd.submit();
+    PERFORMANCE_MEASUREMENT_END_ID(perf_id_fw_);
+}
+
+template <typename Dtype>
+void MKLDNNPoolingLayer<Dtype>::InitPoolingBwd(const vector<Blob<Dtype>*>& top
+                                               , const vector<bool>& propagate_down
+                                               , const vector<Blob<Dtype>*>& bottom)
+{
+    if (std::is_same<Dtype, double>::value)  NOT_IMPLEMENTED;
+
+    algorithm pooling_algorithm;
+    switch (this->layer_param_.pooling_param().pool()) {
+    case PoolingParameter_PoolMethod_MAX:
+        pooling_algorithm = algorithm::pooling_max;
+        break;
+    case PoolingParameter_PoolMethod_AVE:
+        if (this->layer_param_.pooling_param().avg_include_pad()) {
+            pooling_algorithm = algorithm::pooling_avg_include_padding;
+        }else {
+            pooling_algorithm = algorithm::pooling_avg_exclude_padding;
+        }
+
+        break;
+    case PoolingParameter_PoolMethod_STOCHASTIC:
+        NOT_IMPLEMENTED;
+        break;
+    default:
+        LOG(FATAL) << "Unknown pooling method.";
+    }
+
+    int32_t n = this->num_;
+    int32_t c = this->channels_;
+    int32_t ih = this->height_;
+    int32_t iw = this->width_;
+    int32_t oh = this->height_out_;
+    int32_t ow = this->width_out_;
+
+    int32_t kh = this->kernel_h_;
+    int32_t kw = this->kernel_w_;
+
+    int32_t sh = this->stride_h_;
+    int32_t sw = this->stride_w_;
+
+    int32_t pt = this->pad_t_;
+    int32_t pb = this->pad_b_;
+
+    int32_t pr = this->pad_r_;
+    int32_t pl = this->pad_l_;
+
+    bool top_diff_is_prv = (const_cast<Dtype*>(top[0]->prv_diff()) != NULL);
+
+    engine cpu_engine = CpuEngine::Instance().get_engine();
+    memory::data_type mpcsn = memory::data_type::f32;
+    memory::dims bottom_tz = {n, c, ih, iw};
+    memory::dims top_tz = {n, c, oh, ow};
+    memory::format mfmt_nchw = memory::format::nchw;
+
+    // ---- Initialize memory descriptors -------------
+    typedef typename memory::primitive_desc MemPD; // short name for memory::primitive_desc
+
+    memory::format bwd_cmfmt = mfmt_nchw;
+    if (top_diff_is_prv) {
+        shared_ptr<MKLDNNMemoryDescriptor<Dtype, true> > mem_descr
+            = get_mkldnn_prv_descriptor<Dtype, true>(top[0]);
+        bwd_cmfmt = static_cast<memory::format>(mem_descr->prv_memory_pd()->desc().data.format);
+    }
+
+    bool bottom_data_is_prv = (const_cast<Dtype*>(bottom[0]->prv_data()) != NULL);
+    if (bottom_data_is_prv) {
+        shared_ptr<MKLDNNMemoryDescriptor<Dtype, false> > mem_descr
+            = get_mkldnn_prv_descriptor<Dtype, false>(bottom[0]);
+        memory::format fwd_prv_bottom_data_mfmt = static_cast<memory::format>(mem_descr->prv_memory_pd()->desc().data.format);
+#ifdef DEBUG
+        LOG(INFO) << "MKLDNNPoolingLayer<Dtype>::InitPoolingBwd: memory format of prv bottom data is: " << fwd_prv_bottom_data_mfmt;
+        LOG(INFO) << "MKLDNNPoolingLayer<Dtype>::InitPoolingBwd: Reorder the top and bottom diff to the format of prv bottom data! (Performance consideration)";
+#endif
+        bwd_cmfmt = fwd_prv_bottom_data_mfmt;
+    }
+
+    shared_ptr<memory::desc> init_bwd_bottom_md(new memory::desc({bottom_tz}, mpcsn, bwd_cmfmt));
+    shared_ptr<memory::desc> init_bwd_top_md(new memory::desc({top_tz}, mpcsn, bwd_cmfmt));
+
+    shared_ptr<MemPD> usr_bottom_data_mpd(new MemPD({{bottom_tz}, mpcsn, mfmt_nchw}, cpu_engine));
+    shared_ptr<MemPD> usr_top_data_mpd(new MemPD({{top_tz}, mpcsn, mfmt_nchw}, cpu_engine));
+    // ---- Initialize pooling primitive descriptor -------------
+    pooling_backward::desc poolingBwd_desc(pooling_algorithm, *init_bwd_bottom_md,*init_bwd_top_md
+                                        , {sh, sw}, {kh, kw}, {pt, pl}, {pb, pr}, padding_kind::zero);
+    // ---- Determining engine to use -----------------------
+    std::string subengines = this->layer_param_.engine();
+    if (subengines == "" || subengines == "MKLDNN")
+      subengines = "MKLDNN:CPU";
+    EngineParser ep(subengines);
+    unsigned subEngineIndex = 0;
+    for(; subEngineIndex < ep.getNumberOfSubEngines(); subEngineIndex++) {
+      try {
+        poolingBwd_pd.reset(new pooling_backward::primitive_desc(poolingBwd_desc,
+                ep.getMKLDNNSubEngine(subEngineIndex), *poolingFwd_pd));
+      }
+      catch(...) {
+        continue;
+      }
+      break;
+    }
+
+    CHECK(poolingBwd_pd);
+    engine engine = ep.getMKLDNNSubEngine(subEngineIndex);
+
+    // ---- Initialize remaining memory descriptors -------------
+    shared_ptr<MemPD> prv_bwd_bottom_diff_mpd, prv_bwd_top_diff_mpd;
+    if (top_diff_is_prv || bottom_data_is_prv) {
+        prv_bwd_bottom_diff_mpd.reset(new MemPD(*init_bwd_bottom_md, engine));
+        prv_bwd_top_diff_mpd.reset(new MemPD(*init_bwd_top_md, engine));
+    }
+
+    // ---  init primitive and prv_memory descriptors ----------------------
+    bwd_bottom_diff.reset(new MKLDNNDiff<Dtype>(usr_bottom_data_mpd, prv_bwd_bottom_diff_mpd, bottom[0], this));
+    bwd_bottom_diff->name = "bwd_bottom_diff_data   @ " + this->layer_param_.name();
+    bwd_bottom_diff_memory = bwd_bottom_diff->create_output_memory();
+
+    bwd_top_diff.reset(new MKLDNNDiff<Dtype>(usr_top_data_mpd, prv_bwd_top_diff_mpd, top[0], this));
+    bwd_top_diff->name = "bwd_top_diff_data   @ " + this->layer_param_.name();
+    bwd_top_diff_primitive = bwd_top_diff->create_input(false);
+
+    if (pooling_algorithm != algorithm::pooling_avg_include_padding &&
+         pooling_algorithm != algorithm::pooling_avg_exclude_padding)
+        poolingBwd.reset(new pooling_backward(*poolingBwd_pd,
+                    *bwd_top_diff_primitive, *indices_memory,
+                    *bwd_bottom_diff_memory));
+    else
+        poolingBwd.reset(new pooling_backward(*poolingBwd_pd,
+                    *bwd_top_diff_primitive, *bwd_bottom_diff_memory));
+    //bwd_bottom_diff->set_mkldnn_primitive(poolingBwd);    //Wrong passed primitive! (TODO: Checking!)
+    MKLDNNPrimitive<Dtype> bwd_bottom_diff_memory_transfer(bwd_bottom_diff_memory);
+    bwd_bottom_diff->set_mkldnn_primitive(bwd_bottom_diff_memory_transfer);
+
+    //bwd_top_diff->set_mkldnn_primitive(poolingBwd);       //Wrong passed primitive! (TODO: Checking!)
+    MKLDNNPrimitive<Dtype> bwd_top_diff_primitive_transfer(bwd_top_diff_primitive);
+    bwd_top_diff->set_mkldnn_primitive(bwd_top_diff_primitive_transfer);
 }
 
 template <typename Dtype>
 void MKLDNNPoolingLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top
-                                            ,const vector<bool>& propagate_down
+                                            , const vector<bool>& propagate_down
                                             , const vector<Blob<Dtype>*>& bottom)
-{ NOT_IMPLEMENTED; }
+{
+    VLOG(1) << "MKLDNNPoolingLayer<Dtype>::Backward_cpu: " << this->layer_param_.name();
+#ifdef DEBUG
+    LOG(INFO) << "MKLDNNPoolingLayer<Dtype>::Backward_cpu: " << this->layer_param_.name();
+#endif
+
+    if (!propagate_down[0]) {
+        return;
+    }
+    if (NULL == poolingBwd_pd)
+        InitPoolingBwd(top, propagate_down, bottom);
+
+    bwd_top_diff->sync_before_read();
+    bwd_bottom_diff->sync_before_write();
+
+    PERFORMANCE_EVENT_ID_INIT(perf_id_bw_, PERFORMANCE_MKLDNN_NAME("BW"));
+    PERFORMANCE_MEASUREMENT_BEGIN();
+#ifdef DEBUG
+    if (bottom[0]->prv_data() != NULL)
+    {
+        LOG(INFO) << "Debug: Bottom prv data: " << *bottom[0]->prv_data();
+    }
+    else
+    {
+        LOG(INFO) << "Debug: Bottom prv data is NULL!";
+        //LOG(INFO) << "Debug: Bottom cpu data: " << *bottom[0]->cpu_data();
+    }
+
+    if (top[0]->prv_diff() != NULL)
+    {
+        LOG(INFO) << "Debug: Top prv diff: " << *top[0]->prv_diff();
+    }
+    else
+    {
+        LOG(INFO) << "Debug: Top prv diff is NULL!";
+        //LOG(INFO) << "Debug: Top cpu diff: " << *top[0]->cpu_diff();
+    }
+#endif
+    poolingBwd.submit();
+#ifdef DEBUG
+    if (bottom[0]->prv_diff() != NULL)
+    {
+        LOG(INFO) << "Debug: Bottom prv diff: " << *bottom[0]->prv_diff();
+    }
+    else
+    {
+        LOG(INFO) << "Debug: Bottom prv diff is NULL!";
+    }
+#endif
+    PERFORMANCE_MEASUREMENT_END_ID(perf_id_bw_);
+}
 
 #ifdef CPU_ONLY
 STUB_GPU(MKLDNNPoolingLayer);

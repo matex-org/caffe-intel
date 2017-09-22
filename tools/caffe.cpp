@@ -46,13 +46,12 @@ namespace bp = boost::python;
 #include <cstring>
 #include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "boost/algorithm/string.hpp"
 #include "boost/make_shared.hpp"
 #include "caffe/caffe.hpp"
-#include "caffe/internode/mpiutil.hpp"
-#include "caffe/multinode/multinode.hpp"
 #include "caffe/parallel/mpi_sync_cpu.hpp"
 #include "caffe/parallel/mpi_sync_params_cpu.hpp"
 #include "caffe/parallel/mpi_sync_params_nb_cpu.hpp"
@@ -61,11 +60,13 @@ namespace bp = boost::python;
 #include "caffe/parallel/mpi_gossip_params_cpu.hpp"
 #include "caffe/parallel/mpi_gossip_params_cpu2.hpp"
 #include "caffe/training_utils.hpp"
+#include "caffe/util/performance.hpp"
 #include "caffe/util/signal_handler.h"
 
+#include "caffe/util/bbox_util.hpp"
+
 #ifdef USE_MLSL
-#include "caffe/multinode/MlslSync.hpp"
-#include "caffe/internode/mlsl_util.hpp"
+#include "caffe/multinode/multi_sync.hpp"
 #endif /* USE_MLSL */
 
 using caffe::Blob;
@@ -107,15 +108,26 @@ DEFINE_string(sigint_effect, "stop",
 DEFINE_string(sighup_effect, "snapshot",
              "Optional; action to take when a SIGHUP signal is received: "
              "snapshot, stop or none.");
-DEFINE_string(param_server, "",
-    "Optional; triggers multinode mode, usage: --param_server=mpi");
-DEFINE_string(listen_address, "",
-    "Optional; multinode mode, bind address for data server");
+DEFINE_bool(forward_only, false,
+    "Optional; Execute only forward pass");
+DEFINE_string(engine, "",
+    "Optional; Engine sequence in format: engine:subengine_1,subengine_2,...");
+DEFINE_string(collect_dir, "collect_out",
+    "Optional; Directory with reference binary files");
+DEFINE_string(compare_output_dir, "compare_out",
+    "Optional; Directory with output files");
+DEFINE_double(epsilon, 1e-3, "Optional; Layer output comparison error");
+DEFINE_bool(detection, false,
+    "Optional; Enables detection for testing. "
+    "By default it is false and classification is on.");
+DEFINE_bool(fast_compare, false,
+    "Optional; Break layer comparison after fast_compare_max errors found");
+DEFINE_int32(fast_compare_max, 50,
+    "Optional; Max errors for fast_compare");
+DEFINE_double(buffer_filler, std::nanf(""), "Buffer filler for compare tool");
 DEFINE_int32(comm_threads, 1,
     "Optional; multinode mode,"
     " The number of threads used by communication code.");
-DEFINE_string(engine, "",
-    "Optional; Engine sequence in format: engine:subengine_1,subengine_2,...");
 DEFINE_string(par, "",
     "Optional; parallelization strategy, e.g., MPISyncCPU");
 DEFINE_bool(cube, true, "for MPIGossipParamsCPU, use hypercube");
@@ -326,35 +338,16 @@ int train() {
     CopyLayers(solver.get(), FLAGS_weights);
   }
 
-  if (FLAGS_param_server != "") {
+#ifdef USE_MLSL
+  if (caffe::mn::is_multinode()) {
     LOG(INFO) << "Configuring multinode setup";
-
-#ifdef USE_MLSL
-      if (FLAGS_param_server != "mlsl")
-#else
-      if (FLAGS_param_server != "mpi")
-#endif /* USE_MLSL */
-      {
-
-        LOG(ERROR) << "currently unsupported";
-        return 1;
-      }
-
-#ifdef USE_MLSL
-      if (FLAGS_param_server == "mlsl") {
-        caffe::MlslSync<float> sync(solver);
-        LOG(INFO) << "Starting Multi-node Optimization in MLSL environment";
-        sync.run();
-      }
-#else /* !USE_MLSL */
-      if (FLAGS_param_server == "mpi") {
-        caffe::SynchronousNode<float> sync(solver, FLAGS_comm_threads);
-        LOG(INFO) << "Starting Multi-node Optimization in mpi environment";
-        sync.run();
-      }
+    caffe::MultiSync<float> sync(solver);
+    LOG(INFO) << "Starting Multi-node Optimization in MLSL environment";
+    sync.run();
+  } else
 #endif /* USE_MLSL */
 
-  } else if (FLAGS_par != "") {
+  if (FLAGS_par != "") {
     if (FLAGS_par == "MPISyncCPU") {
       caffe::MPISyncCPU<float> sync(solver);
       sync.Run();
@@ -405,37 +398,98 @@ int train() {
 }
 RegisterBrewFunction(train);
 
-int data_server() {
-  CHECK_GT(FLAGS_solver.size(), 0) << "Need a solver definition to train.";
-  CHECK(!FLAGS_snapshot.size() || !FLAGS_weights.size())
-      << "Give a snapshot to resume training or weights to finetune "
-      "but not both.";
+int test_detection(Net<float>& caffe_net) {
+  std::map<int, std::map<int,
+    std::vector<std::pair<float, int> > > > all_true_pos;
+  std::map<int, std::map<int,
+    std::vector<std::pair<float, int> > > > all_false_pos;
+  std::map<int, std::map<int, int> > all_num_pos;
 
-  caffe::SolverParameter solver_param;
-  caffe::ReadSolverParamsFromTextFileOrDie(FLAGS_solver, &solver_param);
+  PERFORMANCE_INIT_MONITOR();
 
-  caffe::SignalHandler signal_handler(
-        GetRequestedAction(FLAGS_sigint_effect),
-        GetRequestedAction(FLAGS_sighup_effect));
+  for (int i = 0; i < FLAGS_iterations; ++i) {
+    float iter_loss;
+    const vector<Blob<float>*>& result = caffe_net.Forward(&iter_loss);
 
-  shared_ptr<caffe::Solver<float> >
-      solver(caffe::SolverRegistry<float>::CreateSolver(solver_param));
+    for (int j = 0; j < result.size(); ++j) {
+      const float* result_vec = result[j]->cpu_data();
 
-  solver->SetActionFunction(signal_handler.GetActionFunction());
-
-  if (FLAGS_snapshot.size()) {
-    LOG(INFO) << "Resuming from " << FLAGS_snapshot;
-    solver->Restore(FLAGS_snapshot.c_str());
-  } else if (FLAGS_weights.size()) {
-    CopyLayers(solver.get(), FLAGS_weights);
+      int num_det = result[j]->height();
+      for (int k = 0; k < num_det; ++k) {
+        int item_id = static_cast<int>(result_vec[k * 5]);
+        int label = static_cast<int>(result_vec[k * 5 + 1]);
+        if (item_id == -1) {
+          // Special row of storing number of positives for a label.
+          if (all_num_pos[j].find(label) == all_num_pos[j].end()) {
+            all_num_pos[j][label] = static_cast<int>(result_vec[k * 5 + 2]);
+          } else {
+            all_num_pos[j][label] += static_cast<int>(result_vec[k * 5 + 2]);
+          }
+        } else {
+          // Normal row storing detection status.
+          float score = result_vec[k * 5 + 2];
+          int tp = static_cast<int>(result_vec[k * 5 + 3]);
+          int fp = static_cast<int>(result_vec[k * 5 + 4]);
+          if (tp == 0 && fp == 0) {
+            // Ignore such case. It happens when a detection bbox is matched to
+            // a difficult gt bbox and we don't evaluate on difficult gt bbox.
+            continue;
+          }
+          all_true_pos[j][label].push_back(std::make_pair(score, tp));
+          all_false_pos[j][label].push_back(std::make_pair(score, fp));
+        }
+      }
+    }
   }
-  LOG(INFO) << "Starting Data Server";
-  caffe::DataServer<float> server(
-    solver, FLAGS_listen_address, FLAGS_param_server, FLAGS_comm_threads);
-  server.run();
+
+  for (int i = 0; i < all_true_pos.size(); ++i) {
+    if (all_true_pos.find(i) == all_true_pos.end()) {
+      LOG(FATAL) << "Missing output_blob true_pos: " << i;
+    }
+    const std::map<int, std::vector<std::pair<float, int> > >& true_pos =
+        all_true_pos.find(i)->second;
+    if (all_false_pos.find(i) == all_false_pos.end()) {
+      LOG(FATAL) << "Missing output_blob false_pos: " << i;
+    }
+    const std::map<int, std::vector<std::pair<float, int> > >& false_pos =
+        all_false_pos.find(i)->second;
+    if (all_num_pos.find(i) == all_num_pos.end()) {
+      LOG(FATAL) << "Missing output_blob num_pos: " << i;
+    }
+    const std::map<int, int>& num_pos = all_num_pos.find(i)->second;
+    std::map<int, float> APs;
+    float mAP = 0.;
+    // Sort true_pos and false_pos with descend scores.
+    for (std::map<int, int>::const_iterator it = num_pos.begin();
+         it != num_pos.end(); ++it) {
+      int label = it->first;
+      int label_num_pos = it->second;
+      if (true_pos.find(label) == true_pos.end()) {
+        LOG(WARNING) << "Missing true_pos for label: " << label;
+        continue;
+      }
+      const std::vector<std::pair<float, int> >& label_true_pos =
+          true_pos.find(label)->second;
+      if (false_pos.find(label) == false_pos.end()) {
+        LOG(WARNING) << "Missing false_pos for label: " << label;
+        continue;
+      }
+      const std::vector<std::pair<float, int> >& label_false_pos =
+          false_pos.find(label)->second;
+      std::vector<float> prec, rec;
+      caffe::ComputeAP(label_true_pos, label_num_pos, label_false_pos,
+                "11point", &prec, &rec, &(APs[label]));
+      mAP += APs[label];
+    }
+    mAP /= num_pos.size();
+    const int output_blob_index = caffe_net.output_blob_indices()[i];
+    const string& output_name = caffe_net.blob_names()[output_blob_index];
+    LOG(INFO) << "    Test net output #" << i << ": " << output_name << " = "
+              << mAP;
+  }
+
   return 0;
 }
-RegisterBrewFunction(data_server);
 
 // Test: score a model.
 int test() {
@@ -464,6 +518,11 @@ int test() {
                        FLAGS_engine);
   caffe_net.CopyTrainedLayersFrom(FLAGS_weights);
   LOG(INFO) << "Running for " << FLAGS_iterations << " iterations.";
+
+  if (FLAGS_detection) {
+    test_detection(caffe_net);
+    return 0;
+  }
 
   vector<int> test_score_output_id;
   vector<float> test_score;
@@ -513,100 +572,56 @@ RegisterBrewFunction(test);
 
 // Time: benchmark the execution time of a model.
 int time() {
-  CHECK_GT(FLAGS_model.size() + FLAGS_solver.size(), 0) << "Need a model definition to time.";
+  CHECK_GT(FLAGS_model.size(), 0) << "Need a model definition to time.";
+  caffe::Phase phase = get_phase_from_flags(caffe::TRAIN);
+  vector<string> stages = get_stages_from_flags(FLAGS_stage);
+
+  // Set device id and mode
   vector<int> gpus;
-#ifndef CPU_ONLY
-  // Read flags for list of GPUs
   get_gpus(&gpus);
-  while (gpus.size() > 1) {
-    // Only use one GPU
-    LOG(INFO) << "Not using GPU #" << gpus.back() << " for single-GPU function";
-    gpus.pop_back();
-  }
-  caffe::GPUMemory::Scope gpu_memory_scope(gpus);
-#endif
-
-  caffe::SolverParameter solver_param;
-  if (FLAGS_solver.size() > 0) {
-    caffe::ReadSolverParamsFromTextFileOrDie(FLAGS_solver, &solver_param);
-  }
-
-  // Set mode and device_id
   if (gpus.size() != 0) {
     LOG(INFO) << "Use GPU with device ID " << gpus[0];
-#ifndef CPU_ONLY
-    cudaDeviceProp device_prop;
-    cudaGetDeviceProperties(&device_prop, gpus[0]);
-    LOG(INFO) << "GPU " << gpus[0] << ": " << device_prop.name;
-#endif
     Caffe::SetDevice(gpus[0]);
     Caffe::set_mode(Caffe::GPU);
-    solver_param.set_device_id(gpus[0]);
   } else {
     LOG(INFO) << "Use CPU.";
     Caffe::set_mode(Caffe::CPU);
   }
-
   // Instantiate the caffe net.
-  shared_ptr<Net<float> > caffe_net;
-  shared_ptr<caffe::Solver<float> > solver;
+  Net<float> caffe_net(FLAGS_model, phase, FLAGS_level, &stages, NULL,
+                       FLAGS_engine);
 
-  if (FLAGS_solver.size() > 0) {
-    solver.reset(caffe::SolverRegistry<float>::CreateSolver(solver_param));
-    caffe_net = solver->net();
-  }
-  else {
-    caffe_net.reset(new Net<float>(FLAGS_model, caffe::TRAIN));
-  }
+  PERFORMANCE_INIT_MONITOR();
 
-  // Do a number of clean forward and backward pass,
-  // so that memory allocation are done,
+  // Do a clean forward and backward pass, so that memory allocation are done
   // and future iterations will be more stable.
-  Timer init_timer;
-  Timer forward_timer;
-  Timer backward_timer;
-  Timer apply_timer;
-  double forward_time = 0.0;
-  double backward_time = 0.0;
-  double apply_time = 0.0;
-  const int kInitIterations = 5;
-  LOG(INFO) << "Initialization for " << kInitIterations << " iterations.";
+  LOG(INFO) << "Performing Forward";
   // Note that for the speed benchmark, we will assume that the network does
   // not take any input blobs.
-  LOG(INFO) << "Performing initial Forward/Backward";
-  const vector<shared_ptr<Layer<float> > >& layers = caffe_net->layers();
-  const vector<vector<Blob<float>*> >& bottom_vecs = caffe_net->bottom_vecs();
-  const vector<vector<Blob<float>*> >& top_vecs = caffe_net->top_vecs();
-  const vector<Blob<float>*>& params = caffe_net->learnable_params();
-  const vector<vector<bool> >& bottom_need_backward =
-      caffe_net->bottom_need_backward();
-  float initial_loss = 0.F;
-  init_timer.Start();
-  for (int j = 0; j < kInitIterations; ++j) {
-    for (int i = 0; i < layers.size(); ++i) {
-      initial_loss += layers[i]->Forward(bottom_vecs[i], top_vecs[i]);
-    }
-    for (int i = layers.size() - 1; i >= 0; --i) {
-      layers[i]->Backward(top_vecs[i], bottom_need_backward[i],
-                          bottom_vecs[i]);
-    }
+  float initial_loss;
+  caffe_net.Forward(&initial_loss);
+  LOG(INFO) << "Initial loss: " << initial_loss;
+  if (!FLAGS_forward_only) {
+    LOG(INFO) << "Performing Backward";
+    caffe_net.Backward();
   }
-  double init_time = init_timer.MilliSeconds();
-  LOG(INFO) << "Initial Forward/Backward complete, loss: " << initial_loss;
-  LOG(INFO) << "Average Initialization Forward/Backward pass: " << init_time /
-      kInitIterations << " ms.";
 
+  const vector<shared_ptr<Layer<float> > >& layers = caffe_net.layers();
+  const vector<vector<Blob<float>*> >& bottom_vecs = caffe_net.bottom_vecs();
+  const vector<vector<Blob<float>*> >& top_vecs = caffe_net.top_vecs();
+  const vector<vector<bool> >& bottom_need_backward =
+      caffe_net.bottom_need_backward();
   LOG(INFO) << "*** Benchmark begins ***";
   LOG(INFO) << "Testing for " << FLAGS_iterations << " iterations.";
   Timer total_timer;
   total_timer.Start();
+  Timer forward_timer;
+  Timer backward_timer;
   Timer timer;
   std::vector<double> forward_time_per_layer(layers.size(), 0.0);
   std::vector<double> backward_time_per_layer(layers.size(), 0.0);
-  std::vector<double> apply_time_per_param(params.size(), 0.0);
-  forward_time = 0.0;
-  backward_time = 0.0;
-  apply_time = 0.0;
+  double forward_time = 0.0;
+  double backward_time = 0.0;
   for (int j = 0; j < FLAGS_iterations; ++j) {
     Timer iter_timer;
     iter_timer.Start();
@@ -617,34 +632,19 @@ int time() {
       forward_time_per_layer[i] += timer.MicroSeconds();
     }
     forward_time += forward_timer.MicroSeconds();
-    backward_timer.Start();
-    for (int i = layers.size() - 1; i >= 0; --i) {
-      timer.Start();
-      layers[i]->Backward(top_vecs[i], bottom_need_backward[i],
-                          bottom_vecs[i]);
-      backward_time_per_layer[i] += timer.MicroSeconds();
-    }
-    backward_time += backward_timer.MicroSeconds();
-    if (FLAGS_solver.size() > 0) {
-      apply_timer.Start();
-      float rate = solver->GetLearningRate();
-      solver->ClipGradients();
-      for (int i = params.size() - 1; i >= 0; --i) {
+    if (!FLAGS_forward_only) {
+      backward_timer.Start();
+      for (int i = layers.size() - 1; i >= 0; --i) {
         timer.Start();
-        solver->Normalize(i);
-        solver->Regularize(i);
-        solver->ComputeUpdateValue(i, rate);
-        apply_time_per_param[i] += timer.MicroSeconds();
+        layers[i]->Backward(top_vecs[i], bottom_need_backward[i],
+                            bottom_vecs[i]);
+        backward_time_per_layer[i] += timer.MicroSeconds();
       }
-      caffe_net->Update();
-      apply_time += apply_timer.MicroSeconds();
-    }
-    if (FLAGS_solver.size() > 0) {
-      LOG(INFO) << "Iteration: " << j + 1 << " forward-backward-apply time: "
-        << iter_timer.MilliSeconds() << " ms.";
-    }
-    else {
+      backward_time += backward_timer.MicroSeconds();
       LOG(INFO) << "Iteration: " << j + 1 << " forward-backward time: "
+        << iter_timer.MilliSeconds() << " ms.";
+    } else {
+      LOG(INFO) << "Iteration: " << j + 1 << " forward time: "
         << iter_timer.MilliSeconds() << " ms.";
     }
   }
@@ -654,29 +654,18 @@ int time() {
     LOG(INFO) << std::setfill(' ') << std::setw(10) << layername <<
       "\tforward: " << forward_time_per_layer[i] / 1000 /
       FLAGS_iterations << " ms.";
-    LOG(INFO) << std::setfill(' ') << std::setw(10) << layername  <<
-      "\tbackward: " << backward_time_per_layer[i] / 1000 /
-      FLAGS_iterations << " ms.";
-  }
-  if (FLAGS_solver.size() > 0) {
-    for (int i = params.size() - 1; i >= 0; --i) {
-      LOG(INFO) << std::setfill(' ') << std::setw(10) << i <<
-        "\tapply: " << apply_time_per_param[i] / 1000 /
+    if (!FLAGS_forward_only) {
+      LOG(INFO) << std::setfill(' ') << std::setw(10) << layername  <<
+        "\tbackward: " << backward_time_per_layer[i] / 1000 /
         FLAGS_iterations << " ms.";
     }
   }
   total_timer.Stop();
   LOG(INFO) << "Average Forward pass: " << forward_time / 1000 /
     FLAGS_iterations << " ms.";
-  LOG(INFO) << "Average Backward pass: " << backward_time / 1000 /
-    FLAGS_iterations << " ms.";
-  if (FLAGS_solver.size() > 0) {
-    LOG(INFO) << "Average Apply pass: " << apply_time / 1000 /
+  if (!FLAGS_forward_only) {
+    LOG(INFO) << "Average Backward pass: " << backward_time / 1000 /
       FLAGS_iterations << " ms.";
-    LOG(INFO) << "Average Forward-Backward-Apply: " << total_timer.MilliSeconds() /
-      FLAGS_iterations << " ms.";
-  }
-  else {
     LOG(INFO) << "Average Forward-Backward: " << total_timer.MilliSeconds() /
       FLAGS_iterations << " ms.";
   }
@@ -686,61 +675,9 @@ int time() {
 }
 RegisterBrewFunction(time);
 
-
 // collect & compare: Debugging extansion for CPU-GPU functional comparison
 #include <stdio.h>
-typedef float real_t;
-
-void getFileName(char *file_name, bool use_gpu, const char *name, int id) {
-  const char *prefix = use_gpu ? "GPU" : "CPU";
-  snprintf(file_name, FILENAME_MAX, "%s%s%04i.bin", prefix, name, id);
-}
-
-bool saveToFile(bool use_gpu, const char *name, int id,
-    const real_t *data, unsigned count) {
-  char file_name[FILENAME_MAX];
-  getFileName(file_name, use_gpu, name, id);
-
-  FILE *file = fopen(file_name, "w+b");
-  if (!file) {
-    LOG(ERROR) << "Failed to create file '" << file_name << "'.";
-    return false;
-  }
-
-  size_t bytesToWrite = count * sizeof(data[0]);
-  size_t bytesWritten = fwrite(data, 1, bytesToWrite, file);
-  fclose(file);
-
-  if (bytesWritten != bytesToWrite) {
-    LOG(ERROR) << "Failed to write data to '" << file_name << "' file.";
-    return false;
-  }
-
-  return true;
-}
-
-bool loadFromFile(bool use_gpu, const char *name, int id,
-    real_t *data, unsigned count) {
-  char file_name[FILENAME_MAX];
-  getFileName(file_name, use_gpu, name, id);
-
-  FILE *file = fopen(file_name, "rb");
-  if (!file) {
-    LOG(ERROR) << "Failed to open file '" << file_name << "' for read.";
-    return false;
-  }
-
-  size_t bytesToRead = count * sizeof(data[0]);
-  size_t bytesRead = fread(data, 1, bytesToRead, file);
-  fclose(file);
-
-  if (bytesRead != bytesToRead) {
-    LOG(ERROR) << "Failed to read data from '" << file_name << "' file.";
-    return false;
-  }
-
-  return true;
-}
+#include "caffe/util/compareToolUtilities.h"
 
 int collect() {
   #ifndef DETERMINISTIC
@@ -761,51 +698,14 @@ int collect() {
     Caffe::set_mode(Caffe::CPU);
   }
 
-  Net<real_t> caffe_net(FLAGS_model, caffe::TRAIN);
-  const vector<shared_ptr<Layer<real_t> > >& layers = caffe_net.layers();
-  const vector<shared_ptr<Blob<real_t> > >& params = caffe_net.params();
-  const vector<vector<Blob<real_t>*> >& bottom_vecs = caffe_net.bottom_vecs();
-  const vector<vector<Blob<real_t>*> >& top_vecs = caffe_net.top_vecs();
-  const vector<vector<bool> >& bottom_need_backward =
-    caffe_net.bottom_need_backward();
-
-  FILE *infoFile = fopen(use_gpu ? "GPUInfo.txt" : "CPUInfo.txt", "w+t");
-  LOG(INFO) << "*** Collect procedure begins ***";
-
-  for (int i = 0; i < params.size(); i++) {
-    caffe::caffe_set(params[i]->count(), 0.f,
-      params[i]->mutable_cpu_diff());
+  boost::filesystem::path dir(FLAGS_collect_dir);
+  if (!boost::filesystem::exists(dir)) {
+      if (!boost::filesystem::create_directory(dir)) {
+          LOG(ERROR) << "Could not create directory for output files";
+      }
   }
 
-  for (int i = 0; i < layers.size(); ++i) {
-    LOG(INFO) << "Collecting FW Layer[" << i << "]: " << layers[i]->type();
-    fprintf(infoFile, "Fwrd%04i: %s\n", i, layers[i]->type());
-    layers[i]->Forward(bottom_vecs[i], top_vecs[i]);
-    saveToFile(use_gpu, "Fwrd", i,
-      top_vecs[i][0]->cpu_data(), top_vecs[i][0]->count());
-  }
-
-  for (int i = layers.size() - 1; i >= 0; --i) {
-    LOG(INFO) << "Collecting BW Layer[" << i << "]: " << layers[i]->type();
-    fprintf(infoFile, "Bwrd%04i: %s\n", i, layers[i]->type());
-    layers[i]->Backward(top_vecs[i], bottom_need_backward[i], bottom_vecs[i]);
-    if (bottom_need_backward[i][0]) {
-      saveToFile(use_gpu, "Bwrd", i,
-        bottom_vecs[i][0]->cpu_diff(), bottom_vecs[i][0]->count());
-    }
-  }
-
-  LOG(INFO) << "Collecting gradients and weights";
-  for (int i = 0; i < params.size(); i++) {
-    saveToFile(use_gpu, "Grad", i,
-      params[i]->cpu_diff(), params[i]->count());
-    saveToFile(use_gpu, "Wght", i,
-      params[i]->cpu_data(), params[i]->count());
-  }
-
-  LOG(INFO) << "*** Collect procedure ends ***";
-  fclose(infoFile);
-  return 0;
+  return collectAndCheckLayerData(true, use_gpu, FLAGS_collect_dir.c_str());
 }
 RegisterBrewFunction(collect);
 
@@ -828,67 +728,18 @@ int compare() {
     Caffe::set_mode(Caffe::CPU);
   }
 
-  Net<real_t> caffe_net(FLAGS_model, caffe::TRAIN);
-  const vector<shared_ptr<Layer<real_t> > >& layers = caffe_net.layers();
-  const vector<shared_ptr<Blob<real_t> > >& params = caffe_net.params();
-  const vector<vector<Blob<real_t>*> >& bottom_vecs = caffe_net.bottom_vecs();
-  const vector<vector<Blob<real_t>*> >& top_vecs = caffe_net.top_vecs();
-  const vector<vector<bool> >& bottom_need_backward =
-    caffe_net.bottom_need_backward();
-
-  FILE *infoFile = fopen(use_gpu ? "GPUInfo.txt" : "CPUInfo.txt", "w+t");
-  LOG(INFO) << "*** Compare procedure begins ***";
-
-  for (int i = 0; i < params.size(); i++) {
-    caffe::caffe_set(params[i]->count(), 0.f,
-      params[i]->mutable_cpu_diff());
+  boost::filesystem::path dir(FLAGS_compare_output_dir);
+  if (!boost::filesystem::exists(dir)) {
+      if (!boost::filesystem::create_directory(dir)) {
+          LOG(ERROR) << "Could not create directory for output files";
+      }
   }
-
-  for (int i = 0; i < layers.size(); ++i) {
-    LOG(INFO) << "Collecting FW Layer[" << i << "]: " << layers[i]->type();
-    fprintf(infoFile, "Fwrd%04i: %s\n", i, layers[i]->type());
-    layers[i]->Forward(bottom_vecs[i], top_vecs[i]);
-    saveToFile(use_gpu, "Fwrd", i,
-      top_vecs[i][0]->cpu_data(), top_vecs[i][0]->count());
-    loadFromFile(!use_gpu, "Fwrd", i,
-      top_vecs[i][0]->mutable_cpu_data(), top_vecs[i][0]->count());
-  }
-
-  for (int i = layers.size() - 1; i >= 0; --i) {
-    LOG(INFO) << "Collecting BW Layer[" << i << "]: " << layers[i]->type();
-    fprintf(infoFile, "Bwrd%04i: %s\n", i, layers[i]->type());
-    layers[i]->Backward(top_vecs[i], bottom_need_backward[i], bottom_vecs[i]);
-    if (bottom_need_backward[i][0]) {
-      saveToFile(use_gpu, "Bwrd", i,
-        bottom_vecs[i][0]->cpu_diff(), bottom_vecs[i][0]->count());
-      loadFromFile(!use_gpu, "Bwrd", i,
-        bottom_vecs[i][0]->mutable_cpu_diff(), bottom_vecs[i][0]->count());
-    }
-  }
-
-  LOG(INFO) << "Collecting gradients and weights";
-  for (int i = 0; i < params.size(); i++) {
-    saveToFile(use_gpu, "Grad", i,
-      params[i]->cpu_diff(), params[i]->count());
-    saveToFile(use_gpu, "Wght", i,
-      params[i]->cpu_data(), params[i]->count());
-  }
-
-  LOG(INFO) << "*** Compare procedure ends ***";
-  fclose(infoFile);
-  return 0;
+  return collectAndCheckLayerData(false,
+    use_gpu, FLAGS_compare_output_dir.c_str());
 }
 RegisterBrewFunction(compare);
 
-
 int main(int argc, char** argv) {
-
-#ifdef USE_MLSL
-  caffe::internode::mlsl_init(argc, argv);
-#else /* !USE_MLSL */
-  caffe::internode::mpi_init(argc, argv);
-#endif /* USE_MLSL */
-
   // Print output to stderr (while still logging).
   FLAGS_alsologtostderr = 1;
   // Set version
@@ -899,13 +750,15 @@ int main(int argc, char** argv) {
       "commands:\n"
       "  train           train or finetune a model\n"
       "  test            score a model\n"
-      "  data_server     run data server - remote data source\n"
       "  device_query    show GPU diagnostic information\n"
       "  time            benchmark model execution time\n"
       "  collect         collects layer data on specified device\n"
       "  compare         collects layer data using inputs from other device");
   // Run tool or show usage.
   caffe::GlobalInit(&argc, &argv);
+#ifdef USE_MLSL
+  caffe::mn::init(&argc, &argv);
+#endif
   if (argc == 2) {
     //if (FLAGS_par != "") {
       // only log info from master
@@ -920,36 +773,15 @@ int main(int argc, char** argv) {
     try {
 #endif
       int ret = GetBrewFunction(caffe::string(argv[1]))();
-
-#ifdef USE_MLSL
-      caffe::internode::mlsl_finalize();
-#else /* !USE_MLSL */
-      caffe::internode::mpi_finalize();
-#endif /* USE_MLSL */
-
       return ret;
 #ifdef WITH_PYTHON_LAYER
     } catch (bp::error_already_set) {
       PyErr_Print();
-
-#ifdef USE_MLSL
-      caffe::internode::mlsl_finalize();
-#else /* USE_MLSL */
-      caffe::internode::mpi_finalize();
-#endif /* USE_MLSL */
-
       return 1;
     }
 #endif
   } else {
     gflags::ShowUsageWithFlagsRestrict(argv[0], "tools/caffe");
   }
-
-#ifdef USE_MLSL
-      caffe::internode::mlsl_finalize();
-#else /* !USE_MLSL */
-      caffe::internode::mpi_finalize();
-#endif /* USE_MLSL */
-
   return 0;
 }

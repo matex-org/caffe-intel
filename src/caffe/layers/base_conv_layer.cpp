@@ -47,10 +47,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <omp.h>
 #endif
 
-#ifdef USE_MLSL
-using namespace MLSL;
-#endif
-
 namespace caffe {
 
 template <typename Dtype>
@@ -228,7 +224,7 @@ void BaseConvolutionLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
 }
 
 template <typename Dtype>
-void BaseConvolutionLayer<Dtype>::Reshape(const vector<Blob<Dtype>*>& bottom,
+void BaseConvolutionLayer<Dtype>::DoReshape(const vector<Blob<Dtype>*>& bottom,
       const vector<Blob<Dtype>*>& top) {
   const int first_spatial_axis = channel_axis_ + 1;
   CHECK_EQ(bottom[0]->num_axes(), first_spatial_axis + num_spatial_axes_)
@@ -296,8 +292,14 @@ void BaseConvolutionLayer<Dtype>::Reshape(const vector<Blob<Dtype>*>& bottom,
     caffe_set(bias_multiplier_.count(), Dtype(1),
         bias_multiplier_.mutable_cpu_data());
   }
+}
 
-  // ---- openmp ------------------------------------------
+template <typename Dtype>
+void BaseConvolutionLayer<Dtype>::Reshape(const vector<Blob<Dtype>*>& bottom,
+      const vector<Blob<Dtype>*>& top) {
+  DoReshape(bottom, top);
+
+ // ---- openmp ------------------------------------------
   num_of_threads_ = 1;
 #ifdef _OPENMP
   num_of_threads_ = omp_get_max_threads() < bottom[0]->shape(0) ?
@@ -309,38 +311,17 @@ void BaseConvolutionLayer<Dtype>::Reshape(const vector<Blob<Dtype>*>& bottom,
   }
 #endif
 
-  int col_buffer_mt_size = num_of_threads_ * col_buffer_.count();
-  int weight_diff_mt_size = num_of_threads_ * this->blobs_[0]->count();
+  col_buffer_mt_size = num_of_threads_ * static_cast<size_t>(col_buffer_.count());
+  weight_diff_mt_size = num_of_threads_ * static_cast<size_t>(this->blobs_[0]->count());
 
   col_buffer_mt_.resize(col_buffer_mt_size);
   weight_diff_mt_.resize(weight_diff_mt_size);
+}
 
-#ifdef USE_MLSL
-  if (this->layerOp == NULL) {
-    DataType dt = (sizeof(Dtype) == 4)? DT_FLOAT : DT_DOUBLE;
-  	ComputeOpRegInfo *myRegInfo;
-  	int ic = bottom[0]->channels();
-  	int iw = bottom[0]->width();
-  	int ih = bottom[0]->height();
-
-  	int oc = top[0]->channels();
-  	int ofmSize = top[0]->width()*top[0]->height();
-
-  	myRegInfo = new ComputeOpRegInfo(COMP_OP_TYPE_CC);
-  	myRegInfo->SetName(this->layer_param_.name().c_str());
-  	myRegInfo->AddInputFeatureMap(ic, iw*ih, dt);
-  	myRegInfo->AddOutputFeatureMap(oc, ofmSize, dt);
-  	myRegInfo->AddWeights(ic*oc/group_, this->kernel_shape_.cpu_data()[0]*this->kernel_shape_.cpu_data()[1], dt, DISTRIBUTED_WEIGHT_UPDATE);
-
-    if (bias_term_) {
-        myRegInfo->AddWeights(oc, 1, dt, false /* no make sense to do distributed update for bias */);
-    }
-
-    myRegInfo->Validate();
-  	this->layerOp = new ComputeOp(myRegInfo, caffe::internode::data_parallelism);
-    delete myRegInfo;
-  }
-#endif /* USE_MLSL */
+template <typename Dtype>
+void BaseConvolutionLayer<Dtype>::ReshapeForMKL(const vector<Blob<Dtype>*>& bottom,
+      const vector<Blob<Dtype>*>& top) {
+  DoReshape(bottom, top);
 }
 
 template <typename Dtype>
@@ -356,7 +337,7 @@ void BaseConvolutionLayer<Dtype>::forward_cpu_gemm(const Dtype* input,
   }
   tid = tid % num_of_threads_;  //  just to be sure
 #endif
-  int col_data_buffer_size = col_buffer_mt_.size()/num_of_threads_;
+  size_t col_data_buffer_size = col_buffer_mt_.size()/num_of_threads_;
 
   Dtype* col_buff = const_cast<Dtype*>(input);
   if (!is_1x1_) {
@@ -395,7 +376,7 @@ void BaseConvolutionLayer<Dtype>::backward_cpu_gemm(const Dtype* output,
   }
   tid = tid % num_of_threads_;  //  just to be sure
 #endif
-  int col_data_buffer_size = col_buffer_mt_.size()/num_of_threads_;
+  size_t col_data_buffer_size = col_buffer_mt_.size()/num_of_threads_;
   Dtype* col_buff = & col_buffer_mt_[ tid* col_data_buffer_size];
 
   if (is_1x1_) {
@@ -415,7 +396,7 @@ void BaseConvolutionLayer<Dtype>::backward_cpu_gemm(const Dtype* output,
 
 template <typename Dtype>
 void BaseConvolutionLayer<Dtype>::clear_weight_mt(void) {
-  unsigned int weight_diff_size = weight_diff_mt_.size() / num_of_threads_;
+  size_t weight_diff_size = weight_diff_mt_.size() / num_of_threads_;
   caffe_memset(num_of_threads_*weight_diff_size*sizeof(Dtype),
                0.,
                &weight_diff_mt_[0]);
@@ -424,24 +405,24 @@ void BaseConvolutionLayer<Dtype>::clear_weight_mt(void) {
 
 template <typename Dtype>
 void BaseConvolutionLayer<Dtype>::sum_weight_mt(Dtype* weight_diff) {
-  unsigned int weight_diff_size =  weight_diff_mt_.size() / num_of_threads_;
-  unsigned int col_per_thread = weight_diff_size/num_of_threads_;
+  size_t weight_diff_size =  weight_diff_mt_.size() / num_of_threads_;
+  size_t col_per_thread = weight_diff_size/num_of_threads_;
   int tid = 0;
 #ifdef _OPENMP
     if (omp_in_parallel()) {
         tid = omp_get_thread_num();
     }
 #endif
-    for (unsigned int j = 0; j < col_per_thread; ++j) {
-      for (unsigned int t = 0; t < num_of_threads_ ; ++t) {
+    for (size_t j = 0; j < col_per_thread; ++j) {
+      for (size_t t = 0; t < num_of_threads_ ; ++t) {
           weight_diff[tid*col_per_thread + j] +=
             weight_diff_mt_[t*weight_diff_size + tid*col_per_thread + j];
       }
     }
 
-    unsigned int j = col_per_thread*num_of_threads_ + tid;
+    size_t j = col_per_thread*num_of_threads_ + tid;
     if (j < weight_diff_size) {
-      for (unsigned int t = 0; t < num_of_threads_ ; ++t) {
+      for (size_t t = 0; t < num_of_threads_ ; ++t) {
         weight_diff[j] += weight_diff_mt_[t * weight_diff_size + j];
       }
     }
@@ -452,22 +433,26 @@ void BaseConvolutionLayer<Dtype>::weight_cpu_gemm(const Dtype* input,
     const Dtype* output, Dtype* weights) {
   int tid = 0;
 #ifdef _OPENMP
-  tid = omp_get_thread_num();
-  if (tid >= num_of_threads_) {
-    LOG(FATAL) << "ConvLayer::weights_cpu_gemm: omp_thread_num() =" << tid
-               << " > OMP_num_THREADS = " << num_of_threads_;
+  Dtype* weight_diff_data = NULL;
+  if (num_of_threads_ > 1) {
+    tid = omp_get_thread_num();
+    if (tid >= num_of_threads_) {
+      LOG(FATAL) << "ConvLayer::weights_cpu_gemm: omp_thread_num() =" << tid
+                 << " > OMP_num_THREADS = " << num_of_threads_;
+    }
+    tid = tid % num_of_threads_;  // just to be sure
+    weight_diff_data = &weight_diff_mt_[tid * (weight_diff_mt_.size() / num_of_threads_)];
+  } else {
+    weight_diff_data = weights;
   }
-  tid = tid % num_of_threads_;  //  just to be sure
-  Dtype* weight_diff_data =
-    & weight_diff_mt_[tid * (weight_diff_mt_.size()/num_of_threads_)];
 #else
   Dtype* weight_diff_data = weights;
 #endif
   Dtype* col_buff = const_cast<Dtype*>(input);
 
   if (!is_1x1_) {
-    int col_data_buffer_size = col_buffer_mt_.size()/num_of_threads_;
-    col_buff = & col_buffer_mt_[ tid* col_data_buffer_size];
+    size_t col_data_buffer_size = col_buffer_mt_.size() / num_of_threads_;
+    col_buff = &col_buffer_mt_[tid * col_data_buffer_size];
     conv_im2col_cpu(input, col_buff);
   }
   for (int g = 0; g < group_; ++g) {
@@ -477,8 +462,6 @@ void BaseConvolutionLayer<Dtype>::weight_cpu_gemm(const Dtype* input,
         (Dtype)1., weight_diff_data + weight_offset_ * g);
   }
 }
-
-
 
 template <typename Dtype>
 void BaseConvolutionLayer<Dtype>::backward_cpu_bias(Dtype* bias,
