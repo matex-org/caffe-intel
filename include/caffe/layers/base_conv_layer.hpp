@@ -66,6 +66,13 @@ class BaseConvolutionLayer : public Layer<Dtype> {
   virtual inline bool EqualNumBottomTopBlobs() const { return true; }
 
  protected:
+  // Split Reshape into two parts
+  // Part 1 for normal blob reshape 
+  // Part 2 for openmp optimization for CAFFE engine (only)
+  void DoReshape(const vector<Blob<Dtype>*>& bottom,
+      const vector<Blob<Dtype>*>& top);
+  void ReshapeForMKL(const vector<Blob<Dtype>*>& bottom,
+      const vector<Blob<Dtype>*>& top);
   // Helper functions that abstract away the column buffer and gemm arguments.
   // The last argument in forward_cpu_gemm is so that we can skip the im2col if
   // we just called weight_cpu_gemm with the same input.
@@ -146,6 +153,13 @@ class BaseConvolutionLayer : public Layer<Dtype> {
           pad_.cpu_data()[0], pad_.cpu_data()[1],
           stride_.cpu_data()[0], stride_.cpu_data()[1],
           dilation_.cpu_data()[0], dilation_.cpu_data()[1], col_buff);
+    } else if (!force_nd_im2col_ && num_spatial_axes_ == 3) {
+      im3d2col_cpu(data, conv_in_channels_,
+          conv_input_shape_.cpu_data()[1], conv_input_shape_.cpu_data()[2], conv_input_shape_.cpu_data()[3],
+          kernel_shape_.cpu_data()[0], kernel_shape_.cpu_data()[1], kernel_shape_.cpu_data()[2],
+          pad_.cpu_data()[0], pad_.cpu_data()[1], pad_.cpu_data()[2],
+          stride_.cpu_data()[0], stride_.cpu_data()[1], stride_.cpu_data()[2],
+          dilation_.cpu_data()[0], dilation_.cpu_data()[1], dilation_.cpu_data()[2], col_buff);
     } else {
       im2col_nd_cpu(data, num_spatial_axes_, conv_input_shape_.cpu_data(),
           col_buffer_shape_.data(), kernel_shape_.cpu_data(),
@@ -160,6 +174,13 @@ class BaseConvolutionLayer : public Layer<Dtype> {
           pad_.cpu_data()[0], pad_.cpu_data()[1],
           stride_.cpu_data()[0], stride_.cpu_data()[1],
           dilation_.cpu_data()[0], dilation_.cpu_data()[1], data);
+    } else if (!force_nd_im2col_ && num_spatial_axes_ == 3) {
+      col2im3d_cpu(col_buff, conv_in_channels_,
+          conv_input_shape_.cpu_data()[1], conv_input_shape_.cpu_data()[2], conv_input_shape_.cpu_data()[3],
+          kernel_shape_.cpu_data()[0], kernel_shape_.cpu_data()[1], kernel_shape_.cpu_data()[2],
+          pad_.cpu_data()[0], pad_.cpu_data()[1], pad_.cpu_data()[2],
+          stride_.cpu_data()[0], stride_.cpu_data()[1], stride_.cpu_data()[2],
+          dilation_.cpu_data()[0], dilation_.cpu_data()[1], dilation_.cpu_data()[2], data);
     } else {
       col2im_nd_cpu(col_buff, num_spatial_axes_, conv_input_shape_.cpu_data(),
           col_buffer_shape_.data(), kernel_shape_.cpu_data(),
@@ -205,12 +226,14 @@ class BaseConvolutionLayer : public Layer<Dtype> {
   int conv_in_channels_;
   int conv_out_spatial_dim_;
   int kernel_dim_;
-  int col_offset_;
-  int output_offset_;
+  size_t col_offset_;
+  size_t output_offset_;
 
   Blob<Dtype> col_buffer_;
   Blob<Dtype> bias_multiplier_;
 
+  size_t col_buffer_mt_size;   // openmp
+  size_t weight_diff_mt_size;  // openmp
   std::vector<Dtype> col_buffer_mt_;   //  openmp
   std::vector<Dtype> weight_diff_mt_;  // openmp
 };

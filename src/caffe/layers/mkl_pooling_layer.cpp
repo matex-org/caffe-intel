@@ -130,6 +130,7 @@ void MKLPoolingLayer<Dtype>::Init(
       bottom[0]->height() + 2 * pad_h_ - kernel_h_) / stride_h_)) + 1;
   pooled_width_ = static_cast<int>(ceil(static_cast<float>(
       bottom[0]->width() + 2 * pad_w_ - kernel_w_) / stride_w_)) + 1;
+  bool force_exclude_padding_flag_ = false;
   if (pad_h_ || pad_w_) {
     // If we have padding, ensure that the last pooling starts strictly
     // inside the image (instead of at the padding); otherwise clip the last.
@@ -141,6 +142,10 @@ void MKLPoolingLayer<Dtype>::Init(
     }
     CHECK_LT((pooled_height_ - 1) * stride_h_, bottom[0]->height() + pad_h_);
     CHECK_LT((pooled_width_ - 1) * stride_w_, bottom[0]->width() + pad_w_);
+  }
+  else
+  {
+    force_exclude_padding_flag_ = true;
   }
 
   top[0]->Reshape(bottom[0]->num(), channels_, pooled_height_,
@@ -160,6 +165,34 @@ void MKLPoolingLayer<Dtype>::Init(
     rand_idx_.Reshape(bottom[0]->num(), channels_, pooled_height_,
       pooled_width_);
   }
+
+  switch (this->layer_param_.pooling_param().pool()) {
+  case PoolingParameter_PoolMethod_MAX:
+    this->algorithm = dnnAlgorithmPoolingMax;
+    break;
+  case PoolingParameter_PoolMethod_AVE:
+    if (this->layer_param_.pooling_param().avg_include_pad()) {
+        this->algorithm = dnnAlgorithmPoolingAvgIncludePadding;
+    }
+    else {
+        this->algorithm = dnnAlgorithmPoolingAvgExcludePadding;
+    }
+    // If user did not define padding
+    // bottom[0]->height/width() + kernel_h/w_ cannot be exact division by stride_h/w_
+    // use the exclude padding to align with the result of Caffe
+    // for exact division situation, exclude padding and include padding will have the same results
+    if (force_exclude_padding_flag_ == true)
+    {
+        this->algorithm = dnnAlgorithmPoolingAvgExcludePadding;
+    }
+    break;
+  case PoolingParameter_PoolMethod_STOCHASTIC:
+    NOT_IMPLEMENTED;
+    break;
+  default:
+    LOG(FATAL) << "Unknown pooling method.";
+  }
+
 
   size_t dim = 4;
   size_t src_sizes[4], src_strides[4];
@@ -207,36 +240,6 @@ void MKLPoolingLayer<Dtype>::Init(
   // Primitives will be allocated during the first fwd pass
   dnnDelete<Dtype>(poolingFwd);
   dnnDelete<Dtype>(poolingBwd);
-
-#ifdef USE_MLSL
-
-  DataType dt = (sizeof(Dtype) == 4)? DT_FLOAT : DT_DOUBLE;
-  ComputeOpRegInfo *myRegInfo;
-  myRegInfo = new ComputeOpRegInfo(COMP_OP_TYPE_POOL);
-  myRegInfo->SetName(this->layer_param_.name().c_str());
-  int channels_ = bottom[0]->channels();
-  for(int i=0; i<bottom.size(); i++)
-  {
-      int ic = bottom[i]->channels();
-      int iw = bottom[i]->width();
-      int ih = bottom[i]->height();
-      myRegInfo->AddInputFeatureMap(ic, iw*ih, dt);
-  }
-
-  for(int i=0; i<top.size(); i++)
-  {
-      int oc = channels_;
-      int ow = pooled_width_;
-      int oh = pooled_height_;
-      myRegInfo->AddOutputFeatureMap(oc, ow*oh, dt);
-  }
-
-  myRegInfo->Validate();
-  this->layerOp = new ComputeOp(myRegInfo, caffe::internode::data_parallelism);
-  delete myRegInfo;
-
-#endif
-
 }
 
 template <typename Dtype>
@@ -261,52 +264,6 @@ void MKLPoolingLayer<Dtype>::Reshape(const vector<Blob<Dtype>*>& bottom,
   Init(bottom, top);
 }
 
-#ifdef USE_MLSL
-
-template <typename Dtype>
-void MKLPoolingLayer<Dtype>::pack_buffer(FeatureMap *fm, Dtype *to, const Dtype *from) {
-      for (int i = 0; i < fm->NumPackBlocks(); i++) {
-          BlockInfo * bi = fm->GetPackBlock(i);
-          int bMBLen = bi->MBLen();
-          int bMBStart = bi->MBStart();
-          int bFMLen = bi->FMLen();
-          int bFMStart = bi->FMStart();
-          Dtype *src = (Dtype*) from;
-          Dtype *dst = (Dtype*) (to + bi->BufOffset());
-          for (int mb = 0; mb < bMBLen; mb++) {
-              for (int fm = 0; fm < bFMLen; fm++) {
-                  for (int s = 0 ; s < bi->FMSize(); s++) {
-                      //dst[fm][mb][s] = src[s][bFMStart+fm][bMBStart+mb]; //[bMBStart+mb][bFMStart+fm][s];
-                      dst[(fm*bMBLen + mb)*bi->FMSize() + s] =
-                          src[s*bFMLen*bMBLen + (bFMStart+fm)*bMBLen + (bMBStart+mb)];
-                  }
-              }
-          }
-      }
-  }
-
-template <typename Dtype>
-void MKLPoolingLayer<Dtype>::unpack_buffer(FeatureMap *fm, const Dtype *from, Dtype *to) {
-      for (int i = 0; i < fm->NumUnpackBlocks(); i++) {
-          BlockInfo * bi = fm->GetUnpackBlock(i);
-          int bMBLen = bi->MBLen();
-          int bMBStart = bi->MBStart();
-          int bFMLen = bi->FMLen();
-          int bFMStart = bi->FMStart();
-          Dtype *dst = (Dtype*) to;
-          Dtype *src = (Dtype*) (from + bi->BufOffset());
-          for (int mb = 0; mb < bMBLen; mb++) {
-              for (int fm = 0; fm < bFMLen; fm++) {
-                  for (int s = 0 ; s < bi->FMSize(); s++) {
-                    dst[s*bFMLen*bMBLen + (bFMStart+fm)*bMBLen + (bMBStart+mb)] = src[(fm*bMBLen + mb)*bi->FMSize() + s];
-                  }
-              }
-          }
-      }
-}
-
-#endif /* USE_MLSL */
-
 template <typename Dtype>
 void MKLPoolingLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
       const vector<Blob<Dtype>*>& top) {
@@ -315,22 +272,6 @@ void MKLPoolingLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
 
   // We'll output the mask to top[1] if it's of size >1.
   const bool use_top_mask = top.size() > 1;
-  dnnAlgorithm_t algorithm;
-
-  switch (this->layer_param_.pooling_param().pool()) {
-  case PoolingParameter_PoolMethod_MAX:
-    algorithm = dnnAlgorithmPoolingMax;
-    break;
-  case PoolingParameter_PoolMethod_AVE:
-    algorithm = dnnAlgorithmPoolingAvg;
-    break;
-  case PoolingParameter_PoolMethod_STOCHASTIC:
-    NOT_IMPLEMENTED;
-    break;
-  default:
-    LOG(FATAL) << "Unknown pooling method.";
-  }
-
   dnnError_t status;
   void* pooling_res[dnnResourceNumber];
 
@@ -347,13 +288,13 @@ void MKLPoolingLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
     if (NULL == poolingFwd) {
       // Now create poolingFwd
       status = dnnPoolingCreateForward<Dtype>(&poolingFwd, NULL,
-              algorithm, fwd_bottom_data->layout_usr,
+              this->algorithm, fwd_bottom_data->layout_usr,
               kernel_size, kernel_stride, src_offset, dnnBorderZeros);
       CHECK_EQ(status, E_SUCCESS);
 
       // Now create poolingBwd
       status = dnnPoolingCreateBackward<Dtype>(&poolingBwd, NULL,
-              algorithm, fwd_bottom_data->layout_usr,
+              this->algorithm, fwd_bottom_data->layout_usr,
               kernel_size, kernel_stride, src_offset, dnnBorderZeros);
       CHECK_EQ(status, E_SUCCESS);
     }
@@ -374,7 +315,7 @@ void MKLPoolingLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
 
     // Now create poolingFwd
     status = dnnPoolingCreateForward<Dtype>(&poolingFwd, NULL,
-            algorithm, fwd_bottom_data->layout_int, kernel_size,
+            this->algorithm, fwd_bottom_data->layout_int, kernel_size,
             kernel_stride, src_offset, dnnBorderZeros);
     CHECK_EQ(status, E_SUCCESS);
 
@@ -382,7 +323,7 @@ void MKLPoolingLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
 
     // Now create poolingBwd
     status = dnnPoolingCreateBackward<Dtype>(&poolingBwd, NULL,
-            algorithm, fwd_bottom_data->layout_int, kernel_size,
+            this->algorithm, fwd_bottom_data->layout_int, kernel_size,
             kernel_stride, src_offset, dnnBorderZeros);
     CHECK_EQ(status, E_SUCCESS);
 
@@ -400,9 +341,10 @@ void MKLPoolingLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
             reinterpret_cast<void *>(top[0]->mutable_cpu_data());
     DLOG(INFO) << "Using cpu_data for top in DnnPooling.";
   }
+  PERFORMANCE_EVENT_ID_INIT(perf_id_fw_, PERFORMANCE_MKL_NAME("FW"));
   PERFORMANCE_MEASUREMENT_BEGIN();
   status = dnnExecute<Dtype>(poolingFwd, pooling_res);
-  PERFORMANCE_MEASUREMENT_END_STATIC("FW_mkl_pooling");
+  PERFORMANCE_MEASUREMENT_END_ID(perf_id_fw_);
 
   CHECK_EQ(status, E_SUCCESS);
 }
@@ -440,9 +382,10 @@ void MKLPoolingLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top,
   caffe_set(bottom[0]->count(), Dtype(0),
           reinterpret_cast<Dtype *>(pooling_res[dnnResourceDiffSrc]));
 
+  PERFORMANCE_EVENT_ID_INIT(perf_id_bw_, PERFORMANCE_MKL_NAME("BW"));
   PERFORMANCE_MEASUREMENT_BEGIN();
   e = dnnExecute<Dtype>(poolingBwd, pooling_res);
-  PERFORMANCE_MEASUREMENT_END_STATIC("BW_mkl_pooling");
+  PERFORMANCE_MEASUREMENT_END_ID(perf_id_bw_);
 
   CHECK_EQ(e, E_SUCCESS);
 }

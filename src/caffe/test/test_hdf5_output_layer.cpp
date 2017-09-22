@@ -140,10 +140,10 @@ TYPED_TEST(HDF5OutputLayerTest, TestForward) {
     file_id, 0)<< "Failed to open HDF5 file" <<
           this->input_file_name_;
 
-  Blob<Dtype>* blob_data = new Blob<Dtype>();
+  Blob<Dtype> blob_data;
   hdf5_load_nd_dataset(file_id, HDF5_DATA_DATASET_NAME, 0, 4,
-                       blob_data);
-  this->CheckBlobEqual(*(this->blob_data_), *blob_data);
+                       &blob_data);
+  this->CheckBlobEqual(*(this->blob_data_), blob_data);
 
   Blob<Dtype>* blob_label = new Blob<Dtype>();
   hdf5_load_nd_dataset(file_id, HDF5_DATA_LABEL_NAME, 0, 4,
@@ -153,6 +153,8 @@ TYPED_TEST(HDF5OutputLayerTest, TestForward) {
   status = H5Fclose(file_id);
   EXPECT_GE(status, 0) << "Failed to close HDF5 file " <<
       this->output_file_name_;
+
+  delete blob_label;
 }
 
 }  // namespace caffe
