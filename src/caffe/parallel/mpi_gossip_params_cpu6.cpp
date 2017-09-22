@@ -14,7 +14,7 @@
 #include "caffe/mpi.hpp"
 #include "caffe/parallel.hpp"
 #include "caffe/parallel/cpu_params.hpp"
-#include "caffe/parallel/mpi_gossip_params_cpu2.hpp"
+#include "caffe/parallel/mpi_gossip_params_cpu6.hpp"
 #include "caffe/parallel/stats.h"
 #include "caffe/util/benchmark.hpp"
 
@@ -54,7 +54,7 @@ static void apply_buffers(const vector<shared_ptr<Blob<Dtype> > >& blobs,
 }
 
 template<typename Dtype>
-void MPIGossipParamsCPU2<Dtype>::next() {
+void MPIGossipParamsCPU6<Dtype>::next() {
   if (cube_) {
     if (rotate_) {
       next_cube_rotate();
@@ -75,7 +75,7 @@ void MPIGossipParamsCPU2<Dtype>::next() {
 }
 
 template<typename Dtype>
-void MPIGossipParamsCPU2<Dtype>::next_cube() {
+void MPIGossipParamsCPU6<Dtype>::next_cube() {
   if (hci_ > logp_) {
     hci_ = 0;
   }
@@ -85,7 +85,7 @@ void MPIGossipParamsCPU2<Dtype>::next_cube() {
 }
 
 template<typename Dtype>
-void MPIGossipParamsCPU2<Dtype>::next_cube_rotate() {
+void MPIGossipParamsCPU6<Dtype>::next_cube_rotate() {
   if (hci_ > logp_) {
     hci_ = 0;
     mci_ = (mci_+1)%comm_size_;
@@ -97,7 +97,7 @@ void MPIGossipParamsCPU2<Dtype>::next_cube_rotate() {
 }
 
 template<typename Dtype>
-void MPIGossipParamsCPU2<Dtype>::next_diffuse() {
+void MPIGossipParamsCPU6<Dtype>::next_diffuse() {
   if (hci_ > logp_) {
     hci_ = 0;
   }
@@ -113,7 +113,7 @@ void MPIGossipParamsCPU2<Dtype>::next_diffuse() {
 }
 
 template<typename Dtype>
-void MPIGossipParamsCPU2<Dtype>::next_diffuse_rotate() {
+void MPIGossipParamsCPU6<Dtype>::next_diffuse_rotate() {
   if (hci_ > logp_) {
     hci_ = 0;
     mci_ = (mci_+1)%comm_size_;
@@ -131,7 +131,7 @@ void MPIGossipParamsCPU2<Dtype>::next_diffuse_rotate() {
 }
 
 template<typename Dtype>
-MPIGossipParamsCPU2<Dtype>::MPIGossipParamsCPU2(
+MPIGossipParamsCPU6<Dtype>::MPIGossipParamsCPU6(
     shared_ptr<Solver<Dtype> > root_solver,
     const SolverParameter& param,
     bool cube,
@@ -149,7 +149,7 @@ MPIGossipParamsCPU2<Dtype>::MPIGossipParamsCPU2(
     adamsolver_(),
     params_(root_solver->net()->learnable_params()),
     comms_(),
-    requests_data_(),
+    requests_(),
     time_comm_(),
     time_comp_(),
     stats_comm_(),
@@ -159,7 +159,8 @@ MPIGossipParamsCPU2<Dtype>::MPIGossipParamsCPU2(
     history_all_(),
     history_size_(),
     cube_(cube),
-    rotate_(rotate)
+    rotate_(rotate),
+    first_time_(true)
 {
   int count = 0;
   int node_rank = 0;
@@ -235,128 +236,113 @@ MPIGossipParamsCPU2<Dtype>::MPIGossipParamsCPU2(
 }
 
 template<typename Dtype>
-MPIGossipParamsCPU2<Dtype>::~MPIGossipParamsCPU2() {
+MPIGossipParamsCPU6<Dtype>::~MPIGossipParamsCPU6() {
   delete [] data_all_;
   delete [] history_;
   delete [] history_all_;
 }
 
 template<typename Dtype>
-void MPIGossipParamsCPU2<Dtype>::on_begin() {
+void MPIGossipParamsCPU6<Dtype>::on_begin() {
   DLOG(INFO) << "on_begin()";
   CPUTimer timer;
 
-  LOG_EVERY_N(INFO, 20) << "time comm " << stats_comm_._mean
-    << " += " << stats_stddev(&stats_comm_)
-    << " min " << stats_comm_._min
-    << " max " << stats_comm_._max;
-  LOG_EVERY_N(INFO, 20) << "time comp " << stats_comp_._mean
-    << " += " << stats_stddev(&stats_comp_)
-    << " min " << stats_comp_._min
-    << " max " << stats_comp_._max;
-
-  solver_->DataShuffleBegin();
+  // wait for comm to finish and update buffers 
+  if (first_time_) {
+    LOG(INFO) << "first iteration doesn't wait for comm";
+    first_time_ = false;
+  }
+  else {
+    solver_->DataShuffleEnd();
+    timer.Start();
+    CHECK_EQ(requests_.size(), 4);
+    caffe::mpi::waitall(requests_);
+    timer.Stop();
+    time_comm_ += timer.MilliSeconds();
+    timer.Start();
+    caffe_cpu_axpby(size_, Dtype(0.5), data_all_, Dtype(0.5), data_);
+    caffe_cpu_axpby(history_size_, Dtype(0.5), history_all_, Dtype(0.5), history_);
+    timer.Stop();
+    time_comp_ = timer.MilliSeconds();
+    stats_sample_value(&stats_comm_, time_comm_);
+    stats_sample_value(&stats_comp_, time_comp_);
+    LOG_EVERY_N(INFO, 20) << "time comm sample " << time_comm_;
+    LOG_EVERY_N(INFO, 20) << "time comp sample " << time_comp_;
+    LOG_EVERY_N(INFO, 20) << "time comm " << stats_comm_._mean
+      << " += " << stats_stddev(&stats_comm_)
+      << " min " << stats_comm_._min
+      << " max " << stats_comm_._max;
+    LOG_EVERY_N(INFO, 20) << "time comp " << stats_comp_._mean
+      << " += " << stats_stddev(&stats_comp_)
+      << " min " << stats_comp_._min
+      << " max " << stats_comp_._max;
+  }
 
   // select next exchange partners
   next();
 
-  // exchange data
-  timer.Start();
+  // begin exchange of samples, data, and history
   {
-      MPI_Comm comm = comms_[mci_];
-      requests_data_.assign(2, MPI_REQUEST_NULL);
-      caffe::mpi::irecv(requests_data_[0], data_all_, size_, recv_pair_, 1234, comm);
-      caffe::mpi::isend(requests_data_[1], data_,     size_, send_pair_, 1234, comm);
+    solver_->DataShuffleBegin();
+    timer.Start();
+    MPI_Comm comm = comms_[mci_];
+    requests_.assign(4, MPI_REQUEST_NULL);
+    caffe::mpi::irecv(requests_[0], data_all_,    size_, recv_pair_, 1234, comm);
+    caffe::mpi::isend(requests_[1], data_,        size_, send_pair_, 1234, comm);
+    caffe::mpi::irecv(requests_[2], history_all_, history_size_, recv_pair_, 2345, comm);
+    caffe::mpi::isend(requests_[3], history_,     history_size_, send_pair_, 2345, comm);
+    timer.Stop();
+    time_comm_ = timer.MilliSeconds();
   }
-  timer.Stop();
-  time_comm_ = timer.MilliSeconds();
 
   make_progress();
 }
 
 template<typename Dtype>
-void MPIGossipParamsCPU2<Dtype>::make_progress() {
+void MPIGossipParamsCPU6<Dtype>::make_progress() {
   CPUTimer timer;
 
   solver_->DataShuffleTest();
 
   timer.Start();
-  caffe::mpi::testall(requests_data_);
+  caffe::mpi::testall(requests_);
   timer.Stop();
   time_comm_ += timer.MilliSeconds();
 }
 
 template<typename Dtype>
-void MPIGossipParamsCPU2<Dtype>::after_forward() {
+void MPIGossipParamsCPU6<Dtype>::after_forward() {
   DLOG(INFO) << "after_forward()";
   make_progress();
 }
 
 template<typename Dtype>
-void MPIGossipParamsCPU2<Dtype>::allreduce(int param_id) {
+void MPIGossipParamsCPU6<Dtype>::allreduce(int param_id) {
   DLOG(INFO) << "allreduce(param_id)";
   make_progress();
 }
 
 template<typename Dtype>
-void MPIGossipParamsCPU2<Dtype>::allreduce() {
+void MPIGossipParamsCPU6<Dtype>::allreduce() {
   DLOG(INFO) << "allreduce()";
   make_progress();
 }
 
 template<typename Dtype>
-int MPIGossipParamsCPU2<Dtype>::on_apply(int param_id) {
+int MPIGossipParamsCPU6<Dtype>::on_apply(int param_id) {
   DLOG(INFO) << "on_apply(param_id)";
   make_progress();
   return param_id;
 }
 
 template<typename Dtype>
-void MPIGossipParamsCPU2<Dtype>::on_update() {
+void MPIGossipParamsCPU6<Dtype>::on_update() {
   DLOG(INFO) << "on_update()";
-  CPUTimer timer;
-
-  solver_->DataShuffleEnd();
-
-  timer.Start();
-  caffe::mpi::waitall(requests_data_);
-  timer.Stop();
-  time_comm_ += timer.MilliSeconds();
-
-  timer.Start();
-  caffe_cpu_axpby(size_, Dtype(0.5), data_all_, Dtype(0.5), data_);
-  timer.Stop();
-  time_comp_ = timer.MilliSeconds();
-
-  timer.Start();
-  // exchange history
-  {
-      MPI_Comm comm = comms_[mci_];
-      vector<MPI_Request> requests(2);
-      caffe::mpi::irecv(requests[0], history_all_, history_size_, recv_pair_, 2345, comm);
-      caffe::mpi::isend(requests[1], history_,     history_size_, send_pair_, 2345, comm);
-      caffe::mpi::waitall(requests);
-  }
-  timer.Stop();
-  time_comm_ += timer.MilliSeconds();
-
-  timer.Start();
-  // average pairwise exchange
-  caffe_cpu_axpby(history_size_, Dtype(0.5), history_all_, Dtype(0.5), history_);
-  // must copy history back into gradient diff also
-  // in the case of adam, only the first portion is relevant
-  caffe_copy(size_, history_, diff_);
-  timer.Stop();
-  time_comp_ += timer.MilliSeconds();
-
-  stats_sample_value(&stats_comm_, time_comm_);
-  stats_sample_value(&stats_comp_, time_comp_);
-  LOG_EVERY_N(INFO, 20) << "time comm sample " << time_comm_;
-  LOG_EVERY_N(INFO, 20) << "time comp sample " << time_comp_;
+  make_progress();
 }
 
 template<typename Dtype>
-void MPIGossipParamsCPU2<Dtype>::Run() {
+void MPIGossipParamsCPU6<Dtype>::Run() {
   LOG(INFO)<< "Starting Optimization";
 
   // Run root solver on current thread
@@ -364,14 +350,14 @@ void MPIGossipParamsCPU2<Dtype>::Run() {
 }
 
 template<typename Dtype>
-void MPIGossipParamsCPU2<Dtype>::Step(int iters) {
+void MPIGossipParamsCPU6<Dtype>::Step(int iters) {
   //LOG(INFO)<< "Stepping Optimization";
 
   // Run root solver on current thread
   solver_->Step(iters);
 }
 
-INSTANTIATE_CLASS(MPIGossipParamsCPU2);
+INSTANTIATE_CLASS(MPIGossipParamsCPU6);
 
 }  // namespace caffe
 

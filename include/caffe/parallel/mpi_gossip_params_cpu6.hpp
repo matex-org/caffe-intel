@@ -1,5 +1,5 @@
-#ifndef CAFFE_PARALLEL_MPI_GOSSIP_PARAMS_CPU2_HPP_
-#define CAFFE_PARALLEL_MPI_GOSSIP_PARAMS_CPU2_HPP_
+#ifndef CAFFE_PARALLEL_MPI_GOSSIP_PARAMS_CPU6_HPP_
+#define CAFFE_PARALLEL_MPI_GOSSIP_PARAMS_CPU6_HPP_
 
 #include <boost/date_time/posix_time/posix_time.hpp>
 
@@ -15,11 +15,11 @@
 namespace caffe {
 
 template<typename Dtype>
-class MPIGossipParamsCPU2 : public CPUParams<Dtype>, public Solver<Dtype>::Callback {
+class MPIGossipParamsCPU6 : public CPUParams<Dtype>, public Solver<Dtype>::Callback {
  public:
-  explicit MPIGossipParamsCPU2(shared_ptr<Solver<Dtype> > root_solver,
+  explicit MPIGossipParamsCPU6(shared_ptr<Solver<Dtype> > root_solver,
           const SolverParameter& param, bool cube, bool rotate);
-  virtual ~MPIGossipParamsCPU2();
+  virtual ~MPIGossipParamsCPU6();
 
   inline const shared_ptr<Solver<Dtype> >& solver() const {
     return solver_;
@@ -58,7 +58,7 @@ class MPIGossipParamsCPU2 : public CPUParams<Dtype>, public Solver<Dtype>::Callb
   shared_ptr<AdamSolver<Dtype> > adamsolver_;
   const vector<Blob<Dtype>*>& params_;
   vector<MPI_Comm> comms_;
-  vector<MPI_Request> requests_data_;
+  vector<MPI_Request> requests_;
   double time_comm_;
   double time_comp_;
   stats_t stats_comm_;
@@ -69,6 +69,7 @@ class MPIGossipParamsCPU2 : public CPUParams<Dtype>, public Solver<Dtype>::Callb
   size_t history_size_;
   bool cube_;
   bool rotate_;
+  bool first_time_;
 
   using Params<Dtype>::size_;
   using Params<Dtype>::data_;

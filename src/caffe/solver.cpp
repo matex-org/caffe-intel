@@ -62,6 +62,43 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace caffe {
 
 template<typename Dtype>
+void Solver<Dtype>::DataShuffleBegin() {
+  DLOG(INFO) << "SOLVER SHUFFLE BEGIN";
+  if (NULL == data_layer_) {
+    DLOG(INFO) << "data_layer_ was NULL";
+    data_layer_ = dynamic_cast<BaseDataLayer<Dtype>*>(
+            net_->layers()[0].get());
+    if (NULL == data_layer_) {
+      LOG(FATAL) << "FAILED TO DYNAMIC CAST";
+    }
+  }
+  else {
+    DLOG(INFO) << "data_layer_ was SET";
+  }
+  if (NULL != data_layer_) {
+    data_layer_->DataShuffleBegin();
+  }
+}
+
+template<typename Dtype>
+bool Solver<Dtype>::DataShuffleTest() {
+  DLOG(INFO) << "SOLVER SHUFFLE TEST";
+  bool retval = true;
+  if (NULL != data_layer_) {
+    retval = data_layer_->DataShuffleTest();
+  }
+  return retval;
+}
+
+template<typename Dtype>
+void Solver<Dtype>::DataShuffleEnd() {
+  DLOG(INFO) << "SOLVER SHUFFLE END";
+  if (NULL != data_layer_) {
+    data_layer_->DataShuffleEnd();
+  }
+}
+
+template<typename Dtype>
 void Solver<Dtype>::SetActionFunction(ActionCallback func) {
   action_request_function_ = func;
 }
@@ -101,6 +138,7 @@ Solver<Dtype>::Solver(const string& param_file, const Solver* root_solver)
 
 template <typename Dtype>
 void Solver<Dtype>::Init(const SolverParameter& param) {
+  data_layer_ = NULL;
   CHECK(Caffe::root_solver() || root_solver_)
       << "root_solver_ needs to be set for all non-root solvers";
   param_ = param;
@@ -305,7 +343,7 @@ void Solver<Dtype>::Step(int iters) {
     }
 
     for (int i = 0; i < callbacks_.size(); ++i) {
-      callbacks_[i]->on_start();
+      callbacks_[i]->on_begin();
     }
     const bool display = param_.display() && iter_ % param_.display() == 0;
     net_->set_debug_info(display && param_.debug_info());
@@ -372,7 +410,7 @@ void Solver<Dtype>::Step(int iters) {
     iter_timer.Start();
 
     for (int i = 0; i < callbacks_.size(); ++i) {
-      callbacks_[i]->on_gradients_ready();
+      callbacks_[i]->allreduce();
     }
     if (!param().disabled_update()) {
       PERFORMANCE_MEASUREMENT_BEGIN();

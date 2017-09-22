@@ -1048,6 +1048,11 @@ Dtype Net<Dtype>::ForwardFromTo(int start, int end) {
     loss += layer_loss;
     if (debug_info_) { ForwardDebugInfo(i); }
   }
+  if (solver_ && solver_->use_mpi()) {
+    for (int k = 0; k < solver_->callbacks().size(); ++k) {
+      solver_->callbacks()[k]->after_forward();
+    }
+  }
   return loss;
 }
 
@@ -1102,7 +1107,7 @@ void Net<Dtype>::BackwardFromTo(int start, int end) {
         for (int j = layers_[i]->blobs().size()-1; j >= 0; --j) {
           int param_id = layer_index_params_[make_pair(i, j)];
           for (int k = 0; k < solver_->callbacks().size(); ++k) {
-            solver_->callbacks()[k]->on_gradients_ready(param_id);
+            solver_->callbacks()[k]->allreduce(param_id);
           }
         }
       }

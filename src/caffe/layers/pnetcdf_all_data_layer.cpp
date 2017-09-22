@@ -36,7 +36,7 @@ PnetCDFAllDataLayer<Dtype>::PnetCDFAllDataLayer(const LayerParameter& param)
     int original_rank = caffe::mpi::comm_rank();
     int original_size = caffe::mpi::comm_size();
     ignore_ = (original_size-1 == original_rank);
-    comm_ = caffe::mpi::split(ignore_, original_rank);
+    comm_ = caffe::mpi::comm_split(ignore_, original_rank);
   }
   else {
     comm_ = caffe::mpi::comm_dup();

@@ -42,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "caffe/net.hpp"
+#include "caffe/layers/base_data_layer.hpp"
 #include "caffe/solver_factory.hpp"
 #include "caffe/util/benchmark.hpp"
 
@@ -114,14 +115,18 @@ class Solver {
   void set_iter(int value) { iter_ = value; }
   float scale_on_apply() { return scale_on_apply_; }
   void set_scale_on_apply(float value) { scale_on_apply_ = value; }
+  bool use_mpi() { return use_mpi_; }
+  void set_use_mpi(bool value) { use_mpi_ = value; }
 
   // Invoked at specific points during an iteration
   class Callback {
    protected:
-    virtual void on_start() = 0;
-    virtual void on_gradients_ready() = 0;
-    virtual void on_gradients_ready(int param_id) {}
+    virtual void on_begin() {}
+    virtual void after_forward() {}
+    virtual void allreduce(int param_id) {}
+    virtual void allreduce() {}
     virtual int on_apply(int param_id) { return param_id; }
+    virtual void on_update() {}
 
 #ifdef USE_MLSL
     virtual void on_before_test() {}
@@ -208,6 +213,9 @@ class Solver {
   virtual void RestoreSolverStateFromBinaryProto(const string& state_file) = 0;
   void DisplayOutputBlobs(const int net_id);
   void UpdateSmoothedLoss(Dtype loss, int start_iter, int average_loss);
+  void DataShuffleBegin();
+  bool DataShuffleTest();
+  void DataShuffleEnd();
 
   SolverParameter param_;
   int iter_;
@@ -217,6 +225,7 @@ class Solver {
   vector<Callback*> callbacks_;
   vector<Dtype> losses_;
   Dtype smoothed_loss_;
+  BaseDataLayer<Dtype> *data_layer_;
 
   // The root solver that holds root nets (actually containing shared layers)
   // in data parallelism
@@ -231,6 +240,9 @@ class Solver {
 
   // Scale gradients during apply
   float scale_on_apply_;
+
+  // Whether MPI is in use
+  bool use_mpi_;
 
   // Timing information
   Timer iteration_timer_;
