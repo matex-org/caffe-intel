@@ -59,6 +59,8 @@ namespace bp = boost::python;
 #include "caffe/parallel/mpi_async_lazy_params_cpu.hpp"
 #include "caffe/parallel/mpi_gossip_params_cpu.hpp"
 #include "caffe/parallel/mpi_gossip_params_cpu2.hpp"
+#include "caffe/parallel/mpi_gossip_params_cpu6.hpp"
+#include "caffe/parallel/mpi_gossip_params_cpu7.hpp"
 #include "caffe/training_utils.hpp"
 #include "caffe/util/performance.hpp"
 #include "caffe/util/signal_handler.h"
@@ -379,7 +381,21 @@ int train() {
       sync.Run();
     }
     else if (FLAGS_par == "MPIGossipParamsCPU2") {
-      caffe::MPIGossipParamsCPU2<float> sync(solver, FLAGS_comm_threads);
+      caffe::MPIGossipParamsCPU2<float> sync(solver, solver->param(),
+          FLAGS_cube,
+          FLAGS_rotate);
+      sync.Run();
+    }
+    else if (FLAGS_par == "MPIGossipParamsCPU6") {
+      caffe::MPIGossipParamsCPU6<float> sync(solver, solver->param(),
+          FLAGS_cube,
+          FLAGS_rotate);
+      sync.Run();
+    }
+    else if (FLAGS_par == "MPIGossipParamsCPU7") {
+      caffe::MPIGossipParamsCPU7<float> sync(solver, solver->param(),
+          FLAGS_cube,
+          FLAGS_rotate);
       sync.Run();
     }
     else {
