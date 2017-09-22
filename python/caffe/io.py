@@ -117,7 +117,7 @@ def array_to_datum(arr, label=None):
     if arr.dtype == np.uint8:
         datum.data = arr.tostring()
     else:
-        datum.float_data.extend(arr.flat)
+        datum.float_data.extend(arr.astype(float).flat)
     if label is not None:
         datum.label = label
     return datum
@@ -298,7 +298,12 @@ class Transformer:
             if len(ms) != 3:
                 raise ValueError('Mean shape invalid')
             if ms != self.inputs[in_][1:]:
-                raise ValueError('Mean shape incompatible with input shape.')
+                print(self.inputs[in_])
+                in_shape = self.inputs[in_][1:]
+                m_min, m_max = mean.min(), mean.max()
+                normal_mean = (mean - m_min) / (m_max - m_min)
+                mean = resize_image(normal_mean.transpose((1,2,0)),in_shape[1:]).transpose((2,0,1)) * (m_max - m_min) + m_min
+                #raise ValueError('Mean shape incompatible with input shape.')
         self.mean[in_] = mean
 
     def set_input_scale(self, in_, scale):
@@ -358,7 +363,7 @@ def flip_image(im, scale=128, is_flow=False):
     """
     im = im[:, ::-1, :]  # flip for mirrors
     if is_flow:  #if using a flow input, should flip first channel which corresponds to x-flow
-      im[:,:,0] = scale-im[:,:,0]
+        im[:,:,0] = scale-im[:,:,0]
     return im
 
 def resize_image(im, new_dims, interp_order=1):

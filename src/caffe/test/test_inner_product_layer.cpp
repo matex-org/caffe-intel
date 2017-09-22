@@ -70,7 +70,8 @@ class InnerProductLayerTest : public MultiDeviceTest<TypeParam> {
   virtual ~InnerProductLayerTest() {
     delete blob_bottom_;
     delete blob_bottom_nobatch_;
-    delete blob_top_;
+    std::for_each(this->blob_top_vec_.begin(), this->blob_top_vec_.end(),
+                                      [](Blob<Dtype>* pPtr) {delete pPtr; });
   }
   Blob<Dtype>* const blob_bottom_;
   Blob<Dtype>* const blob_bottom_nobatch_;
@@ -205,6 +206,8 @@ TYPED_TEST(InnerProductLayerTest, TestForwardTranspose) {
     Blob<Dtype>* const top = new Blob<Dtype>();
     top->ReshapeLike(*this->blob_top_);
     caffe_copy(count, this->blob_top_->cpu_data(), top->mutable_cpu_data());
+    std::for_each(this->blob_top_vec_.begin(), this->blob_top_vec_.end(),
+                                      [](Blob<Dtype>* pPtr) {delete pPtr; });
     this->blob_top_vec_.clear();
     this->blob_top_vec_.push_back(new Blob<Dtype>());
     inner_product_param->set_transpose(true);
@@ -228,7 +231,7 @@ TYPED_TEST(InnerProductLayerTest, TestForwardTranspose) {
     caffe_copy(layer->blobs()[1]->count(), layer->blobs()[1]->cpu_data(),
         ip_t->blobs()[1]->mutable_cpu_data());
     ip_t->Forward(this->blob_bottom_vec_, this->blob_top_vec_);
-    EXPECT_EQ(count, this->blob_top_->count())
+    EXPECT_EQ(count, this->blob_top_vec_[0]->count())
         << "Invalid count for top blob for IP with transpose.";
     Blob<Dtype>* const top_t = new Blob<Dtype>();\
     top_t->ReshapeLike(*this->blob_top_vec_[0]);
@@ -240,6 +243,8 @@ TYPED_TEST(InnerProductLayerTest, TestForwardTranspose) {
     for (int i = 0; i < count; ++i) {
       EXPECT_FLOAT_EQ(data[i], data_t[i]);
     }
+    delete top;
+    delete top_t;
   } else {
     LOG(ERROR) << "Skipping test due to old architecture.";
   }
@@ -377,6 +382,8 @@ TYPED_TEST(InnerProductLayerTest, TestBackwardTranspose) {
     Blob<Dtype>* const bottom_diff = new Blob<Dtype>();
     bottom_diff->CopyFrom(*this->blob_bottom_vec_[0], true, true);
     // repeat original top with tranposed ip
+    std::for_each(this->blob_top_vec_.begin(), this->blob_top_vec_.end(),
+                                      [](Blob<Dtype>* pPtr) {delete pPtr; });
     this->blob_top_vec_.clear();
     this->blob_top_vec_.push_back(new Blob<Dtype>());
     inner_product_param->set_transpose(true);
@@ -420,6 +427,10 @@ TYPED_TEST(InnerProductLayerTest, TestBackwardTranspose) {
       EXPECT_NE(Dtype(0.), data[i]);
       EXPECT_FLOAT_EQ(data[i], data_t[i]);
     }
+    delete bottom_diff;
+    delete diff;
+    delete w;
+    delete top;
   } else {
     LOG(ERROR) << "Skipping test due to old architecture.";
   }

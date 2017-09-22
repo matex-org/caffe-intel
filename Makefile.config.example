@@ -43,8 +43,8 @@
 # CPU-only switch (uncomment to build without GPU support).
 CPU_ONLY := 1
 
-# USE_MKL2017_AS_DEFAULT_ENGINE flag is OBSOLETE
-# Put this at the top your train_val.protoxt or solver.prototxt file:
+USE_MKL2017_AS_DEFAULT_ENGINE := 1
+# or put this at the top your train_val.protoxt or solver.prototxt file:
 # engine: "MKL2017" 
 # or use this option with caffe tool:
 # -engine "MKL2017"
@@ -72,14 +72,13 @@ CPU_ONLY := 1
 # N.B. the default for Linux is g++ and the default for OSX is clang++
 # CUSTOM_CXX := g++
 
-# Intel(r) Distribution Caffe Multi Node support (uncomment only one):
-#
-# Intel(r) Machine Learning Scaling Library (uncomment to build with MLSL)
-# USE_MLSL :=1
+# If you use Intel compiler define a path to newer boost if not used
+# already. 
+# BOOST_ROOT := 
 
-# Message Passing Interface (uncomment to build with MPI - deprecated!)
-# USE_MPI := 1
-# CXX := /usr/bin/mpicxx
+# Intel(r) Machine Learning Scaling Library (uncomment to build
+# with MLSL for multi-node training)
+# USE_MLSL :=1
 
 # CUDA directory contains bin/ and lib/ directories that we need.
 CUDA_DIR := /usr/local/cuda
@@ -90,11 +89,11 @@ CUDA_DIR := /usr/local/cuda
 # CUDA architecture setting: going with all of them.
 # For CUDA < 6.0, comment the *_50 lines for compatibility.
 CUDA_ARCH := -gencode arch=compute_20,code=sm_20 \
-		-gencode arch=compute_20,code=sm_21 \
-		-gencode arch=compute_30,code=sm_30 \
-		-gencode arch=compute_35,code=sm_35 \
-		-gencode arch=compute_50,code=sm_50 \
-		-gencode arch=compute_50,code=compute_50
+	     -gencode arch=compute_20,code=sm_21 \
+	     -gencode arch=compute_30,code=sm_30 \
+	     -gencode arch=compute_35,code=sm_35 \
+	     -gencode arch=compute_50,code=sm_50 \
+	     -gencode arch=compute_50,code=compute_50
 
 # BLAS choice:
 # atlas for ATLAS (default)
@@ -170,6 +169,9 @@ DISTRIBUTE_DIR := distribute
 
 # The ID of the GPU that 'make runtest' will use to run unit tests.
 TEST_GPUID := 0
+
+# Uncomment for enabling SGD fusion
+# ENABLE_SGD_FUSION := 1
 
 # enable pretty build (comment to see full commands)
 Q ?= @

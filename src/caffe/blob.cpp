@@ -72,7 +72,7 @@ void Blob<Dtype>::Reshape(const vector<int>& shape) {
   for (int i = 0; i < shape.size(); ++i) {
     CHECK_GE(shape[i], 0);
     if (count_ != 0) {
-      CHECK_LE(shape[i], INT_MAX / count_) << "blob size exceeds INT_MAX";
+      CHECK_LE(shape[i], LONG_MAX / count_) << "blob size exceeds LONG_MAX";
     }
     count_ *= shape[i];
     if (shape_[i] != shape[i]) {
@@ -111,22 +111,14 @@ template <typename Dtype>
 Blob<Dtype>::Blob(const int num, const int channels, const int height,
     const int width)
   // capacity_ must be initialized before calling Reshape
-#ifdef DISTR_WEIGHT_UPDATE
-  : capacity_(0), owned_count_(0), owned_offset_(0) {
-#else
   : capacity_(0) {
-#endif
   Reshape(num, channels, height, width);
 }
 
 template <typename Dtype>
 Blob<Dtype>::Blob(const vector<int>& shape)
   // capacity_ must be initialized before calling Reshape
-#ifdef DISTR_WEIGHT_UPDATE
-  : capacity_(0), owned_count_(0), owned_offset_(0) {
-#else
   : capacity_(0) {
-#endif
 
   Reshape(shape);
 }
@@ -267,6 +259,7 @@ void Blob<Dtype>::ShareDiff(const Blob& other) {
 // Blob<int> or Blob<unsigned int>.
 template <> void Blob<unsigned int>::Update() { NOT_IMPLEMENTED; }
 template <> void Blob<int>::Update() { NOT_IMPLEMENTED; }
+template <> void Blob<bool>::Update() { NOT_IMPLEMENTED; }
 
 template <typename Dtype>
 void Blob<Dtype>::Update() {
@@ -315,13 +308,25 @@ template <> int Blob<int>::asum_data() const {
   return 0;
 }
 
+template <> bool Blob<bool>::asum_data() const {
+  NOT_IMPLEMENTED;
+  return 0;
+}
+
 template <typename Dtype>
 Dtype Blob<Dtype>::asum_data() const {
   if (!data_) { return 0; }
   switch (data_->head()) {
   case SyncedMemory::SYNCED_PRV:
+      {
+        const Dtype* prv_ptr = prv_data();
+        if (prv_ptr == NULL)
+          return caffe_cpu_asum(count_, cpu_data());
+        else
+          return caffe_cpu_asum(prv_data_count(), prv_data());
+      }
   case SyncedMemory::HEAD_AT_PRV:
-    return caffe_cpu_asum( prv_data_count(), prv_data());
+    return caffe_cpu_asum(prv_data_count(), prv_data());
   case SyncedMemory::HEAD_AT_CPU:
     return caffe_cpu_asum(count_, cpu_data());
   case SyncedMemory::HEAD_AT_GPU:
@@ -353,13 +358,24 @@ template <> int Blob<int>::asum_diff() const {
   return 0;
 }
 
+template <> bool Blob<bool>::asum_diff() const {
+  NOT_IMPLEMENTED;
+  return 0;
+}
+
 template <typename Dtype>
 Dtype Blob<Dtype>::asum_diff() const {
   if (!diff_) { return 0; }
   switch (diff_->head()) {
   case SyncedMemory::SYNCED_PRV:
   case SyncedMemory::HEAD_AT_PRV:
-    return caffe_cpu_asum( prv_diff_count(), prv_diff());
+    {
+      const Dtype* prv_ptr = prv_diff();
+      if (prv_ptr == NULL)
+        return caffe_cpu_asum(count_, cpu_diff());
+      else
+        return caffe_cpu_asum(prv_diff_count(), prv_diff());
+    }
   case SyncedMemory::HEAD_AT_CPU:
     return caffe_cpu_asum(count_, cpu_diff());
   case SyncedMemory::HEAD_AT_GPU:
@@ -387,6 +403,11 @@ template <> unsigned int Blob<unsigned int>::sumsq_data() const {
 }
 
 template <> int Blob<int>::sumsq_data() const {
+  NOT_IMPLEMENTED;
+  return 0;
+}
+
+template <> bool Blob<bool>::sumsq_data() const {
   NOT_IMPLEMENTED;
   return 0;
 }
@@ -433,6 +454,11 @@ template <> int Blob<int>::sumsq_diff() const {
   return 0;
 }
 
+template <> bool Blob<bool>::sumsq_diff() const {
+  NOT_IMPLEMENTED;
+  return 0;
+}
+
 template <typename Dtype>
 Dtype Blob<Dtype>::sumsq_diff() const {
   Dtype sumsq;
@@ -442,7 +468,11 @@ Dtype Blob<Dtype>::sumsq_diff() const {
   case SyncedMemory::SYNCED_PRV:
   case SyncedMemory::HEAD_AT_PRV:
       diff = prv_diff();
-      sumsq = caffe_cpu_dot(prv_diff_count(), diff, diff);
+      if (diff == NULL) {
+        diff = cpu_diff();
+        sumsq = caffe_cpu_dot(count_, diff, diff); 
+      } else
+        sumsq = caffe_cpu_dot(prv_diff_count(), diff, diff);
       break;
   case SyncedMemory::HEAD_AT_CPU:
     diff = cpu_diff();
@@ -470,6 +500,10 @@ template <> void Blob<unsigned int>::scale_data(unsigned int scale_factor) {
 }
 
 template <> void Blob<int>::scale_data(int scale_factor) {
+  NOT_IMPLEMENTED;
+}
+
+template <> void Blob<bool>::scale_data(bool scale_factor) {
   NOT_IMPLEMENTED;
 }
 
@@ -508,6 +542,10 @@ template <> void Blob<unsigned int>::scale_diff(unsigned int scale_factor) {
 }
 
 template <> void Blob<int>::scale_diff(int scale_factor) {
+  NOT_IMPLEMENTED;
+}
+
+template <> void Blob<bool>::scale_diff(bool scale_factor) {
   NOT_IMPLEMENTED;
 }
 
@@ -689,6 +727,7 @@ void Blob<float>::ToProto(BlobProto* proto, bool write_diff) const {
 }
 
 INSTANTIATE_CLASS(Blob);
+template class Blob<bool>;
 template class Blob<int>;
 template class Blob<size_t>;
 template class Blob<unsigned int>;

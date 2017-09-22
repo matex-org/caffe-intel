@@ -62,6 +62,7 @@ class SGDSolver : public Solver<Dtype> {
 
  protected:
   void PreSolve();
+  Dtype GetWarmUpLR(int cur_iter, int warmup_iter, Dtype warmup_start_lr);
   Dtype GetLearningRate();
   virtual void ApplyUpdate();
   virtual void ApplyUpdate(int param_id);
@@ -79,6 +80,15 @@ class SGDSolver : public Solver<Dtype> {
   // temp maintains other information that might be needed in computation
   //   of gradients/updates and is not needed in snapshots
   vector<shared_ptr<Blob<Dtype> > > history_, update_, temp_;
+
+#ifdef ENABLE_SGD_FUSION
+  //Fuse the Normalize, Regularize, ComputeUpdateValue and Update process together
+  void SGDFusion(int param_id, Dtype rate);
+#endif /* ENABLE_SGD_FUSION */
+
+  // loss history for 'plateau' LR policy (should be stored in snapshots)
+  Dtype minimum_loss_;
+  int iter_last_event_;
 
   DISABLE_COPY_AND_ASSIGN(SGDSolver);
 };

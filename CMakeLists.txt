@@ -29,7 +29,7 @@ include(cmake/ConfigGen.cmake)
 caffe_option(CPU_ONLY  "Build Caffe without CUDA support" OFF) # TODO: rename to USE_CUDA
 caffe_option(USE_OPENMP "Build Caffe with OpenMP support" ON )
 caffe_option(USE_CUDNN "Build Caffe with cuDNN library support" ON IF NOT CPU_ONLY)
-caffe_option(USE_MKL2017_AS_DEFAULT_ENGINE "Use MKL2017 primitives for supported layers" OFF)
+caffe_option(USE_MKL2017_AS_DEFAULT_ENGINE "Use MKL2017 primitives for supported layers" ON)
 caffe_option(USE_MKLDNN_AS_DEFAULT_ENGINE "Use MKL-DNN primitives for supported layers" OFF)
 caffe_option(BUILD_SHARED_LIBS "Build shared libraries" ON)
 caffe_option(BUILD_python "Build Python wrapper" ON)
@@ -42,6 +42,7 @@ caffe_option(USE_LEVELDB "Build with levelDB" ON)
 caffe_option(USE_LMDB "Build with lmdb" ON)
 caffe_option(ALLOW_LMDB_NOLOCK "Allow MDB_NOLOCK when reading LMDB files (only if necessary)" OFF)
 caffe_option(USE_SYSTEMTAP "Build for SystemTap" OFF)
+caffe_option(PERFORMANCE_MONITORING "Build Caffe with PERFORMANCE_MONITORING " OFF)
 #caffe_option(USE_GITHUB_MKLDNN "Download and use MKL-DNN available on github" OFF)
  
 # ---[ Dependencies

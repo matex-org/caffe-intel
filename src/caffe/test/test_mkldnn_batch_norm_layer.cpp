@@ -164,17 +164,17 @@ namespace caffe {
       EXPECT_NEAR(1, var, kErrorBound);
     }
   }
-#if 0
+
   TYPED_TEST(MKLDNNBatchNormLayerTest, TestGradient) {
     typedef typename TypeParam::Dtype Dtype;
     LayerParameter layer_param;
 
     MKLDNNBatchNormLayer<Dtype> layer(layer_param);
-    GradientChecker<Dtype> checker(1e-2, 1e-4);
+    GradientChecker<Dtype> checker(1e-2, 1e-3);
     checker.CheckGradientExhaustive(&layer, this->blob_bottom_vec_,
         this->blob_top_vec_);
   }
-#endif
+
 
 }  // namespace caffe
 #endif  // #if defined(MKLDNN_SUPPORTED)

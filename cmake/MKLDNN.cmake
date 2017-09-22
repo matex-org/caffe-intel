@@ -5,19 +5,29 @@ function(Download_MKLDNN)
   set(MKLDNN_SOURCE_DIR ${MKLDNN_DIR}/src)
   set(MKLDNN_BUILD_DIR ${MKLDNN_DIR}/build)
   set(MKLDNN_INSTALL_DIR ${MKLDNN_DIR}/install CACHE PATH "Installation path of MKLDNN")
-  
+  execute_process(COMMAND cat mkldnn.commit
+  		  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+		  OUTPUT_VARIABLE MKLDNN_COMMIT)
+
+  include(ProcessorCount)
+  ProcessorCount(NCORE)
+  if(NOT NCORE EQUAL 0)
+      set(CTEST_BUILD_FLAGS -j${NCORE})
+      set(ctest_test_args ${ctest_test_args} PARALLEL_LEVEL ${NCORE})
+  endif()
+ 
   ExternalProject_add(MKLDNN_Build
                       SOURCE_DIR ${MKLDNN_SOURCE_DIR}
-                      CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=${MKLDNN_INSTALL_DIR} -DMKLROOT=${MKL_ROOT_DIR}
+                      CMAKE_ARGS -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DCMAKE_INSTALL_PREFIX=${MKLDNN_INSTALL_DIR} -DMKLROOT=${MKL_ROOT_DIR}
 #--Download step
                       GIT_REPOSITORY https://github.com/01org/mkl-dnn.git
-                      GIT_TAG v0.3
+		      GIT_TAG ${MKLDNN_COMMIT}
 #--Build step
                       BINARY_DIR ${MKLDNN_BUILD_DIR}
                       BUILD_COMMAND cmake ${MKLDNN_SOURCE_DIR}
 #--Install step
                       INSTALL_DIR ${MKLDNN_INSTALL_DIR}
-                      INSTALL_COMMAND make install
+                      INSTALL_COMMAND make install -j${NCORE}
                       LOG_CONFIGURE 1
                       LOG_BUILD 1
                       LOG_INSTALL 1

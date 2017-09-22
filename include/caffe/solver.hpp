@@ -120,6 +120,13 @@ class Solver {
     virtual void on_start() = 0;
     virtual void on_gradients_ready() = 0;
 
+#ifdef USE_MLSL
+    virtual void on_before_test() {}
+    virtual void on_after_test() {}
+    virtual void on_before_snapshot() {}
+    virtual void on_after_snapshot() {}
+#endif
+
     template <typename T>
     friend class Solver;
   };
@@ -158,10 +165,18 @@ class Solver {
   std::vector<double> forward_time_per_layer;
   std::vector<double> backward_time_per_layer;
   std::vector<double> update_time_per_layer;
+#ifdef USE_MLSL
+  std::vector<double> startcomm_time_per_layer;
+  std::vector<double> waitcomm_time_per_layer;
+#endif
 
   std::vector<double> forward_time_per_layer_total;
   std::vector<double> backward_time_per_layer_total;
   std::vector<double> update_time_per_layer_total;
+#ifdef USE_MLSL
+  std::vector<double> startcomm_time_per_layer_total;
+  std::vector<double> waitcomm_time_per_layer_total;
+#endif
 
   void InitTimers();
   void ResetTimers();
@@ -174,6 +189,8 @@ class Solver {
   string SnapshotToHDF5();
   // The test routine
   void Test(const int test_net_id = 0);
+  void TestClassification(const int test_net_id = 0);
+  void TestDetection(const int test_net_id = 0);
   virtual void SnapshotSolverState(const string& model_filename) = 0;
   virtual void RestoreSolverStateFromHDF5(const string& state_file) = 0;
   virtual void RestoreSolverStateFromBinaryProto(const string& state_file) = 0;

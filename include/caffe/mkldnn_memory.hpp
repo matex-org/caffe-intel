@@ -94,6 +94,7 @@ public:
         if (_prv_memory == NULL) allocate();
         return _internal_ptr;
     }
+
     shared_ptr<primitive>  reorder_usr2prv() { return _reorder_usr2prv.aprimitive; }
     shared_ptr<primitive>  reorder_prv2usr() { return _reorder_prv2usr.aprimitive; }
     shared_ptr<primitive>  reorder_extprv2prv() { return _reorder_extprv2prv.aprimitive; }
@@ -112,9 +113,21 @@ protected:
 
     void allocate() {
         if (_prv_memory == NULL) {
+#ifdef USE_MLSL
+          if (mn::is_multinode()) {
+            auto mlsl_free = [](char* p) { mn::free((void*)p); };
+            _mlsl_memory.reset(
+              (char*)mn::alloc(_prv_memory_pd->get_size(), 64), mlsl_free);
+            _prv_memory = shared_ptr<memory>(
+              new memory(*_prv_memory_pd, (void*)_mlsl_memory.get()));
+          } else {
+#endif
             _prv_memory = shared_ptr<memory>(new memory(*_prv_memory_pd));
-            _internal_ptr = (Dtype *)(_prv_memory->get_data_handle());
-            // TODO: may need initialize memory by 0
+#ifdef USE_MLSL
+          }
+#endif
+          _internal_ptr = (Dtype *)(_prv_memory->get_data_handle());
+          // TODO: may need initialize memory by 0
         }
     }
     void set_prv_memory_pd(shared_ptr<memory::primitive_desc> memory_pd)  {
@@ -156,6 +169,9 @@ protected:
 
     MKLDNNLayer<Dtype>* _mkldnn_layer;
     Blob<Dtype>* _blob;
+#ifdef USE_MLSL
+    shared_ptr<char> _mlsl_memory;
+#endif
 };
 
 template <typename Dtype, bool is_diff>
@@ -178,15 +194,16 @@ public:
     // in backward a conversion done already in the forward direction.
     shared_ptr<primitive> get_blob_prv_primitive(Blob<Dtype> * blob, bool set_prv_ptr, bool convert = true,
             MKLDNNMemoryDescriptor<Dtype, is_diff>* converted_in_fwd = NULL);
-    void sync_blob_prv_data(Blob<Dtype> * blob, bool set_prv_ptr);
 
-    void sync_before_read(bool set_prv_ptr);
-    void sync_before_write();
+    void sync_before_read();
+    void sync_before_write(bool inplace = false);
 
     shared_ptr<primitive> create_input(Blob<Dtype> * blob, bool set_prv_ptr);
-    shared_ptr<memory> create_output_memory(Blob<Dtype> * blob);
+    shared_ptr<memory> create_output_memory(Blob<Dtype> * blob, bool inplace = false);
     shared_ptr<primitive> create_input(bool set_prv_ptr);
-    shared_ptr<memory> create_output_memory();
+    shared_ptr<memory> create_output_memory(bool inplace = false);
+    Dtype* get_memory_ptr(long offset = 0);
+    shared_ptr<memory::desc> get_memory_desc();
 
     void set_mkldnn_primitive(MKLDNNPrimitive<Dtype>& mprimitive) { CHECK(mprimitive.aprimitive); _mkldnn_primitive = mprimitive;  }
     MKLDNNPrimitive<Dtype>&  mkldnn_primitive() { return _mkldnn_primitive; }

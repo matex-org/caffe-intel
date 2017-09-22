@@ -109,35 +109,6 @@ void MKLConcatLayer<Dtype>::Init(const vector<Blob<Dtype>*>& bottom,
 
   dnnDelete<Dtype>(concatFwd_);
   dnnDelete<Dtype>(concatBwd_);
-
-#ifdef USE_MLSL
-
-  DataType dt = (sizeof(Dtype) == 4)? DT_FLOAT : DT_DOUBLE;
-  ComputeOpRegInfo *myRegInfo;
-  myRegInfo = new ComputeOpRegInfo(COMP_OP_TYPE_CONCAT);
-  myRegInfo->SetName(this->layer_param_.name().c_str());
-  for (int i=0; i<bottom.size(); i++)
-  {
-      int ic = bottom[i]->channels();
-      int iw = bottom[i]->width();
-      int ih = bottom[i]->height();
-      myRegInfo->AddInputFeatureMap(ic, iw*ih, dt);
-  }
-
-  for(int i=0; i<top.size(); i++)
-  {
-      int oc = channels_;
-      int ow = bottom[0]->width();
-      int oh = bottom[0]->height();
-      myRegInfo->AddOutputFeatureMap(oc, ow*oh, dt);
-  }
-
-  myRegInfo->Validate();
-  this->layerOp = new ComputeOp(myRegInfo, caffe::internode::data_parallelism);
-  delete myRegInfo;
-
-#endif /* USE_MLSL */
-
 }
 
 template <typename Dtype>
@@ -165,51 +136,6 @@ void MKLConcatLayer<Dtype>::Reshape(const vector<Blob<Dtype>*>& bottom,
   top[0]->Reshape(num_, channels_, height_, width_);
   Init(bottom, top);
 }
-
-#ifdef USE_MLSL
-template <typename Dtype>
-void MKLConcatLayer<Dtype>::pack_buffer(FeatureMap *fm, Dtype *comms_buf, const Dtype *local_buf) {
-    for (int i = 0; i < fm->NumPackBlocks(); i++) {
-        BlockInfo * bi = fm->GetPackBlock(i);
-        int bMBLen = bi->MBLen();
-        int bMBStart = bi->MBStart();
-        int bFMLen = bi->FMLen();
-        int bFMStart = bi->FMStart();
-        Dtype *src = (Dtype*) local_buf;
-        Dtype *dst = (Dtype*) (comms_buf + bi->BufOffset());
-        for (int mb = 0; mb < bMBLen; mb++) {
-            for (int fm = 0; fm < bFMLen; fm++) {
-                for (int s = 0 ; s < bi->FMSize(); s++) {
-                    //dst[fm][mb][s] = src[bMBStart+mb][bFMStart+fm][s];
-                    dst[(fm*bMBLen + mb)*bi->FMSize() + s] =
-                        src[((bMBStart+mb)*bFMLen + bFMStart+fm)*bi->FMSize() + s];
-                }
-            }
-        }
-    }
-  }
-
-  template <typename Dtype>
-  void MKLConcatLayer<Dtype>::unpack_buffer(FeatureMap *fm, const Dtype *comms_buf, Dtype *local_buf) {
-      for (int i = 0; i < fm->NumPackBlocks(); i++) {
-          BlockInfo * bi = fm->GetPackBlock(i);
-          int bMBLen = bi->MBLen();
-          int bMBStart = bi->MBStart();
-          int bFMLen = bi->FMLen();
-          int bFMStart = bi->FMStart();
-          Dtype *dst = (Dtype*) local_buf;
-          Dtype *src = (Dtype*) (comms_buf + bi->BufOffset());
-          for (int mb = 0; mb < bMBLen; mb++) {
-              for (int fm = 0; fm < bFMLen; fm++) {
-                  for (int s = 0 ; s < bi->FMSize(); s++) {
-                    dst[((bMBStart+mb)*bFMLen + bFMStart+fm)*bi->FMSize() + s] = src[(fm*bMBLen + mb)*bi->FMSize() + s];
-                  }
-              }
-          }
-      }
-  }
-
-#endif /* USE_MLSL */
 
 template <typename Dtype>
 void MKLConcatLayer<Dtype>::Forward_cpu(const vector <Blob<Dtype>*>& bottom,
@@ -279,9 +205,10 @@ void MKLConcatLayer<Dtype>::Forward_cpu(const vector <Blob<Dtype>*>& bottom,
       reinterpret_cast<void*>(top[0]->mutable_cpu_data());
   }
 
-  PERFORMANCE_MEASUREMENT_BEGIN()
+  PERFORMANCE_EVENT_ID_INIT(perf_id_fw_, PERFORMANCE_MKL_NAME("FW"));
+  PERFORMANCE_MEASUREMENT_BEGIN();
   e = dnnExecute<Dtype>(concatFwd_, concat_res);
-  PERFORMANCE_MEASUREMENT_END_STATIC("FW_mkl_concat")
+  PERFORMANCE_MEASUREMENT_END_ID(perf_id_fw_);
 
   CHECK_EQ(e, E_SUCCESS);
 }
@@ -312,9 +239,10 @@ void MKLConcatLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top,
     }
   }
 
+  PERFORMANCE_EVENT_ID_INIT(perf_id_bw_, PERFORMANCE_MKL_NAME("BW"));
   PERFORMANCE_MEASUREMENT_BEGIN();
   e = dnnExecute<Dtype>(concatBwd_, concat_res);
-  PERFORMANCE_MEASUREMENT_END_STATIC("BW_mkl_concat");
+  PERFORMANCE_MEASUREMENT_END_ID(perf_id_bw_);
 
   CHECK_EQ(e, E_SUCCESS);
 }

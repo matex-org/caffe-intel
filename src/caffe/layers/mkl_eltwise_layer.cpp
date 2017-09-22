@@ -95,35 +95,6 @@ void MKLEltwiseLayer<Dtype>::Init(const vector<Blob<Dtype>*>& bottom,
   fwd_top_data->create_user_layout(dim_src, sizes_src, strides_src, false);
 
   dnnDelete<Dtype>(sumPrimitive);
-
-#ifdef USE_MLSL
-
-  DataType dt = (sizeof(Dtype) == 4)? DT_FLOAT : DT_DOUBLE;
-  ComputeOpRegInfo *myRegInfo;
-  myRegInfo = new ComputeOpRegInfo(COMP_OP_TYPE_CONCAT);
-  myRegInfo->SetName(this->layer_param_.name().c_str());
-  for(int i=0; i<bottom.size(); i++)
-  {
-      int ic = bottom[i]->channels();
-      int iw = bottom[i]->width();
-      int ih = bottom[i]->height();
-      myRegInfo->AddInputFeatureMap(ic, iw*ih, dt);
-  }
-
-  for(int i=0; i<top.size(); i++)
-  {
-      int oc = bottom[0]->channels();
-      int ow = bottom[0]->width();
-      int oh = bottom[0]->height();
-      myRegInfo->AddOutputFeatureMap(oc, ow*oh, dt);
-  }
-
-  myRegInfo->Validate();
-  this->layerOp = new ComputeOp(myRegInfo, caffe::internode::data_parallelism);
-  delete myRegInfo;
-
-#endif /* USE_MLSL */
-
 }
 
 
@@ -247,9 +218,10 @@ void MKLEltwiseLayer<Dtype>::Forward_cpu(
     }
 
     { // local scope needed since the macro below contains variable declaration
+      PERFORMANCE_EVENT_ID_INIT(perf_id_fw_, PERFORMANCE_MKL_NAME("FW"));
       PERFORMANCE_MEASUREMENT_BEGIN();
       e = dnnExecute<Dtype>(sumPrimitive, eltwise_res);
-      PERFORMANCE_MEASUREMENT_END_STATIC("FW_mkl_eltwise");
+      PERFORMANCE_MEASUREMENT_END_ID(perf_id_fw_);
     }
     CHECK_EQ(e, E_SUCCESS);
 
@@ -282,7 +254,8 @@ void MKLEltwiseLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top,
           }
           CHECK_EQ(true, bwd_bottom_diff[i]->layout_compare(
                   top[0]->get_prv_diff_descriptor()));
-          bottom[i]->set_prv_diff_descriptor(top[0]->get_prv_diff_descriptor(), true);
+          bottom[i]->set_prv_diff_descriptor(top[0]->get_prv_diff_descriptor(),
+                                             false);
         }
         break;
       case EltwiseParameter_EltwiseOp_MAX:

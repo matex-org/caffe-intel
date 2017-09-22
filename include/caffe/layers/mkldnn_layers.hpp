@@ -53,24 +53,33 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "caffe/mkldnn_memory.hpp"
 #include "mkldnn.hpp"
 
+#include "caffe/util/performance.hpp"
+
 using namespace mkldnn;
 
 namespace caffe {
 
 // =====  MKLDNNBatchNormLayer =======================================
 template <typename Dtype>
-class MKLDNNBatchNormLayer : public MKLDNNLayer<Dtype> , public Layer<Dtype> {
+class MKLDNNBatchNormLayer : public MKLDNNLayer<Dtype>, public Layer<Dtype> {
 public:
     explicit MKLDNNBatchNormLayer(const LayerParameter& param)
-            : Layer<Dtype>(param)
-            , fwd_top_data    ()
-            , fwd_bottom_data ()
-            , BatchNormFwd_pd()
-            , output_memory(), scaleshift_memory(), ws_memory()
-            , input_primitive()
-        {}
-
+        : Layer<Dtype>(param)
+        , fwd_top_data(), fwd_bottom_data()
+        , bwd_top_diff(), bwd_bottom_diff()
+        , BatchNormFwd_pd(), BatchNormBwd_pd()
+        , scaleshift_memory(), bwd_scaleshift_diff_memory()
+        , output_memory(), bwd_bottom_diff_memory()
+        , input_primitive(), bwd_top_diff_primitive()
+        {
+          PERFORMANCE_EVENT_ID_RESET(perf_id_fw_);
+          PERFORMANCE_EVENT_ID_RESET(perf_id_bw_);
+    }
     ~MKLDNNBatchNormLayer() {}
+#ifdef USE_MLSL
+    virtual bool ParamNeedReduce(int param_id) { return param_id >= 3; }
+#endif
+
 protected:
     virtual void LayerSetUp(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);
     virtual void Reshape(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);
@@ -83,16 +92,38 @@ protected:
                                 , const vector<Blob<Dtype>*>& bottom);
 private:
     void InitBatchNorm(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);
+    void InitBatchNormBwd(const vector<Blob<Dtype>*>& top,
+            const vector<bool>& propagate_down,
+            const vector<Blob<Dtype>*>& bottom);
+    void InitBatchNormFwdPrimitive(int stats_batch_idx);
+    void InitBatchNormBwdPrimitive(int stats_batch_idx);
+    template <bool diff> shared_ptr<memory> GetStatsBatchMemory(
+      shared_ptr<MKLDNNMemoryDescriptor<Dtype, diff> > mkldnn_data, int idx);
+    void InitStatsBatchVars(int batch_size);
     shared_ptr<MKLDNNData<Dtype> > fwd_top_data, fwd_bottom_data;
+    shared_ptr<MKLDNNDiff<Dtype> > bwd_top_diff, bwd_bottom_diff;
     shared_ptr<batch_normalization_forward::primitive_desc> BatchNormFwd_pd;
+    shared_ptr<batch_normalization_backward::primitive_desc> BatchNormBwd_pd;
 
-    MKLDNNPrimitive<Dtype> BatchNormFwd;
-    shared_ptr<memory> output_memory, scaleshift_memory, ws_memory;
-    shared_ptr<primitive> input_primitive;
+    vector<MKLDNNPrimitive<Dtype> > BatchNormFwd, BatchNormBwd;
+    vector<shared_ptr<memory> > mean_memory, variance_memory;
+
+    shared_ptr<memory> scaleshift_memory, bwd_scaleshift_diff_memory;
+    shared_ptr<memory> output_memory, bwd_bottom_diff_memory;
+    vector<shared_ptr<memory> > input_stats, output_stats, top_diff_stats, bottom_diff_stats;
+
+    shared_ptr<primitive> input_primitive, bwd_top_diff_primitive;
 
     int32_t num_, width_, height_, channels_;
-    Dtype eps_;
-    bool use_weight_bias_, bias_term_;
+    Dtype eps_, moving_average_fraction_;
+    bool use_weight_bias_, bias_term_, use_global_stats_;
+    int num_stats_batches_;
+    int stats_batch_size_;
+    shared_ptr<Blob<Dtype> > scaleshift_blob_;
+    shared_ptr<Blob<Dtype> > scaleshift_acc_;
+
+    PERFORMANCE_EVENT_ID_DECL(perf_id_fw_);
+    PERFORMANCE_EVENT_ID_DECL(perf_id_bw_);
 };
 
 // =====  MKLDNNConvolutionLayer =======================================
@@ -101,6 +132,14 @@ class MKLDNNConvolutionLayer : public MKLDNNLayer<Dtype> , public ConvolutionLay
 public:
     explicit MKLDNNConvolutionLayer(const LayerParameter& param);
     virtual ~MKLDNNConvolutionLayer() {}
+
+    //For test the parameters of kernel/stride/pad
+    int GetKernelWidth()  { return kernel_w_; }
+    int GetKernelHeight() { return kernel_h_; }
+    int GetStrideWidth()  { return stride_w_; }
+    int GetStrideHeight() { return stride_h_; }
+    int GetPadWidth()     { return pad_w_; }
+    int GetPadHeight()    { return pad_h_; }
 protected:
     virtual void Forward_cpu(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);
     virtual void Forward_gpu(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);
@@ -114,15 +153,31 @@ protected:
 private:
     virtual void compute_output_shape();
     virtual void init_properties(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);
-    void InitConvolution(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);
+    void InitConvolutionFwd(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);
+    void InitConvolutionBwd(const vector<Blob<Dtype>*>& top
+                        , const vector<bool>& propagate_down
+                        , const vector<Blob<Dtype>*>& bottom);
 
-    shared_ptr<MKLDNNData<Dtype> > fwd_bottom_data, fwd_top_data, fwd_weights_data, fwd_bias_data;
+    shared_ptr<MKLDNNData<Dtype> > fwd_bottom_data, fwd_top_data, fwd_weights_data, fwd_bias_data
+                    , bwdd_weights_data, bwdw_bottom_data;
+    shared_ptr<MKLDNNDiff<Dtype> > bwdd_bottom_diff, bwdd_top_diff
+                    , bwdw_top_diff, bwdw_weights_diff, bwdw_bias_diff;
     shared_ptr<convolution_forward::primitive_desc> convFwd_pd;
-    MKLDNNPrimitive<Dtype> convFwd;
-    shared_ptr<memory> output_memory;
-    shared_ptr<primitive> input_primitive, weights_primitive, bias_primitive;
+    shared_ptr<convolution_backward_data::primitive_desc> convBwdData_pd;
+    shared_ptr<convolution_backward_weights::primitive_desc> convBwdWeights_pd;
+    MKLDNNPrimitive<Dtype> convFwd, convBwdData, convBwdWeights;
+    shared_ptr<memory> fwd_top_data_memory, bwdd_bottom_diff_memory
+                    , bwdw_weights_diff_memory,  bwdw_bias_diff_memory;
+    shared_ptr<primitive> fwd_bottom_data_primitive, fwd_weights_data_primitive, fwd_bias_data_primitive
+                    , bwdd_top_diff_primitive, bwdd_weights_data_primitive
+                    , bwdw_top_diff_primitive, bwdw_bottom_data_primitive;
     int32_t width_, height_, width_out_, height_out_, kernel_w_, kernel_h_, stride_w_, stride_h_;
     int  pad_w_, pad_h_;
+    mkldnn::algorithm  conv_algorithm;
+
+    PERFORMANCE_EVENT_ID_DECL(perf_id_fw_);
+    PERFORMANCE_EVENT_ID_DECL(perf_id_bw_);
+    PERFORMANCE_EVENT_ID_DECL(perf_id_bw_weights_);
 };
 
 // =====  MKLDNNInnerProductLayer =======================================
@@ -142,14 +197,29 @@ protected:
     virtual void LayerSetUp(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);
     void Reshape(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);
 private:
-    void InitInnerProduct(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);
+    void InitInnerProductFwd(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);
+    void InitInnerProductBwd(const vector<Blob<Dtype>*>& top, const vector<bool>& propagate_down
+                                , const vector<Blob<Dtype>*>& bottom);
 
-    shared_ptr<MKLDNNData<Dtype> > fwd_bottom_data, fwd_top_data, fwd_weights_data, fwd_bias_data;
+    shared_ptr<MKLDNNData<Dtype> > fwd_bottom_data, fwd_top_data, fwd_weights_data, fwd_bias_data
+                    , bwdd_weights_data, bwdw_bottom_data;
+    shared_ptr<MKLDNNDiff<Dtype> > bwdd_bottom_diff, bwdd_top_diff
+                    , bwdw_top_diff, bwdw_weights_diff, bwdw_bias_diff;
     shared_ptr<inner_product_forward::primitive_desc> ipFwd_pd;
-    MKLDNNPrimitive<Dtype> ipFwd;
-    shared_ptr<memory> output_memory;
-    shared_ptr<primitive> input_primitive, weights_primitive, bias_primitive;
+    shared_ptr<inner_product_backward_data::primitive_desc> ipBwdData_pd;
+    shared_ptr<inner_product_backward_weights::primitive_desc> ipBwdWeights_pd;
+
+    MKLDNNPrimitive<Dtype> ipFwd, ipBwdData, ipBwdWeights;
+    shared_ptr<memory> fwd_top_data_memory, bwdd_bottom_diff_memory
+                    , bwdw_weights_diff_memory,  bwdw_bias_diff_memory;
+    shared_ptr<primitive> fwd_bottom_data_primitive, fwd_weights_data_primitive, fwd_bias_data_primitive
+                    , bwdd_top_diff_primitive, bwdd_weights_data_primitive
+                    , bwdw_top_diff_primitive, bwdw_bottom_data_primitive;
     int32_t w_, h_;
+
+    PERFORMANCE_EVENT_ID_DECL(perf_id_fw_);
+    PERFORMANCE_EVENT_ID_DECL(perf_id_bw_);
+    PERFORMANCE_EVENT_ID_DECL(perf_id_bw_weights_);
 };
 
 
@@ -161,14 +231,7 @@ private:
 template <typename Dtype>
 class MKLDNNLRNLayer : public MKLDNNLayer<Dtype> , public Layer<Dtype>  {
 public:
-    explicit MKLDNNLRNLayer(const LayerParameter& param)
-        : MKLDNNLayer<Dtype>(), Layer<Dtype>(param)
-        , fwd_top_data(), fwd_bottom_data ()
-        , lrnFwd_pd()
-        , output_memory(), scratch_(), input_primitive()
-        , alpha_(0.), beta_(0.), k_(0.)
-        , size_(0), num_(0), width_(0), height_(0), channels_(0)
-        {}
+    explicit MKLDNNLRNLayer(const LayerParameter& param);
     virtual ~MKLDNNLRNLayer() {}
 protected:
     virtual void LayerSetUp(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);
@@ -184,15 +247,24 @@ protected:
     virtual inline int ExactNumBottomBlobs() const { return 1; }
     virtual inline int ExactNumTopBlobs() const { return 1; }
 private:
-    void InitLRN(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);
+    void InitLRNFwd(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);
+    void InitLRNBwd(const vector<Blob<Dtype>*>& top, const vector<bool>& propagate_down
+                                , const vector<Blob<Dtype>*>& bottom);
 
     shared_ptr<MKLDNNData<Dtype> > fwd_top_data, fwd_bottom_data;
+    shared_ptr<MKLDNNDiff<Dtype> > bwd_top_diff, bwd_bottom_diff;
     shared_ptr<lrn_forward::primitive_desc> lrnFwd_pd;
+    shared_ptr<lrn_backward::primitive_desc> lrnBwd_pd;
     MKLDNNPrimitive<Dtype> lrnFwd;
-    shared_ptr<memory> output_memory, scratch_;
-    shared_ptr<primitive> input_primitive;
+    MKLDNNPrimitive<Dtype> lrnBwd;
+    shared_ptr<memory::desc> bottom_md;
+    shared_ptr<memory> fwd_top_data_memory, bwd_bottom_diff_memory, scratch_memory;
+    shared_ptr<primitive> fwd_bottom_data_primitive, bwd_top_diff_primitive;
     Dtype alpha_, beta_, k_;
     int size_, num_, width_, height_, channels_;
+
+    PERFORMANCE_EVENT_ID_DECL(perf_id_fw_);
+    PERFORMANCE_EVENT_ID_DECL(perf_id_bw_);
 };
 
 // ===== MKLDNNPoolingLayer =======================================
@@ -202,14 +274,21 @@ public:
     explicit MKLDNNPoolingLayer(const LayerParameter& param)
             : MKLDNNLayer<Dtype>(), Layer<Dtype>(param)
             , fwd_bottom_data(), fwd_top_data()
+            , bwd_top_diff(), bwd_bottom_diff()
             , poolingFwd_pd()
+            , poolingBwd_pd()
             , indices_pd()
-            , indices_memory(), output_memory(), input_primitive()
+            , indices_memory(), fwd_top_data_memory(), bwd_bottom_diff_memory()
+            , fwd_bottom_data_primitive(), bwd_top_diff_primitive()
             , num_(0), channels_(0), width_(0), height_(0), width_out_(0), height_out_(0)
             , kernel_w_(0), kernel_h_(0), stride_w_(0), stride_h_(0)
-            , pad_w_(0), pad_h_(0)
+            , pad_t_(0),pad_b_(0), pad_l_(0), pad_r_(0)
             , global_pooling_(false)
-            {}
+            , force_exclude_padding_flag_(false)
+            {
+              PERFORMANCE_EVENT_ID_RESET(perf_id_fw_);
+              PERFORMANCE_EVENT_ID_RESET(perf_id_bw_);
+            }
     ~MKLDNNPoolingLayer() {}
 protected:
     virtual void LayerSetUp(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);
@@ -232,19 +311,28 @@ protected:
                                 ,const vector<Blob<Dtype>*>& bottom);
 
 private:
-    void InitPooling(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);
-
-    shared_ptr<MKLDNNData<Dtype> > fwd_bottom_data, fwd_top_data;
+    void InitPoolingFwd(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);
+    void InitPoolingBwd(const vector<Blob<Dtype>*>& bottom
+                        , const vector<bool>& propagate_down
+                        , const vector<Blob<Dtype>*>& top);
+  
+    shared_ptr<MKLDNNData<Dtype>> fwd_bottom_data, fwd_top_data;
+    shared_ptr<MKLDNNDiff<Dtype>> bwd_top_diff, bwd_bottom_diff;
     shared_ptr<pooling_forward::primitive_desc> poolingFwd_pd;
-    MKLDNNPrimitive<Dtype> poolingFwd;
+    shared_ptr<pooling_backward::primitive_desc> poolingBwd_pd;
+    MKLDNNPrimitive<Dtype> poolingFwd, poolingBwd;
     shared_ptr<memory::primitive_desc> indices_pd;
-    shared_ptr<memory> indices_memory, output_memory;
-    shared_ptr<primitive> input_primitive;
+    shared_ptr<memory> indices_memory, fwd_top_data_memory, bwd_bottom_diff_memory;
+    shared_ptr<primitive> fwd_bottom_data_primitive, bwd_top_diff_primitive;
     int32_t num_, channels_, width_, height_, width_out_, height_out_;
     int32_t kernel_w_, kernel_h_, stride_w_, stride_h_;
-    int32_t  pad_w_, pad_h_;
+    int32_t  pad_t_, pad_b_, pad_l_, pad_r_;
     Blob<uint32_t> max_idx_;
     bool global_pooling_;
+    bool force_exclude_padding_flag_;
+
+    PERFORMANCE_EVENT_ID_DECL(perf_id_fw_);
+    PERFORMANCE_EVENT_ID_DECL(perf_id_bw_);
 };
 
 // =====  MKLDNNReLULayer =======================================
@@ -257,14 +345,20 @@ public:
     *   - negative_slope (\b optional, default 0).
     *     the value @f$ \nu @f$ by which negative values are multiplied.
     */
-    explicit MKLDNNReLULayer(const LayerParameter& param)
-            : MKLDNNLayer<Dtype>(), NeuronLayer<Dtype>(param)
-            , fwd_top_data(), fwd_bottom_data ()
-            , reluFwd_pd(), output_memory()
-            , input_primitive()
-            , num_(0), width_(0), height_(0), channels_(0)
-            {}
-    ~MKLDNNReLULayer() {}
+  explicit MKLDNNReLULayer(const LayerParameter& param)
+    : MKLDNNLayer<Dtype>(), NeuronLayer<Dtype>(param)
+    , fwd_top_data(), fwd_bottom_data()
+    , bwd_top_diff(), bwd_bottom_diff()
+    , reluFwd_pd(), reluBwd_pd()
+    , fwd_top_data_memory(), bwd_bottom_diff_memory()
+    , fwd_bottom_data_primitive(), bwd_top_diff_primitive()
+    , num_(0), width_(0), height_(0), channels_(0)
+  {
+    PERFORMANCE_EVENT_ID_RESET(perf_id_fw_);
+    PERFORMANCE_EVENT_ID_RESET(perf_id_bw_);
+  }
+  ~MKLDNNReLULayer() {}
+
 protected:
     virtual void LayerSetUp(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);
     virtual void Reshape(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);
@@ -276,14 +370,21 @@ protected:
     virtual void Backward_gpu(const vector<Blob<Dtype>*>& top, const vector<bool>& propagate_down
                                 , const vector<Blob<Dtype>*>& bottom);
 private:
-    void InitReLU(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);
+    void InitReLUFwd(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);
+    void InitReLUBwd(const vector<Blob<Dtype>*>& top, const vector<bool>& propagate_down
+                                , const vector<Blob<Dtype>*>& bottom);
 
     shared_ptr<MKLDNNData<Dtype> > fwd_top_data, fwd_bottom_data;
+    shared_ptr<MKLDNNDiff<Dtype> > bwd_top_diff, bwd_bottom_diff;
     shared_ptr<relu_forward::primitive_desc> reluFwd_pd;
-    MKLDNNPrimitive<Dtype> reluFwd;
-    shared_ptr<memory> output_memory;
-    shared_ptr<primitive> input_primitive;
+    shared_ptr<relu_backward::primitive_desc> reluBwd_pd;
+    MKLDNNPrimitive<Dtype> reluFwd, reluBwd;
+    shared_ptr<memory> fwd_top_data_memory, bwd_bottom_diff_memory;
+    shared_ptr<primitive> fwd_bottom_data_primitive, bwd_top_diff_primitive;
     int32_t num_, width_, height_, channels_;
+
+    PERFORMANCE_EVENT_ID_DECL(perf_id_fw_);
+    PERFORMANCE_EVENT_ID_DECL(perf_id_bw_);
 };
 
 // ===== MKLDNNConcatLayer ======================================
@@ -292,8 +393,11 @@ class MKLDNNConcatLayer : public MKLDNNLayer<Dtype> , public Layer<Dtype> {
 public:
     explicit MKLDNNConcatLayer(const LayerParameter& param)
             : MKLDNNLayer<Dtype>(), Layer<Dtype>(param),
-            concatFwd_pd(), output_memory(),
+            concatFwd_pd(), fwd_output_memory(),
+            bwd_reorder_input_memory(), bwd_reorder_output_memory(),
             fwd_top_data(), fwd_bottom_data(), split_channels() {
+              PERFORMANCE_EVENT_ID_RESET(perf_id_fw_);
+              PERFORMANCE_EVENT_ID_RESET(perf_id_bw_);
     }
 protected:
     virtual void LayerSetUp(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);
@@ -306,18 +410,125 @@ protected:
     virtual void Backward_gpu(const vector<Blob<Dtype>*>& top, const vector<bool>& propagate_down
                                 , const vector<Blob<Dtype>*>& bottom);
 private:
-    void InitConcat(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);
+    void InitConcatFwd(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);
+    void InitConcatBwd(const vector<Blob<Dtype>*>& top, const vector<bool>& propagate_down
+                                , const vector<Blob<Dtype>*>& bottom);
 
     shared_ptr<concat::primitive_desc> concatFwd_pd;
-    shared_ptr<memory> output_memory;
-    vector<shared_ptr<primitive>> input_primitives_;
-    vector<primitive::at> input_primitives_at_;
+    shared_ptr<memory> fwd_output_memory;
+    shared_ptr<primitive> bwd_reorder_input_memory;
+    vector<shared_ptr<memory>> bwd_reorder_output_memory;
+    vector<shared_ptr<memory>> bwd_bottom_memory_;
+    vector<shared_ptr<primitive>> fwd_input_primitives_;
+    vector<primitive::at> fwd_input_primitives_at_;
     MKLDNNPrimitive<Dtype> concatFwd;
     shared_ptr<MKLDNNData<Dtype> > fwd_top_data;
     vector<shared_ptr<MKLDNNData<Dtype> > > fwd_bottom_data;
+    shared_ptr<MKLDNNDiff<Dtype> > bwd_top_diff;
+    vector<shared_ptr<MKLDNNDiff<Dtype> > > bwd_bottom_diff;
+    vector<MKLDNNPrimitive<Dtype> > reorders;
     vector<int> split_channels;
 
     int32_t num_, width_, height_, channels_, num_concats_;
+    int concat_dimension;
+
+    PERFORMANCE_EVENT_ID_DECL(perf_id_fw_);
+    PERFORMANCE_EVENT_ID_DECL(perf_id_bw_);
 };
+
+// ===== MKLDNNSplitLayer ======================================
+template <typename Dtype>
+class MKLDNNSplitLayer : public MKLDNNLayer<Dtype> , public Layer<Dtype> {
+public:
+    explicit MKLDNNSplitLayer(const LayerParameter& param)
+            : MKLDNNLayer<Dtype>(), Layer<Dtype>(param),
+              splitBwd_pd_(), bwd_bottom_diff_memory_()
+            {
+              PERFORMANCE_EVENT_ID_RESET(perf_id_bw_);
+    }
+    ~MKLDNNSplitLayer();
+
+protected:
+    virtual void LayerSetUp(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);
+    virtual void Reshape(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);
+    virtual inline const char* type() const { return "Split"; }
+    virtual void Forward_cpu(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);
+    virtual void Forward_gpu(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);
+    virtual void Backward_cpu(const vector<Blob<Dtype>*>& top, const vector<bool>& propagate_down
+                                , const vector<Blob<Dtype>*>& bottom);
+    virtual void Backward_gpu(const vector<Blob<Dtype>*>& top, const vector<bool>& propagate_down
+                                , const vector<Blob<Dtype>*>& bottom);
+private:
+    void InitSplitFwd(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);
+    void InitSplitBwd(const vector<Blob<Dtype>*>& top, const vector<Blob<Dtype>*>& bottom);
+
+  private:
+    vector<size_t> sizes_src_;
+    vector<size_t> strides_src_;
+    MKLDNNPrimitive<Dtype> splitBwd_;
+    shared_ptr<sum::primitive_desc> splitBwd_pd_;
+    shared_ptr<memory> bwd_bottom_diff_memory_;
+    shared_ptr<MKLDNNDiff<Dtype> > bwd_bottom_diff_;
+    vector<shared_ptr<primitive>> bwd_top_diff_primitives_;
+    vector<primitive::at> bwd_top_diffs_primitives_at_;
+    vector<shared_ptr<MKLDNNDiff<Dtype> > > bwd_top_diffs_;
+
+    PERFORMANCE_EVENT_ID_DECL(perf_id_bw_);
+};
+
+// =====  MKLDNNEltwiseLayer =======================================
+template <typename Dtype>
+class MKLDNNEltwiseLayer : public MKLDNNLayer<Dtype> , public Layer<Dtype>  {
+public:
+  explicit MKLDNNEltwiseLayer(const LayerParameter& param)
+    : MKLDNNLayer<Dtype>(), Layer<Dtype>(param)
+    , fwd_top_data(), fwd_bottom_data()
+    , eltwiseFwd_pd()
+    , fwd_top_data_memory()
+    , fwd_bottom_data_primitives_()
+    , num_(0), width_(0), height_(0), channels_(0)
+    , num_bottoms_(0)
+  {
+    PERFORMANCE_EVENT_ID_RESET(perf_id_fw_);
+  }
+  ~MKLDNNEltwiseLayer() {}
+
+protected:
+    virtual void LayerSetUp(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);
+    virtual void Reshape(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);
+    virtual inline const char* type() const { return "Eltwise"; }
+    virtual inline int MinBottomBlobs() const { return 2; }
+    virtual inline int ExactNumTopBlobs() const { return 1; }
+    virtual void Forward_cpu(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);
+    virtual void Forward_gpu(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);
+    virtual void Backward_cpu(const vector<Blob<Dtype>*>& top, const vector<bool>& propagate_down
+                                , const vector<Blob<Dtype>*>& bottom);
+    virtual void Backward_gpu(const vector<Blob<Dtype>*>& top, const vector<bool>& propagate_down
+                                , const vector<Blob<Dtype>*>& bottom);
+private:
+    void InitEltwiseFwd(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);
+    void InitEltwiseBwd(const vector<Blob<Dtype>*>& top, const vector<bool>& propagate_down
+                                , const vector<Blob<Dtype>*>& bottom);
+   
+    shared_ptr<MKLDNNData<Dtype> > fwd_top_data;
+    vector<shared_ptr<MKLDNNData<Dtype> > > fwd_bottom_data;
+    shared_ptr<sum::primitive_desc> eltwiseFwd_pd;
+    MKLDNNPrimitive<Dtype> eltwiseFwd;
+
+    shared_ptr<memory> fwd_top_data_memory;
+    vector<shared_ptr<primitive>> fwd_bottom_data_primitives_;
+    vector<primitive::at> fwd_bottom_data_primitives_at_;
+
+    EltwiseParameter_EltwiseOp op_;
+    vector<Dtype> coeffs_;
+    Blob<int> max_idx_;
+    int32_t num_, width_, height_, channels_;
+    int32_t num_bottoms_;
+    bool stable_prod_grad_;
+
+    PERFORMANCE_EVENT_ID_DECL(perf_id_fw_);
+};
+
+
 }  // namespace caffe
 #endif  // #ifndef CAFFE_MKLDNN_LAYERS_HPP_

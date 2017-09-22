@@ -107,51 +107,6 @@ void PoolingLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
     CHECK_LT(pad_h_, kernel_h_);
     CHECK_LT(pad_w_, kernel_w_);
   }
-
-#ifdef USE_MLSL
-
-  pooled_height_ = static_cast<int>(ceil(static_cast<float>(
-      bottom[0]->height() + 2 * pad_h_ - kernel_h_) / stride_h_)) + 1;
-  pooled_width_ = static_cast<int>(ceil(static_cast<float>(
-      bottom[0]->height() + 2 * pad_w_ - kernel_w_) / stride_w_)) + 1;
-  if (pad_h_ || pad_w_) {
-    // If we have padding, ensure that the last pooling starts strictly
-    // inside the image (instead of at the padding); otherwise clip the last.
-    if ((pooled_height_ - 1) * stride_h_ >= bottom[0]->height() + pad_h_) {
-      --pooled_height_;
-    }
-    if ((pooled_width_ - 1) * stride_w_ >= bottom[0]->height() + pad_w_) {
-      --pooled_width_;
-    }
-    CHECK_LT((pooled_height_ - 1) * stride_h_, bottom[0]->height() + pad_h_);
-    CHECK_LT((pooled_width_ - 1) * stride_w_, bottom[0]->height() + pad_w_);
-  }
-
-  DataType dt = (sizeof(Dtype) == 4)? DT_FLOAT : DT_DOUBLE;
-  ComputeOpRegInfo *myRegInfo;
-  myRegInfo = new ComputeOpRegInfo(COMP_OP_TYPE_POOL);
-  myRegInfo->SetName(this->layer_param_.name().c_str());
-  int channels_ = bottom[0]->channels();
-  for(int i=0; i<bottom.size(); i++)
-  {
-    int ic = bottom[i]->channels();
-    int iw = bottom[i]->width();
-    int ih = bottom[i]->height();
-    myRegInfo->AddInputFeatureMap(ic, iw*ih, dt);
-  }
-  for(int i=0; i<top.size(); i++)
-  {
-    int oc = channels_;
-    int ow = pooled_width_;
-    int oh = pooled_height_;
-    myRegInfo->AddOutputFeatureMap(oc, ow*oh, dt);
-  }
-
-  myRegInfo->Validate();
-  this->layerOp = new ComputeOp(myRegInfo, caffe::internode::data_parallelism);
-  delete myRegInfo;
-#endif
-
 }
 
 template <typename Dtype>
@@ -223,13 +178,13 @@ void PoolingLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
                             static_cast<void*>(max_idx_.mutable_cpu_data());
   }
 
-  const int num_batches = bottom[0]->num();
+  const int batch_size = bottom[0]->num();
   const int num_channels = bottom[0]->channels();
 
 #ifdef _OPENMP
   #pragma omp parallel for collapse(2)
 #endif
-  for (int image = 0; image < num_batches; ++image)
+  for (int image = 0; image < batch_size; ++image)
     for (int channel = 0; channel < num_channels; ++channel)
       generator_func(bottom_data,
                      top_data,
@@ -267,13 +222,13 @@ void PoolingLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top,
                             static_cast<void*>(max_idx_.mutable_cpu_data());
   }
 
-  const int num_batches = bottom[0]->num();
+  const int batch_size = bottom[0]->num();
   const int num_channels = bottom[0]->channels();
 
 #ifdef _OPENMP
   #pragma omp parallel for collapse(2)
 #endif
-  for (int image = 0; image < num_batches; ++image)
+  for (int image = 0; image < batch_size; ++image)
     for (int channel = 0; channel < num_channels; ++channel)
       generator_func(top_diff,
                      bottom_diff,
