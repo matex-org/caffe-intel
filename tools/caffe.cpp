@@ -63,6 +63,10 @@ namespace bp = boost::python;
 #include "caffe/multinode/multi_sync.hpp"
 #endif /* USE_MLSL */
 
+#ifdef USE_MPI
+#include "caffe/mpi.hpp"
+#endif /* USE_MPI */
+
 using caffe::Blob;
 using caffe::Caffe;
 using caffe::Net;
@@ -121,6 +125,8 @@ DEFINE_bool(fast_compare, false,
 DEFINE_int32(fast_compare_max, 50,
     "Optional; Max errors for fast_compare");
 DEFINE_double(buffer_filler, std::nanf(""), "Buffer filler for compare tool");
+DEFINE_string(mpi_thread_mode, "",
+    "Optional; MPI thread mode, e.g., MPI_THREAD_SINGLE"); 
 
 // A simple registry for caffe commands.
 typedef int (*BrewFunction)();
@@ -723,20 +729,35 @@ int main(int argc, char** argv) {
 #ifdef USE_MLSL
   caffe::mn::init(&argc, &argv);
 #endif
+#ifdef USE_MPI
+  if(FLAGS_mpi_thread_mode != "")
+    caffe::mpi::init(&argc, &argv, (std::string)FLAGS_mpi_thread_mode);
+#endif
+
   if (argc == 2) {
 #ifdef WITH_PYTHON_LAYER
     try {
 #endif
       int ret = GetBrewFunction(caffe::string(argv[1]))();
+#ifdef USE_MPI
+      caffe::mpi::finalize();
+#endif 
       return ret;
 #ifdef WITH_PYTHON_LAYER
     } catch (bp::error_already_set) {
       PyErr_Print();
+#ifdef USE_MPI
+      caffe::mpi::finalize();
+#endif 
       return 1;
     }
 #endif
   } else {
     gflags::ShowUsageWithFlagsRestrict(argv[0], "tools/caffe");
   }
+#ifdef USE_MPI
+    caffe::mpi::finalize();
+#endif
+
   return 0;
 }
