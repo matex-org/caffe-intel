@@ -43,6 +43,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "caffe/net.hpp"
 #include "caffe/solver_factory.hpp"
+#ifdef USE_DEEPMEM
+#include "caffe/util/benchmark.hpp"
+#endif
 
 #include "caffe/util/benchmark.hpp"
 
@@ -219,6 +222,11 @@ class Solver {
   // True iff a request to stop early was received.
   bool requested_early_exit_;
 
+#ifdef USE_DEEPMEM
+  // Timing information
+  Timer iteration_timer_;
+  float iterations_last_;
+#endif
   // Scale gradients during apply
   float scale_on_apply_;
 

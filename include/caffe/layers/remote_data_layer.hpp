@@ -35,61 +35,61 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifndef CAFFE_UTIL_BENCHMARK_H_
-#define CAFFE_UTIL_BENCHMARK_H_
+#ifndef CAFFE_REMOTE_DATA_LAYER_HPP_
+#define CAFFE_REMOTE_DATA_LAYER_HPP_
 
-#include <boost/date_time/posix_time/posix_time.hpp>
+#include <string>
+#include <utility>
+#include <vector>
+#include "hdf5.h"
 
-#include "caffe/util/device_alternate.hpp"
+#include "caffe/blob.hpp"
+#include "caffe/common.hpp"
+#include "caffe/data_reader.hpp"
+#include "caffe/data_transformer.hpp"
+#include "caffe/filler.hpp"
+#include "caffe/internal_thread.hpp"
+#include "caffe/layer.hpp"
+#include "caffe/layers/base_data_layer.hpp"
+#include "caffe/proto/caffe.pb.h"
+#include "caffe/util/blocking_queue.hpp"
+#include "caffe/util/db.hpp"
+
+#define HDF5_DATA_DATASET_NAME "data"
+#define HDF5_DATA_LABEL_NAME "label"
 
 namespace caffe {
-
-class Timer {
+/**
+ * @brief Provides data to the Net from remote endpoint.
+ *
+ * TODO(dox): thorough documentation.
+ */
+template <typename Dtype>
+class RemoteDataLayer : public BaseDataLayer<Dtype> {
+  void prepare(const vector<Blob<Dtype>*>& bottom,
+      const vector<Blob<Dtype>*>& top);
  public:
-  Timer();
-  virtual ~Timer();
-  virtual void Start();
-  virtual void Stop();
-  virtual float MilliSeconds();
-#ifdef USE_DEEPMEM
-  virtual float MilliSecondsCont();
-#endif
-  virtual float MicroSeconds();
-  virtual float Seconds();
-#ifdef USE_DEEPMEM
-  virtual float SecondsCont();
-#endif
+  explicit RemoteDataLayer(const LayerParameter& param);
+  ~RemoteDataLayer();
 
-  inline bool initted() { return initted_; }
-  inline bool running() { return running_; }
-  inline bool has_run_at_least_once() { return has_run_at_least_once_; }
+  virtual void DataLayerSetUp(const vector<Blob<Dtype>*>& bottom,
+      const vector<Blob<Dtype>*>& top) {
+    prepare(bottom, top);
+  }
+  virtual void Forward_cpu(const vector<Blob<Dtype>*>& bottom,
+      const vector<Blob<Dtype>*>& top);
+  virtual void Forward_gpu(const vector<Blob<Dtype>*>& bottom,
+      const vector<Blob<Dtype>*>& top);
+  virtual inline const char* type() const { return "RemoteData"; }
 
- protected:
-  void Init();
-
-  bool initted_;
-  bool running_;
-  bool has_run_at_least_once_;
-#ifndef CPU_ONLY
-  cudaEvent_t start_gpu_;
-  cudaEvent_t stop_gpu_;
-#endif
-  boost::posix_time::ptime start_cpu_;
-  boost::posix_time::ptime stop_cpu_;
-  float elapsed_milliseconds_;
-  float elapsed_microseconds_;
-};
-
-class CPUTimer : public Timer {
- public:
-  explicit CPUTimer();
-  virtual ~CPUTimer() {}
-  virtual void Start();
-  virtual void Stop();
-  virtual float MilliSeconds();
-  virtual float MicroSeconds();
+  struct RemoteDataQueue;
+ private:
+  shared_ptr<RemoteDataQueue> queue;
+  shared_ptr<Blob<Dtype> > transform_blob;
+  shared_ptr<Blob<Dtype> > label_blob;
+  vector<Blob<Dtype>*> aux_blobs;
 };
 
 }  // namespace caffe
 
-#endif   // CAFFE_UTIL_BENCHMARK_H_
+#endif  // CAFFE_REMOTE_DATA_LAYER_HPP_

@@ -35,118 +35,103 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifdef USE_LMDB
-#include "caffe/util/db_lmdb.hpp"
-
+#ifdef USE_REMOTE_INDEX_SFTP
+#include "caffe/util/db_remote_index_sftp.hpp"
+#include <libssh/libssh.h> 
+#include <libssh/sftp.h>
 #include <sys/stat.h>
-
+#include <fcntl.h>
+#include <fstream>
 #include <string>
 
 namespace caffe { namespace db {
 
-#ifdef USE_DEEPMEM
-void LMDB::Open(const string& source, Mode mode, const LayerParameter * param) {
-#else
-void LMDB::Open(const string& source, Mode mode) {
-#endif
-  MDB_CHECK(mdb_env_create(&mdb_env_));
-  if (mode == NEW) {
+void RemoteIndexSFTP::Open(const string& source, Mode mode, const LayerParameter * param) {
+  env_ = new RemoteIndexSFTPEnv();
+  /*if (mode == NEW) {
+    CHECK_EQ(mkdir(source.c_str(), 0744), 0) << "mkdir " << source << " failed";
+    
+  }*/
+  int sftp_mode; //ios::binary;
+  if (mode == READ) {
+    sftp_mode = O_RDONLY;
+  }
+  //else
+  //  ios_mode = ios::out | ios::trunc;
+  if(param == NULL)
+  {
+    LOG(INFO) << "Remote Index SFTP Requires a param layer to connect.";
+    LOG(INFO) << "Likely you are trying to extract features with this db which doesn't work.";
+    LOG(INFO) << "Since the connection info is the in the data layer of the network.";
+    exit(1);
+  }
+  int rc = env_->open(source, sftp_mode, 0664, param->data_param().server(), param->data_param().username(), param->data_param().password());
+  /*if (mode == NEW) {
     CHECK_EQ(mkdir(source.c_str(), 0744), 0) << "mkdir " << source << " failed";
   }
-  int flags = 0;
+  ios_base::openmode ios_mode = ios::binary;
   if (mode == READ) {
-    flags = MDB_RDONLY | MDB_NOTLS;
+    ios_mode |= ios::in;
   }
-  int rc = mdb_env_open(mdb_env_, source.c_str(), flags, 0664);
-#ifndef ALLOW_LMDB_NOLOCK
-  MDB_CHECK(rc);
-#else
-  if (rc == EACCES) {
-    LOG(WARNING) << "Permission denied. Trying with MDB_NOLOCK ...";
-    // Close and re-open environment handle
-    mdb_env_close(mdb_env_);
-    MDB_CHECK(mdb_env_create(&mdb_env_));
-    // Try again with MDB_NOLOCK
-    flags |= MDB_NOLOCK;
-    MDB_CHECK(mdb_env_open(mdb_env_, source.c_str(), flags, 0664));
-  } else {
-    MDB_CHECK(rc);
-  }
-#endif
-  LOG(INFO) << "Opened lmdb " << source;
+  else
+    ios_mode |= ios::out | ios::trunc;
+  
+  ios_stream.open(source, ios_mode);*/
+
+  LOG(INFO) << "RemoteIndex " << source;
 }
 
-LMDBCursor* LMDB::NewCursor() {
-  MDB_txn* mdb_txn;
-  MDB_cursor* mdb_cursor;
-  MDB_CHECK(mdb_txn_begin(mdb_env_, NULL, MDB_RDONLY, &mdb_txn));
-  MDB_CHECK(mdb_dbi_open(mdb_txn, NULL, 0, &mdb_dbi_));
-  MDB_CHECK(mdb_cursor_open(mdb_txn, mdb_dbi_, &mdb_cursor));
-  return new LMDBCursor(mdb_txn, mdb_cursor);
+RemoteIndexSFTPCursor* RemoteIndexSFTP::NewCursor() {
+  return new RemoteIndexSFTPCursor(env_);
 }
 
-LMDBTransaction* LMDB::NewTransaction() {
-  return new LMDBTransaction(mdb_env_);
+RemoteIndexSFTPTransaction* RemoteIndexSFTP::NewTransaction() {
+  return new RemoteIndexSFTPTransaction(env_);
 }
 
-void LMDBTransaction::Put(const string& key, const string& value) {
+void RemoteIndexSFTPTransaction::Put(const string& key, const string& value) {
   keys.push_back(key);
   values.push_back(value);
 }
 
-void LMDBTransaction::Commit() {
-  MDB_dbi mdb_dbi;
-  MDB_val mdb_key, mdb_data;
-  MDB_txn *mdb_txn;
-
-  // Initialize MDB variables
-  MDB_CHECK(mdb_txn_begin(mdb_env_, NULL, 0, &mdb_txn));
-  MDB_CHECK(mdb_dbi_open(mdb_txn, NULL, 0, &mdb_dbi));
+void RemoteIndexSFTPTransaction::Commit() {
 
   for (int i = 0; i < keys.size(); i++) {
-    mdb_key.mv_size = keys[i].size();
-    mdb_key.mv_data = const_cast<char*>(keys[i].data());
-    mdb_data.mv_size = values[i].size();
-    mdb_data.mv_data = const_cast<char*>(values[i].data());
+    //mdb_key.mv_size = keys[i].size();
+    //mdb_key.mv_data = const_cast<char*>(keys[i].data());
+    //mdb_data.mv_size = values[i].size();
+    //mdb_data.mv_data = const_cast<char*>(values[i].data());
 
     // Add data to the transaction
-    int put_rc = mdb_put(mdb_txn, mdb_dbi, &mdb_key, &mdb_data, 0);
-    if (put_rc == MDB_MAP_FULL) {
+    env_->put(keys[i], values[i]);
+    /*if (put_rc == MDB_MAP_FULL) {
       // Out of memory - double the map size and retry
       mdb_txn_abort(mdb_txn);
       mdb_dbi_close(mdb_env_, mdb_dbi);
       DoubleMapSize();
       Commit();
       return;
-    }
+    }*/
     // May have failed for some other reason
-    MDB_CHECK(put_rc);
+    //MDB_CHECK(put_rc);
   }
 
   // Commit the transaction
-  int commit_rc = mdb_txn_commit(mdb_txn);
+  /*int commit_rc = mdb_txn_commit(mdb_txn);
   if (commit_rc == MDB_MAP_FULL) {
     // Out of memory - double the map size and retry
     mdb_dbi_close(mdb_env_, mdb_dbi);
     DoubleMapSize();
     Commit();
     return;
-  }
+  }*/
   // May have failed for some other reason
-  MDB_CHECK(commit_rc);
+  //MDB_CHECK(commit_rc);
 
   // Cleanup after successful commit
-  mdb_dbi_close(mdb_env_, mdb_dbi);
+  //mdb_dbi_close(mdb_env_, mdb_dbi);
   keys.clear();
   values.clear();
-}
-
-void LMDBTransaction::DoubleMapSize() {
-  struct MDB_envinfo current_info;
-  MDB_CHECK(mdb_env_info(mdb_env_, &current_info));
-  size_t new_size = current_info.me_mapsize * 2;
-  DLOG(INFO) << "Doubling LMDB map size to " << (new_size>>20) << "MB ...";
-  MDB_CHECK(mdb_env_set_mapsize(mdb_env_, new_size));
 }
 
 }  // namespace db

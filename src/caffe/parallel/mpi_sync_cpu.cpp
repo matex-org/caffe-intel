@@ -1,6 +1,7 @@
 #ifndef CPU_ONLY
 #include <cuda_runtime.h>
 #endif
+#include <gflags/gflags.h>
 #include <glog/logging.h>
 #include <stdio.h>
 
@@ -12,6 +13,17 @@
 #include "caffe/caffe.hpp"
 #include "caffe/mpi.hpp"
 #include "caffe/parallel/mpi_sync_cpu.hpp"
+
+#ifdef USE_DEEPMEM
+//DEFINE_string(par, "",
+//    "Optional; select parallelization strategy, e.g., MPISyncCPU");
+DEFINE_int32(buffer_depth, 2,
+    "Optional; parallel mode, the number of buffers used by "
+    "communication code.");
+DEFINE_bool(scale_on_apply, true,
+    "Optional; parallel mode, whether scaling gradients occurs during "
+    "the ApplyUpdate phase as part of regular operations.");
+#endif
 
 namespace caffe {
 

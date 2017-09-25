@@ -72,7 +72,11 @@ class ImageDataLayer : public BasePrefetchingDataLayer<Dtype> {
  protected:
   shared_ptr<Caffe::RNG> prefetch_rng_;
   virtual void ShuffleImages();
+#ifdef USE_DEEPMEM
+  virtual void load_batch(Batch<Dtype>* batch, bool in_thread);
+#else
   virtual void load_batch(Batch<Dtype>* batch);
+#endif
 
   vector<std::pair<std::string, int> > lines_;
   int lines_id_;

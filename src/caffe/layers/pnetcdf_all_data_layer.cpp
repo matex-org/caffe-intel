@@ -348,8 +348,10 @@ void PnetCDFAllDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bott
   // Reshape top[0] and prefetch_data according to the batch_size.
   top_shape[0] = batch_size;
   top[0]->Reshape(top_shape);
-  for (int i = 0; i < this->PREFETCH_COUNT; ++i) {
-    this->prefetch_[i].data_.Reshape(top_shape);
+  // for (int i = 0; i < this->PREFETCH_COUNT; ++i) {
+  for (int i = 0; i < this->prefetch_count; ++i) {
+    // this->prefetch_[i].data_.Reshape(top_shape);
+    this->prefetch_[i]->data_.Reshape(top_shape);
   }
   LOG(INFO) << "output data size: " << top[0]->num() << ","
       << top[0]->channels() << "," << top[0]->height() << ","
@@ -358,15 +360,30 @@ void PnetCDFAllDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bott
   if (this->output_labels_) {
     vector<int> label_shape(1, batch_size);
     top[1]->Reshape(label_shape);
-    for (int i = 0; i < this->PREFETCH_COUNT; ++i) {
-      this->prefetch_[i].label_.Reshape(label_shape);
+    // for (int i = 0; i < this->PREFETCH_COUNT; ++i) {
+    for (int i = 0; i < this->prefetch_count; ++i) {
+      // this->prefetch_[i].label_.Reshape(label_shape);
+      this->prefetch_[i]->label_.Reshape(label_shape);
     }
+#ifdef USE_DEEPMEM
+    for (int i = 0; i < this->cache_size_; ++i)
+      this->caches_[i]->reshape(&top_shape, &label_shape);
+  }
+  else
+  {
+    for (int i = 0; i < this->cache_size_; ++i)
+      this->caches_[i]->reshape(&top_shape, NULL);
+#endif
   }
 }
 
 // This function is called on prefetch thread
 template<typename Dtype>
+#ifdef USE_DEEPMEM
+void PnetCDFAllDataLayer<Dtype>::load_batch(Batch<Dtype>* batch, bool in_thread) {
+#else
 void PnetCDFAllDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
+#endif
   CPUTimer batch_timer;
   batch_timer.Start();
   double read_time = 0;
@@ -404,7 +421,11 @@ void PnetCDFAllDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
     top_label = batch->label_.mutable_cpu_data();
   }
 #ifdef _OPENMP
+#ifdef USE_DEEPMEM
+  #pragma omp parallel if (batch_size > 1 && !in_thread)
+#else
   #pragma omp parallel if (batch_size > 1)
+#endif
   #pragma omp single nowait
 #endif
   for (int item_id = 0; item_id < batch_size; ++item_id) {

@@ -114,8 +114,10 @@ void ImageDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bottom,
   const int batch_size = this->layer_param_.image_data_param().batch_size();
   CHECK_GT(batch_size, 0) << "Positive batch size required";
   top_shape[0] = batch_size;
-  for (int i = 0; i < this->PREFETCH_COUNT; ++i) {
-    this->prefetch_[i].data_.Reshape(top_shape);
+  // for (int i = 0; i < this->PREFETCH_COUNT; ++i) {
+  for (int i = 0; i < this->prefetch_count; ++i) {
+    // this->prefetch_[i].data_.Reshape(top_shape);
+    this->prefetch_[i]->data_.Reshape(top_shape);
   }
   top[0]->Reshape(top_shape);
 
@@ -125,8 +127,10 @@ void ImageDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bottom,
   // label
   vector<int> label_shape(1, batch_size);
   top[1]->Reshape(label_shape);
-  for (int i = 0; i < this->PREFETCH_COUNT; ++i) {
-    this->prefetch_[i].label_.Reshape(label_shape);
+  // for (int i = 0; i < this->PREFETCH_COUNT; ++i) {
+  for (int i = 0; i < this->prefetch_count; ++i) {
+    // this->prefetch_[i].label_.Reshape(label_shape);
+    this->prefetch_[i]->label_.Reshape(label_shape);
   }
 }
 
@@ -138,7 +142,11 @@ void ImageDataLayer<Dtype>::ShuffleImages() {
 }
 
 template <typename Dtype>
+#ifdef USE_DEEPMEM
+void ImageDataLayer<Dtype>::load_batch(Batch<Dtype>* batch, bool in_thread) {
+#else
 void ImageDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
+#endif
   CPUTimer batch_timer;
   batch_timer.Start();
   double read_time = 0;

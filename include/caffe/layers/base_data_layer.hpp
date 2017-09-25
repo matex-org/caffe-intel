@@ -39,6 +39,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define CAFFE_DATA_LAYERS_HPP_
 
 #include <vector>
+#ifdef USE_DEEPMEM
+#include <iostream>
+#include <fstream>
+#include "caffe/util/cache.hpp"
+#include <cstdlib>
+#endif
 
 #include "caffe/blob.hpp"
 #include "caffe/data_transformer.hpp"
@@ -82,11 +88,13 @@ class BaseDataLayer : public Layer<Dtype> {
   bool output_labels_;
 };
 
+#ifndef USE_DEEPMEM
 template <typename Dtype>
 class Batch {
  public:
   Blob<Dtype> data_, label_;
 };
+#endif
 
 template <typename Dtype>
 class BasePrefetchingDataLayer :
@@ -106,18 +114,57 @@ class BasePrefetchingDataLayer :
 
   // Prefetches batches (asynchronously if to GPU memory)
   static const int PREFETCH_COUNT = 3;
+#ifdef USE_DEEPMEM
+  virtual void Pass_Value_To_Layer(Dtype value, unsigned int position) {
+    //LOG(INFO) << "Base Pass";
+    //ignoreAccuracy_=false;
+    historical_accuracy_.push_back(value);
+  }
+  int cache_size_;
+#endif
 
  protected:
+#ifdef USE_DEEPMEM
+  bool prefetch;
+  void refill_cache(int current_cache);
+#endif
   virtual void InternalThreadEntry();
+#ifdef USE_DEEPMEM
+  virtual void load_batch(Batch<Dtype>* batch, bool in_thread) = 0;
+#else
   virtual void load_batch(Batch<Dtype>* batch) = 0;
+#endif
 
   virtual void GetBatch();
+#ifdef USE_DEEPMEM
+  void rate_replace_policy(int next_cache);
+  void thread_rate_replace_policy(int next_cache);
 
-  Batch<Dtype> prefetch_[PREFETCH_COUNT];
+  GenRandNumbers randomGen;
+  volatile long prefetch_count;
+  volatile long reuse_count;
+#endif
+  // Batch<Dtype> prefetch_[PREFETCH_COUNT];
+  std::vector<Batch<Dtype>* > prefetch_;
   BlockingQueue<Batch<Dtype>*> prefetch_free_;
   BlockingQueue<Batch<Dtype>*> prefetch_full_;
 
+  std::vector<PopBatch<Dtype>* > pop_prefetch_;
+  BlockingQueue<PopBatch<Dtype> > pop_prefetch_free_;
+  BlockingQueue<PopBatch<Dtype> > pop_prefetch_full_;
+
+#ifdef USE_DEEPMEM
+  Cache<Dtype> ** caches_;
+  vector<Dtype> historical_accuracy_;
+#endif
+
   Blob<Dtype> transformed_data_;
+
+#ifdef USE_DEEPMEM
+  friend class Cache<Dtype>;
+  friend class MemoryCache<Dtype>;
+  friend class DiskCache<Dtype>;
+#endif
 };
 
 }  // namespace caffe

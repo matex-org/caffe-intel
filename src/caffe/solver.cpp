@@ -285,6 +285,10 @@ void Solver<Dtype>::Step(int iters) {
   int average_loss = this->param_.average_loss();
   losses_.clear();
   smoothed_loss_ = 0;
+#ifdef USE_DEEPMEM
+  iteration_timer_.Start();
+  float lapse_total = 0;
+#endif
 
   while (iter_ < stop_iter) {
     if (param_.test_interval() && iter_ % param_.test_interval() == 0
@@ -314,8 +318,39 @@ void Solver<Dtype>::Step(int iters) {
     // average the loss across iterations for smoothed reporting
     UpdateSmoothedLoss(loss, start_iter, average_loss);
     if (display) {
+#ifdef USE_DEEPMEM
+      float lapse = iteration_timer_.Seconds();
+      float per_s = (iter_ - iterations_last_) / (lapse ? lapse : 1);
+      lapse_total += lapse;
+      float total_per_s = iter_ / lapse_total;
+#endif
+#ifdef USE_MPI
+      LOG_IF(INFO, Caffe::root_solver())
+  #ifdef USE_DEEPMEM
+	  << caffe::internode::mpi_get_current_proc_rank_as_string()
+          << " Iteration " << iter_
+          << " (" << per_s << " iter/s, " << lapse << "s/"
+          << param_.display() <<" iter), loss = " << smoothed_loss_
+          << ", " << total_per_s << " iter/s avg"
+          << ", " << lapse_total << " lapse_time_till_now(s)";
+  #else
+          << caffe::internode::mpi_get_current_proc_rank_as_string()
+          << " Iteration " << iter_ << ", loss = " << smoothed_loss_;
+  #endif 
+#else
       LOG_IF(INFO, Caffe::root_solver()) << "Iteration " << iter_
+  #ifdef USE_DEEPMEM
+          << " (" << per_s << " iter/s, " << lapse << "s/"
+          << param_.display() <<" iter), loss = " << smoothed_loss_;
+  #else
           << ", loss = " << smoothed_loss_;
+  #endif
+#endif
+
+#ifdef USE_DEEPMEM
+      iteration_timer_.Start();
+      iterations_last_ = iter_;
+#endif
       const vector<Blob<Dtype>*>& result = net_->output_blobs();
       int score_index = 0;
       for (int j = 0; j < result.size(); ++j) {
@@ -721,6 +756,15 @@ void Solver<Dtype>::TestClassification(const int test_net_id) {
     }
     LOG(INFO) << "    Test net output #" << i << ": " << output_name << " = "
               << mean_score << loss_msg_stream.str();
+#ifdef USE_DEEPMEM
+    if( "accuracy" == output_name )
+    {
+      if(net_->has_layer_type("Data"))
+        net_->layer_by_type("Data")->Pass_Value_To_Layer(mean_score,0);
+      if(net_->has_layer_type("PnetCDFData"))
+        net_->layer_by_type("PnetCDFData")->Pass_Value_To_Layer(mean_score,0);
+    }
+#endif
   }
 }
 

@@ -210,8 +210,10 @@ void WindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bottom,
   CHECK_GT(crop_size, 0);
   const int batch_size = this->layer_param_.window_data_param().batch_size();
   top[0]->Reshape(batch_size, channels, crop_size, crop_size);
-  for (int i = 0; i < this->PREFETCH_COUNT; ++i)
-    this->prefetch_[i].data_.Reshape(
+  // for (int i = 0; i < this->PREFETCH_COUNT; ++i)
+  for (int i = 0; i < this->prefetch_count; ++i)
+    // this->prefetch_[i].data_.Reshape(
+    this->prefetch_[i]->data_.Reshape(
         batch_size, channels, crop_size, crop_size);
 
   LOG(INFO) << "output data size: " << top[0]->num() << ","
@@ -220,8 +222,10 @@ void WindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bottom,
   // label
   vector<int> label_shape(1, batch_size);
   top[1]->Reshape(label_shape);
-  for (int i = 0; i < this->PREFETCH_COUNT; ++i) {
-    this->prefetch_[i].label_.Reshape(label_shape);
+  // for (int i = 0; i < this->PREFETCH_COUNT; ++i) {
+  for (int i = 0; i < this->prefetch_count; ++i) {
+    // this->prefetch_[i].label_.Reshape(label_shape);
+    this->prefetch_[i]->label_.Reshape(label_shape);
   }
 
   // data mean
@@ -262,7 +266,11 @@ unsigned int WindowDataLayer<Dtype>::PrefetchRand() {
 
 // This function is called on prefetch thread
 template <typename Dtype>
+#ifdef USE_DEEPMEM
+void WindowDataLayer<Dtype>::load_batch(Batch<Dtype>* batch, bool in_thread) {
+#else
 void WindowDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
+#endif
   // At each iteration, sample N windows where N*p are foreground (object)
   // windows and N*(1-p) are background (non-object) windows
   CPUTimer batch_timer;
