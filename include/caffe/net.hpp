@@ -357,7 +357,7 @@ class Net {
   map<string, int> layer_names_index_;
 #ifdef USE_DEEPMEM
   vector<string> layer_types_;
-  multimap<string, int> layer_types_index_;
+  std::multimap<string, int> layer_types_index_;
 #endif 
   vector<bool> layer_need_backward_;
   /// @brief the blobs storing intermediate results between the layer.

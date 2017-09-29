@@ -327,7 +327,7 @@ void Solver<Dtype>::Step(int iters) {
 #ifdef USE_MPI
       LOG_IF(INFO, Caffe::root_solver())
   #ifdef USE_DEEPMEM
-	  << caffe::internode::mpi_get_current_proc_rank_as_string()
+	  // << caffe::internode::mpi_get_current_proc_rank_as_string()
           << " Iteration " << iter_
           << " (" << per_s << " iter/s, " << lapse << "s/"
           << param_.display() <<" iter), loss = " << smoothed_loss_

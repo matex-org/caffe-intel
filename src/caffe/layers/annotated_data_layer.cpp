@@ -96,8 +96,10 @@ void AnnotatedDataLayer<Dtype>::DataLayerSetUp(
   // Reshape top[0] and prefetch_data according to the batch_size.
   top_shape[0] = batch_size;
   top[0]->Reshape(top_shape);
-  for (int i = 0; i < this->PREFETCH_COUNT; ++i) {
-    this->prefetch_[i].data_.Reshape(top_shape);
+  // for (int i = 0; i < this->PREFETCH_COUNT; ++i) {
+  for (int i = 0; i < this->prefetch_count; ++i) {
+    // this->prefetch_[i].data_.Reshape(top_shape);
+    this->prefetch_[i]->data_.Reshape(top_shape);
   }
   LOG(INFO) << "output data size: " << top[0]->num() << ","
       << top[0]->channels() << "," << top[0]->height() << ","
@@ -141,8 +143,10 @@ void AnnotatedDataLayer<Dtype>::DataLayerSetUp(
       label_shape[0] = batch_size;
     }
     top[1]->Reshape(label_shape);
-    for (int i = 0; i < this->PREFETCH_COUNT; ++i) {
-      this->prefetch_[i].label_.Reshape(label_shape);
+    // for (int i = 0; i < this->PREFETCH_COUNT; ++i) {
+    for (int i = 0; i < this->prefetch_count; ++i) {
+      // this->prefetch_[i].label_.Reshape(label_shape);
+      this->prefetch_[i]->label_.Reshape(label_shape);
     }
   }
 }
@@ -150,7 +154,11 @@ void AnnotatedDataLayer<Dtype>::DataLayerSetUp(
 // This function is called on prefetch thread
 #ifdef _OPENMP
 template<typename Dtype>
+#ifdef USE_DEEPMEM
+void AnnotatedDataLayer<Dtype>::load_batch(Batch<Dtype>* batch, bool in_thread) {
+#else
 void AnnotatedDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
+#endif
   CPUTimer batch_timer;
   CPUTimer trans_timer;
   batch_timer.Start();
@@ -196,7 +204,11 @@ void AnnotatedDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
 // RNG precalculates random numbers in the sequential code based on number of  samples.
 // TODO: correct generating random numbers in the first loop, similarly how it's done in
 // the second loop and other data layers.
+#ifdef USE_DEEPMEM
+  #pragma omp parallel if (!in_thread && batch_size > 1)
+#else
 #pragma omp parallel if (batch_size > 1)
+#endif
 #pragma omp single nowait
   {
     for (int item_id = 0; item_id < batch_size; ++item_id) {
@@ -380,7 +392,11 @@ void AnnotatedDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
 }
 #else
 template<typename Dtype>
+#ifdef USE_DEEPMEM
+void AnnotatedDataLayer<Dtype>::load_batch(Batch<Dtype>* batch, bool in_thread) {
+#else
 void AnnotatedDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
+#endif
   CPUTimer batch_timer;
   batch_timer.Start();
   double read_time = 0;
