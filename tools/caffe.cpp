@@ -137,6 +137,7 @@ DEFINE_bool(avgdata, true, "for MPIGossipParamsCPU, average the params also");
 DEFINE_bool(alldata, false, "for MPIGossipParamsCPU, average the params all at once");
 DEFINE_bool(rotate, true, "for MPIGossipParamsCPU, rotate comm partner");
 DEFINE_bool(batchwise, true, "for MPIGossipParamsCPU, update pair each batch (true) or layer (false)");
+DEFINE_string(mpi, "MPI_THREAD_SINGLE", "Optional; MPI threading level");
 
 // A simple registry for caffe commands.
 typedef int (*BrewFunction)();
@@ -774,6 +775,8 @@ int main(int argc, char** argv) {
   caffe::GlobalInit(&argc, &argv);
 #ifdef USE_MLSL
   caffe::mn::init(&argc, &argv);
+#else
+  caffe::mpi::init(&argc, &argv, FLAGS_mpi);
 #endif
   if (argc == 2) {
     //if (FLAGS_par != "") {
