@@ -739,8 +739,13 @@ int main(int argc, char** argv) {
   caffe::mn::init(&argc, &argv);
 #endif
 #ifdef USE_MPI
-  if(FLAGS_mpi_thread_mode != "")
+  if(FLAGS_mpi_thread_mode != "") {
     caffe::mpi::init(&argc, &argv, (std::string)FLAGS_mpi_thread_mode);
+    if (caffe::mpi::comm_rank() > 0) {
+      FLAGS_minloglevel = 2;
+    }
+    LOG(INFO) << "MPI is initialized, disabling logging from other ranks";
+  }
 #endif
 
   if (argc == 2) {
