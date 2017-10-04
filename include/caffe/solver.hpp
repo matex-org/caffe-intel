@@ -223,6 +223,10 @@ class Solver {
   // Scale gradients during apply
   float scale_on_apply_;
 
+  // Timing information
+  Timer iteration_timer_;
+  float iterations_last_;
+
   ForwardBackwardFunc forward_backward_;
 
   DISABLE_COPY_AND_ASSIGN(Solver);

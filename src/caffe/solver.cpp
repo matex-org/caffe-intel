@@ -46,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <numeric>
 
 #include "boost/bind.hpp"
+#include "caffe/parallel/stats.h"
 #include "caffe/solver.hpp"
 #include "caffe/mpi.hpp"
 #include "caffe/util/bbox_util.hpp"
@@ -60,6 +61,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #endif
 
 namespace caffe {
+
+static stats_t stats_pers_;
 
 template<typename Dtype>
 void Solver<Dtype>::SetActionFunction(ActionCallback func) {
@@ -80,6 +83,7 @@ Solver<Dtype>::Solver(const SolverParameter& param, const Solver* root_solver)
     : net_(), callbacks_(), root_solver_(root_solver),
       requested_early_exit_(false),
       scale_on_apply_(1.0),
+      iteration_timer_(), iterations_last_(),
       forward_backward_(boost::bind(&Solver<Dtype>::ForwardBackward, this)) {
   Init(param);
   Caffe::set_iter_size(param_.iter_size());
@@ -90,6 +94,7 @@ Solver<Dtype>::Solver(const string& param_file, const Solver* root_solver)
     : net_(), callbacks_(), root_solver_(root_solver),
       requested_early_exit_(false),
       scale_on_apply_(1.0),
+      iteration_timer_(), iterations_last_(),
       forward_backward_(boost::bind(&Solver<Dtype>::ForwardBackward, this)) {
   SolverParameter param;
   ReadSolverParamsFromTextFileOrDie(param_file, &param);
@@ -99,6 +104,7 @@ Solver<Dtype>::Solver(const string& param_file, const Solver* root_solver)
 
 template <typename Dtype>
 void Solver<Dtype>::Init(const SolverParameter& param) {
+  stats_clear(&stats_pers_);
   CHECK(Caffe::root_solver() || root_solver_)
       << "root_solver_ needs to be set for all non-root solvers";
   param_ = param;
@@ -286,6 +292,8 @@ void Solver<Dtype>::Step(int iters) {
   int average_loss = this->param_.average_loss();
   losses_.clear();
   smoothed_loss_ = 0;
+  iteration_timer_.Start();
+  float lapse_total = 0;
 
   net_->SetSolver(this);
 
@@ -317,8 +325,22 @@ void Solver<Dtype>::Step(int iters) {
     // average the loss across iterations for smoothed reporting
     UpdateSmoothedLoss(loss, start_iter, average_loss);
     if (display) {
+      float lapse = iteration_timer_.Seconds();
+      float per_s = (iter_ - iterations_last_) / (lapse ? lapse : 1);
+      if (0 != iter_) {
+        stats_sample_value(&stats_pers_, per_s);
+      }
+      lapse_total += lapse;
+      float total_per_s = iter_ / lapse_total;
       LOG_IF(INFO, Caffe::root_solver()) << "Iteration " << iter_
-          << ", loss = " << smoothed_loss_;
+          << " (" << per_s << " iter/s, " << lapse << "s/"
+          << param_.display() <<" iter), loss = " << smoothed_loss_
+          << " iter/s " << stats_pers_._mean
+          << " +- " << stats_stddev(&stats_pers_)
+          << " min " << stats_pers_._min
+          << " max " << stats_pers_._max;
+      iteration_timer_.Start();
+      iterations_last_ = iter_;
       const vector<Blob<Dtype>*>& result = net_->output_blobs();
       int score_index = 0;
       for (int j = 0; j < result.size(); ++j) {
