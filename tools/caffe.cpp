@@ -53,6 +53,7 @@ namespace bp = boost::python;
 #include "boost/make_shared.hpp"
 #include "caffe/caffe.hpp"
 #include "caffe/parallel/mpi_sync_cpu.hpp"
+#include "caffe/parallel/mpi_gossip_params_cpu7.hpp"
 #include "caffe/training_utils.hpp"
 #include "caffe/util/performance.hpp"
 #include "caffe/util/signal_handler.h"
@@ -127,6 +128,8 @@ DEFINE_int32(fast_compare_max, 50,
 DEFINE_double(buffer_filler, std::nanf(""), "Buffer filler for compare tool");
 DEFINE_string(mpi_thread_mode, "MPI_THREAD_SINGLE",
     "Optional; MPI thread mode, e.g., MPI_THREAD_SINGLE"); 
+DEFINE_bool(cube, true, "for MPIGossipParamsCPU, use hypercube");
+DEFINE_bool(rotate, true, "for MPIGossipParamsCPU, rotate comm partner");
 
 // A simple registry for caffe commands.
 typedef int (*BrewFunction)();
@@ -334,6 +337,12 @@ int train() {
   if (FLAGS_par != "") {
     if (FLAGS_par == "MPISyncCPU") {
       caffe::MPISyncCPU<float> sync(solver);
+      sync.Run();
+    }
+    else if (FLAGS_par == "MPIGossipParamsCPU7") {
+      caffe::MPIGossipParamsCPU7<float> sync(solver, solver->param(),
+              FLAGS_cube,
+              FLAGS_rotate);
       sync.Run();
     }
     else {

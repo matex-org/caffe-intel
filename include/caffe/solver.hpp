@@ -118,8 +118,9 @@ class Solver {
 
   // Invoked at specific points during an iteration
   class Callback {
-   protected:
+   public:
     virtual void on_start() = 0;
+    virtual void on_gradients_ready(int param_id) {}
     virtual void on_gradients_ready() = 0;
 
 #ifdef USE_MLSL

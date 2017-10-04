@@ -99,6 +99,8 @@ void Net<Dtype>::Init(const NetParameter& in_param) {
   CHECK(Caffe::root_solver() || root_net_)
       << "root_net_ needs to be set for all non-root solvers";
 
+  solver_ = NULL;
+
 #ifdef _OPENMP
   static bool executed = false;
   if (!executed) {
@@ -448,6 +450,12 @@ void Net<Dtype>::Init(const NetParameter& in_param) {
   ShareWeights();
   debug_info_ = param.debug_info();
 
+  // invert param_layer_indices_ to give map of
+  // (level_id, local param_id) -> global param_id
+  for (int i = 0; i < param_layer_indices_.size(); ++i) {
+    layer_index_params_[param_layer_indices_[i]] = i;
+  }
+
 #ifdef USE_MLSL
   if (this->phase_ == TRAIN) {
       for (int layer_id = 0; layer_id < param.layer_size(); ++layer_id) {
@@ -646,8 +654,8 @@ void Net<Dtype>::CompilationRuleTwo(const NetParameter& param,
       // check if Dialation is larger than 1. if yes, don't fuse the following Relu layer with this conv layer
       // as MKLDNN doesn't support dilation convolution yet.
       bool dilation = false;
-      for (int i = 0; i < layer_param->convolution_param().dilation_size(); ++i) {
-        if (layer_param->convolution_param().dilation(i) > 1) {
+      for (int j = 0; j < layer_param->convolution_param().dilation_size(); ++j) {
+        if (layer_param->convolution_param().dilation(j) > 1) {
           dilation = true;
           break;
         }
@@ -1091,6 +1099,15 @@ void Net<Dtype>::BackwardFromTo(int start, int end) {
       PERFORMANCE_MEASUREMENT_END((std::string("BW_")+layer_names_[i]).c_str());
 
       if (debug_info_) { BackwardDebugInfo(i); }
+      if (solver_) {
+        //for (int j = 0; j < layers_[i]->blobs().size(); ++j) {
+        for (int j = layers_[i]->blobs().size()-1; j >= 0; --j) {
+          int param_id = layer_index_params_[make_pair(i, j)];
+          for (int k = 0; k < solver_->callbacks().size(); ++k) {
+            solver_->callbacks()[k]->on_gradients_ready(param_id);
+          }
+        }
+      }
     }
   }
 }

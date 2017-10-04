@@ -47,6 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "boost/bind.hpp"
 #include "caffe/solver.hpp"
+#include "caffe/mpi.hpp"
 #include "caffe/util/bbox_util.hpp"
 #include "caffe/util/format.hpp"
 #include "caffe/util/hdf5.hpp"
@@ -285,6 +286,8 @@ void Solver<Dtype>::Step(int iters) {
   int average_loss = this->param_.average_loss();
   losses_.clear();
   smoothed_loss_ = 0;
+
+  net_->SetSolver(this);
 
   while (iter_ < stop_iter) {
     if (param_.test_interval() && iter_ % param_.test_interval() == 0
@@ -695,14 +698,26 @@ void Solver<Dtype>::TestClassification(const int test_net_id) {
       LOG(INFO) << "Test loss: " << loss;
     }
 #else /* !USE_MLSL */
+#ifdef USE_MPI
+    caffe::mpi::allreduce(loss);
+    loss /= (param_.test_iter(test_net_id) * caffe::mpi::comm_size());
+    if (caffe::mpi::comm_rank() == 0) {
+      LOG(INFO) << "Test loss: " << loss;
+    }
+#else /* !USE_MPI */
     loss /= param_.test_iter(test_net_id);
     LOG(INFO) << "Test loss: " << loss;
+#endif /* USE_MPI */
 #endif /* USE_MLSL */
   }
 #ifdef USE_MLSL
   mn::allreduce(test_score.data(), test_score.size());
   if (mn::get_node_id() == 0)
 #endif /* USE_MLSL */
+#ifdef USE_MPI
+  caffe::mpi::allreduce(test_score.data(), test_score.size());
+  if (caffe::mpi::comm_rank() == 0)
+#endif /* USE_MPI */
   for (int i = 0; i < test_score.size(); ++i) {
     const int output_blob_index =
         test_net->output_blob_indices()[test_score_output_id[i]];
@@ -713,7 +728,12 @@ void Solver<Dtype>::TestClassification(const int test_net_id) {
     const Dtype mean_score =
       test_score[i] / (param_.test_iter(test_net_id) * mn::get_nodes_count());
 #else /* !USE_MLSL */
+#ifdef USE_MPI
+    const Dtype mean_score =
+      test_score[i] / (param_.test_iter(test_net_id) * caffe::mpi::comm_size());
+#else /* !USE_MPI */
     const Dtype mean_score = test_score[i] / param_.test_iter(test_net_id);
+#endif /* USE_MPI */
 #endif /* USE_MLSL */
     if (loss_weight) {
       loss_msg_stream << " (* " << loss_weight
