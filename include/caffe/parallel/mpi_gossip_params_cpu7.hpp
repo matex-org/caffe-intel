@@ -31,9 +31,9 @@ class MPIGossipParamsCPU7 : public CPUParams<Dtype>, public Solver<Dtype>::Callb
  protected:
 
   void on_start();
-  void after_forward();
-  void on_gradients_ready();
+  void on_forward(int param_id);
   void on_gradients_ready(int param_id);
+  void on_gradients_ready();
   int on_apply(int param_id);
   void on_update();
 

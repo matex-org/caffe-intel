@@ -1049,6 +1049,14 @@ Dtype Net<Dtype>::ForwardFromTo(int start, int end) {
 
     loss += layer_loss;
     if (debug_info_) { ForwardDebugInfo(i); }
+    if (solver_) {
+      for (int j = 0; j < layers_[i]->blobs().size(); ++j) {
+        int param_id = layer_index_params_[make_pair(i, j)];
+        for (int k = 0; k < solver_->callbacks().size(); ++k) {
+          solver_->callbacks()[k]->on_forward(param_id);
+        }
+      }
+    }
   }
   return loss;
 }

@@ -120,6 +120,7 @@ class Solver {
   class Callback {
    public:
     virtual void on_start() = 0;
+    virtual void on_forward(int param_id) {}
     virtual void on_gradients_ready(int param_id) {}
     virtual void on_gradients_ready() = 0;
 
