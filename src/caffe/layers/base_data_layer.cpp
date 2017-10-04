@@ -124,7 +124,7 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
       //Create a new cache, set size, a dirty structure
       caches_[i-1] = new MemoryCache<Dtype>;
       caches_[i-1]->size = param.data_param().cache(j).size();
-      caches_[i-1]->create( new Batch<Dtype>[caches_[i-1]->size], new bool[caches_[i-1]->size], thread_safe );
+      caches_[i-1]->create( new Batch<Dtype>[caches_[i-1]->size], new bool[caches_[i-1]->size], thread_safe , i-1);
     }
   #ifdef KNL
     else if(param.data_param().cache(j).type() == CacheParameter::HBM)
@@ -135,7 +135,7 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
       caches_[i-1]->size = param.data_param().cache(j).size();
       ptr = hbw_malloc(sizeof(Batch<Dtype>)*caches_[i-1]->size);
       bool * ptr2 = (bool *)hbw_malloc(sizeof(bool)*caches_[i-1]->size);
-      caches_[i-1]->create( new (ptr) Batch<Dtype>[caches_[i-1]->size], ptr2, thread_safe );
+      caches_[i-1]->create( new (ptr) Batch<Dtype>[caches_[i-1]->size], ptr2, thread_safe , i-1);
     }
     else if(param.data_param().cache(j).type() == CacheParameter::DISK)
     {
@@ -146,14 +146,14 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
       //Read/write buffer
       ptr = hbw_malloc(sizeof(Batch<Dtype>)*2);
       bool * ptr2 = (bool *)hbw_malloc(sizeof(bool)*caches_[i-1]->size);
-      caches_[i-1]->create( new (ptr) Batch<Dtype>[2], ptr2, thread_safe );
+      caches_[i-1]->create( new (ptr) Batch<Dtype>[2], ptr2, thread_safe, i-1 );
     }
   #else
     else if(param.data_param().cache(j).type() == CacheParameter::DISK)
     {
       caches_[i-1] = new DiskCache<Dtype>;
       caches_[i-1]->size = param.data_param().cache(j).size();
-      caches_[i-1]->create( new Batch<Dtype>[2], new bool[caches_[i-1]->size], thread_safe );
+      caches_[i-1]->create( new Batch<Dtype>[2], new bool[caches_[i-1]->size], thread_safe, i-1 );
     }
   #endif
     else
@@ -187,7 +187,6 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
   {
     if(j==0)
       caches_[j]->prev = NULL;
-    else
       caches_[j]->prev = caches_[j-1];
   }
 

@@ -5,6 +5,7 @@
 #include <iostream>
 #include <fstream>
 #include <boost/atomic.hpp>
+#include <mutex>
 
 #include "caffe/blob.hpp"
 #include "caffe/data_transformer.hpp"
@@ -61,6 +62,8 @@ class Cache
   int last_i; //Stores the i for refill/fill/shuffle loops between function calls
   int slot;
   bool ignoreAccuracy;
+  std::mutex mtx_;
+  int cache_level_;
   void rate_replace_policy(int next_cache); //Generic prefetch thread policy that replaces cache at the eviction rate
   void local_rate_replace_policy(int next_cache); //Same as above but inside of forward cpu
   void (Cache<Dtype>::*refill_policy)(int); //Function pointer to thread replacement policy
@@ -68,7 +71,7 @@ class Cache
   BasePrefetchingDataLayer<Dtype> * data_layer;
 
   //Inits Cache: ptr is the batch buffer memory, pt2 is the dirty bit memory, thread_safe tells if cache is on prefetch
-  virtual void create( void * ptr, bool * ptr2, bool thread_safe ) { };
+  virtual void create( void * ptr, bool * ptr2, bool thread_safe, int cache_level ) { };
   virtual bool empty() { return false; };
   //Pops a batch from the cache -> includes ptr to dirty structure
   virtual PopBatch<Dtype> pop() { PopBatch<Dtype> nothing; return nothing; };
@@ -95,7 +98,7 @@ class MemoryCache : public Cache <Dtype>
   //Swaps image in batch1 at batchPos1 with image in batch2 at batchPos2
   void shuffle_cache(Batch<Dtype>* batch1, int batchPos1, Batch<Dtype>*  batch2, int batchPos2);
 
-  virtual void create( void * ptr, bool * ptr2,bool thread_safe );
+  virtual void create( void * ptr, bool * ptr2,bool thread_safe , int cache_level);
   virtual bool empty();
   virtual PopBatch<Dtype> pop();
   // virtual PopBatch<Dtype>* pop();
@@ -112,14 +115,14 @@ class DiskCache : public Cache <Dtype>
   public:
 
   //File stream
-  bool open;
+  bool open, r_open;
   fstream cache;
   fstream cache_read;
   Batch<Dtype> * cache_buffer;
   Batch<Dtype> * cache_read_buffer;
   unsigned int current_offset;
   void shuffle_cache(int batch1, int batchPos1, int  batch2, int batchPos2, int image_count, int data_count, int label_count);
-  virtual void create( void * ptr, bool * ptr2, bool thread_safe);
+  virtual void create( void * ptr, bool * ptr2, bool thread_safe, int cache_level);
   virtual bool empty();
   virtual PopBatch<Dtype> pop();
   // virtual PopBatch<Dtype>* pop();
