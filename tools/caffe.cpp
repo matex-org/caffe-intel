@@ -125,7 +125,7 @@ DEFINE_bool(fast_compare, false,
 DEFINE_int32(fast_compare_max, 50,
     "Optional; Max errors for fast_compare");
 DEFINE_double(buffer_filler, std::nanf(""), "Buffer filler for compare tool");
-DEFINE_string(mpi_thread_mode, "",
+DEFINE_string(mpi_thread_mode, "MPI_THREAD_SINGLE",
     "Optional; MPI thread mode, e.g., MPI_THREAD_SINGLE"); 
 
 // A simple registry for caffe commands.
