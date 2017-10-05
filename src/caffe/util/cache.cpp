@@ -475,6 +475,9 @@ PopBatch<Dtype> DiskCache<Dtype>::pop() {
   Dtype * label = cache_read_buffer->label_.mutable_cpu_data();
   // if(Cache<Dtype>::data_layer->output_labels_)
   // LOG(INFO) << "Here=======2" << std::flush;
+
+  std::lock_guard<std::mutex> lck (this->mtx_);
+  
   int image_count;
   int datum_size;
   char * bytes;
@@ -559,6 +562,7 @@ void DiskCache<Dtype>::fill(bool in_thread)
     Cache<Dtype>::last_i=j;
     if(Cache<Dtype>::dirty[j] == true)
     {
+      std::lock_guard<std::mutex> lck (this->mtx_);
       //LOG(INFO) << "Disk fill";
       Cache<Dtype>::data_layer->load_batch(cache_buffer, in_thread);
       int image_count = cache_buffer->data_.shape(0);
@@ -574,7 +578,6 @@ void DiskCache<Dtype>::fill(bool in_thread)
         cache.seekg (j*(2*sizeof(int)+image_count*(datum_size+sizeof(Dtype))), ios::beg);
       // else
       //   cache.seekg (j*(2*sizeof(int)+image_count*(datum_size)), ios::beg);
-      // {
       // std::lock_guard<std::mutex> lck (Cache<Dtype>::mtx_);
       // cache.write( (char *)&image_count, sizeof(int));
       cache.write(reinterpret_cast<char*>(&image_count), sizeof(int));
@@ -589,7 +592,6 @@ void DiskCache<Dtype>::fill(bool in_thread)
           bytes = (char*) (label+i);
           cache.write( bytes, sizeof(Dtype));
         // }
-      // }
       }
       cache.flush();
       Cache<Dtype>::used.fetch_sub(1, boost::memory_order_relaxed);

@@ -62,7 +62,7 @@ class Cache
   int last_i; //Stores the i for refill/fill/shuffle loops between function calls
   int slot;
   bool ignoreAccuracy;
-  std::mutex mtx_;
+  // std::mutex mtx_;
   int cache_level_;
   void rate_replace_policy(int next_cache); //Generic prefetch thread policy that replaces cache at the eviction rate
   void local_rate_replace_policy(int next_cache); //Same as above but inside of forward cpu
@@ -115,6 +115,7 @@ class DiskCache : public Cache <Dtype>
   public:
 
   //File stream
+  std::mutex mtx_;
   bool open, r_open;
   fstream cache;
   fstream cache_read;
