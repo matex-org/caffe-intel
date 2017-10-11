@@ -87,9 +87,8 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
   char *garbage1 = NULL, *garbage2 = NULL;
   prefetch_count =
     (env_prefetch_count != NULL) ? strtol(env_prefetch_count,&garbage1,0):PREFETCH_COUNT;
- reuse_count = (env_reuse_count != NULL) ? strtol (env_reuse_count,&garbage2,0):0;
   LOG(INFO) << "Prefetch Count: " << prefetch_count;
- 
+  reuse_count = (env_reuse_count != NULL) ? strtol (env_reuse_count,&garbage2,0):0;
   LOG(INFO) << "Reuse Count: " << reuse_count;
 
   for(std::size_t i = 0; i < prefetch_count; ++i) {
@@ -188,7 +187,6 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
   {
     if(j==0)
       caches_[j]->prev = NULL;
-    else
       caches_[j]->prev = caches_[j-1];
   }
 
