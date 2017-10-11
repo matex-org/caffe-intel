@@ -187,6 +187,7 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
   {
     if(j==0)
       caches_[j]->prev = NULL;
+    else
       caches_[j]->prev = caches_[j-1];
   }
 
