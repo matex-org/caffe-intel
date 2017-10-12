@@ -599,6 +599,8 @@ void DiskCache<Dtype>::fill(bool in_thread)
       Cache<Dtype>::last_i++;
       cache_buffer->count = this->reuse_count;
     }
+    else
+      break;
   }
   if(Cache<Dtype>::last_i == Cache<Dtype>::size)
   {
@@ -689,6 +691,8 @@ void DiskCache<Dtype>::refill(Cache<Dtype> * next_cache)
       // cache[j].dirty = false;
       Cache<Dtype>::last_i++;
     }
+    else
+      break;
   }
   if(Cache<Dtype>::last_i == Cache<Dtype>::size)
   {
