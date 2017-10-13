@@ -302,13 +302,9 @@ void MemoryCache<Dtype>::refill(Cache<Dtype> * next_cache)
       batch = next_cache->pop(); //->cache_full_.pop("Data layer cache queue empty");
       // pbatch = next_cache->pop(); //->cache_full_.pop("Data layer cache queue empty");
       cache[j].data_.CopyFrom( batch.batch->data_ );
-      // cache[j].data_.CopyFrom( pbatch->batch->data_ );
       cache[j].label_.CopyFrom( batch.batch->label_ );
-      // cache[j].label_.CopyFrom( pbatch->batch->label_ );
       *batch.dirty = true;
-      // *pbatch->dirty = true;
       batch.batch->dirty = true;
-      // pbatch->batch->dirty = true;
       Cache<Dtype>::used.fetch_sub(1, boost::memory_order_relaxed);
       //LOG(INFO)  << "Refill used "  << Cache<Dtype>::used;
       Cache<Dtype>::dirty[j] = false;
@@ -430,7 +426,6 @@ void DiskCache<Dtype>::create( void * ptr, bool * ptr2, bool thread_safe, int ca
 template <typename Dtype>
 bool DiskCache<Dtype>::empty()
 {
-
   //return current_offset == Cache<Dtype>::size;
   return Cache<Dtype>::used == Cache<Dtype>::size;
 }
@@ -438,7 +433,6 @@ template <typename Dtype>
 PopBatch<Dtype> DiskCache<Dtype>::pop() {
 // PopBatch<Dtype>* DiskCache<Dtype>::pop() {
   //Cache<Dtype>::lock();
-  // LOG(INFO) << "Here=======1" << std::flush; 
   Cache<Dtype>::used.fetch_add(1, boost::memory_order_relaxed);
 
   int my_slot = Cache<Dtype>::slot++;
@@ -448,7 +442,6 @@ PopBatch<Dtype> DiskCache<Dtype>::pop() {
     cache_read.seekg (0, ios::beg);
     Cache<Dtype>::slot = 0;
   }
-  // LOG(INFO) << "Here=======1a" << std::flush; 
 
   while(Cache<Dtype>::dirty[my_slot])
   {
@@ -456,25 +449,21 @@ PopBatch<Dtype> DiskCache<Dtype>::pop() {
     {
       if(Cache<Dtype>::prefetch)
       {
-  	// LOG(INFO) << "Here=======1b1" << std::flush; 
         (this->prev->*(this->prev->refill_policy))(1);
         (this->*(Cache<Dtype>::refill_policy))(1);
       }
       else
       {
-  	// LOG(INFO) << "Here=======1b2" << std::flush; 
         (this->prev->*(this->prev->local_refill_policy))(1);
         (this->*(Cache<Dtype>::refill_policy))(1);
       }
     }
     DLOG(INFO) << "Here.......slot dirty: " << Cache<Dtype>::dirty[my_slot]; 
   }
-  // LOG(INFO) << "Here=======1c" << std::flush; 
 
   Dtype * data = cache_read_buffer->data_.mutable_cpu_data();
   Dtype * label = cache_read_buffer->label_.mutable_cpu_data();
   // if(Cache<Dtype>::data_layer->output_labels_)
-  // LOG(INFO) << "Here=======2" << std::flush;
 
   std::lock_guard<std::mutex> lck (this->mtx_);
   
@@ -492,8 +481,6 @@ PopBatch<Dtype> DiskCache<Dtype>::pop() {
   cache_read.write( reinterpret_cast<char*>(&image_count), sizeof(int));
   cache_read.write( reinterpret_cast<char*>(&datum_size), sizeof(int));
   cache_read.seekg(my_slot * file_buffer_size, ios::beg);
-  // {
-  // std::lock_guard<std::mutex> lck (Cache<Dtype>::mtx_);
   // cache_read.read( (char *)&image_count, sizeof(int));
   cache_read.read( reinterpret_cast<char*>(&image_count), sizeof(int));
   // cache_read.read( (char *)&datum_size, sizeof(int));
@@ -514,23 +501,16 @@ PopBatch<Dtype> DiskCache<Dtype>::pop() {
     	cache_read.read( bytes, sizeof(Dtype));
     // }
   }
-  // }
-  // LOG(INFO) << "Here=======3" << std::flush;
   //current_offset++;
   //Cache<Dtype>::used++;
   // cache_read.close();
   // r_open = false;
 
   PopBatch<Dtype> batch;
-  // PopBatch<Dtype>* pbatch;
   batch.batch = cache_read_buffer;
-  // pbatch->batch = cache_read_buffer;
   batch.dirty = &Cache<Dtype>::dirty[my_slot];
-  // pbatch->dirty = &Cache<Dtype>::dirty[my_slot];
-
   //Cache<Dtype>::unlock();
   return batch;
-  // return pbatch;
 }
 template <typename Dtype>
 void DiskCache<Dtype>::fill(bool in_thread)
@@ -652,22 +632,15 @@ void DiskCache<Dtype>::refill(Cache<Dtype> * next_cache)
     // if(cache[j].dirty == true)
     {
       batch = next_cache->pop(); //->cache_full_.pop("Data layer cache queue empty");
-      // pbatch = next_cache->pop(); //->cache_full_.pop("Data layer cache queue empty");
       data = batch.batch->data_.mutable_cpu_data();
-      // data = pbatch->batch->data_.mutable_cpu_data();
       label = batch.batch->label_.mutable_cpu_data();
-      // label = pbatch->batch->label_.mutable_cpu_data();
       //cache_buffer->data_.CopyFrom( batch->data_ );
       //cache_buffer->label_.CopyFrom( batch->label_ );
 
       int image_count = batch.batch->data_.shape(0);
-      // int image_count = pbatch->batch->data_.shape(0);
       int datum_size = batch.batch->data_.shape(1);
-      // int datum_size = pbatch->batch->data_.shape(1);
       datum_size *= batch.batch->data_.shape(2);
-      // datum_size *= pbatch->batch->data_.shape(2);
       datum_size *= batch.batch->data_.shape(3);
-      // datum_size *= pbatch->batch->data_.shape(3);
       datum_size *= sizeof(Dtype);
 
       cache.write( (char *)&image_count, sizeof(int));
@@ -675,16 +648,13 @@ void DiskCache<Dtype>::refill(Cache<Dtype> * next_cache)
       for (int i = 0; i < image_count; ++i)
       {
         int offset = batch.batch->data_.offset(i);
-        // int offset = pbatch->batch->data_.offset(i);
         bytes = (char*) (data+offset);
         cache.write( bytes, datum_size);
         bytes = (char*) (label+i);
         cache.write( bytes, sizeof(Dtype));
       }
       *batch.dirty = true;
-      // *pbatch->dirty = true;
       batch.batch->dirty = true;
-      // pbatch->batch->dirty = true;
       Cache<Dtype>::used.fetch_sub(1, boost::memory_order_relaxed);
       Cache<Dtype>::dirty[j] = false;
 

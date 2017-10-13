@@ -231,10 +231,8 @@ void BasePrefetchingDataLayer<Dtype>::LayerSetUp(
 #endif
   // for (int i = 0; i < PREFETCH_COUNT; ++i) {
   for (int i = 0; i < this->prefetch_count; ++i) {
-    // prefetch_[i].data_.mutable_cpu_data();
     prefetch_[i]->data_.mutable_cpu_data();
     if (this->output_labels_) {
-      // prefetch_[i].label_.mutable_cpu_data();
       prefetch_[i]->label_.mutable_cpu_data();
     }
   }
@@ -247,10 +245,8 @@ void BasePrefetchingDataLayer<Dtype>::LayerSetUp(
   if (Caffe::mode() == Caffe::GPU) {
     // for (int i = 0; i < PREFETCH_COUNT; ++i) {
     for (int i = 0; i < this->prefetch_count; ++i) {
-      // prefetch_[i].data_.mutable_gpu_data();
       prefetch_[i]->data_.mutable_gpu_data();
       if (this->output_labels_) {
-        // prefetch_[i].label_.mutable_gpu_data();
         prefetch_[i]->label_.mutable_gpu_data();
       }
     }
@@ -272,9 +268,6 @@ void BasePrefetchingDataLayer<Dtype>::LayerSetUp(
       LOG(INFO) << "MEMCACHE size: " << memcache->size;
       for (int i = 0; i < memcache->size ; ++i) {
         PopBatch<Dtype> pbatch = memcache->pop(); //new PopBatch<Dtype>();
-        // memcache->cache[i].count = this->reuse_count;
-        // prefetch_free_.push(&memcache->cache[i]);
-        // pop_prefetch_free_.push
         pop_prefetch_free_.push(pbatch);
       }
      }
@@ -309,11 +302,14 @@ void BasePrefetchingDataLayer<Dtype>::InternalThreadEntry() {
       {
         //If we handle the refilling apply the member pointer to the current
         //Cache class
-        if(caches_[i]->prefetch)
+        if(caches_[i]->prefetch) {
+          DLOG_EVERY_N(INFO,10) << "Prefetch for caches";
+          DLOG_EVERY_N(INFO,10) << "Caches[i] prefetch:" << caches_[i]->prefetch; 
           (caches_[i]->*(caches_[i]->refill_policy))(1);
+	}
       }
       DLOG(INFO) << "Prefetch_free_queue size before pop:" << prefetch_free_.size();
-      // Batch<Dtype>* batch = prefetch_free_.pop("DEEPMEMCACHE DataLayer(CH) Free Queue Empty");
+      DLOG_EVERY_N(INFO,10) << "Prefetch for blocking queues";
       PopBatch<Dtype> pbatch = pop_prefetch_free_.pop("DEEPMEMCACHE DataLayer(Pop CH) Free Queue Empty");
       // prefetch_full_.push(batch);
       pop_prefetch_full_.push(pbatch);
@@ -388,12 +384,10 @@ void BasePrefetchingDataLayer<Dtype>::Forward_cpu(
   //   // pop_batch = caches_[0]->pop();
   //   // batch = pop_batch.batch;
   //   batch = prefetch_full_.pop("DEEPMEMCACHE DataLayer Full Queue Empty(cache)");
-    // LOG(INFO) << "Here----------1";
     pbatch = pop_prefetch_full_.pop("DEEPMEMCACHE DataLayer Full Queue Empty(pop cache)");
     // DLOG(INFO) << "PBATCH _ dirty bit: " << *pbatch->dirty;
     // batch = pbatch->batch;
     batch = pbatch.batch;
-    // LOG(INFO) << "Here----------1a";
   }
   else {//Use the original unmodified code to get a batch
   //   //int accuracySize = historical_accuracy.size();
@@ -405,7 +399,6 @@ void BasePrefetchingDataLayer<Dtype>::Forward_cpu(
   //   //   DLOG(INFO) << "FCPU_GetBatch called!!!";
   //   //   this->GetBatch();
   //   // }
-    //LOG(INFO) << "Here----------2";
     batch = prefetch_full_.pop("DEEPMEMCACHE DataLayer Full Queue Empty(cache)");
   }
 

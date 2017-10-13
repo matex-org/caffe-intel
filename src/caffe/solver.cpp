@@ -283,11 +283,13 @@ void Solver<Dtype>::Step(int iters) {
   const int start_iter = iter_;
   const int stop_iter = iter_ + iters;
   int average_loss = this->param_.average_loss();
+  double total_time = 0;
+  double last_total_time = 0;
   losses_.clear();
   smoothed_loss_ = 0;
 #ifdef USE_DEEPMEM
-  iteration_timer_.Start();
-  float lapse_total = 0;
+  // iteration_timer_.Start();
+  // float lapse_total = 0;
 #endif
 
   while (iter_ < stop_iter) {
@@ -319,20 +321,19 @@ void Solver<Dtype>::Step(int iters) {
     UpdateSmoothedLoss(loss, start_iter, average_loss);
     if (display) {
 #ifdef USE_DEEPMEM
-      float lapse = iteration_timer_.Seconds();
-      float per_s = (iter_ - iterations_last_) / (lapse ? lapse : 1);
-      lapse_total += lapse;
-      float total_per_s = iter_ / lapse_total;
+      float per_s = ((iter_ - iterations_last_) * 1000) / ((total_time - last_total_time) 
+			? (total_time - last_total_time) : 1);
+      float total_per_s = (iter_ * 1000)/ total_time;
+      iterations_last_ = iter_;
 #endif
 #ifdef USE_MPI
       LOG_IF(INFO, Caffe::root_solver())
   #ifdef USE_DEEPMEM
 	  // << caffe::internode::mpi_get_current_proc_rank_as_string()
           << " Iteration " << iter_
-          << " (" << per_s << " iter/s, " << lapse << "s/"
+          << " (" << per_s << " iter/s, " << (total_time - last_total_time)/1000  << "s/"
           << param_.display() <<" iter), loss = " << smoothed_loss_
-          << ", " << total_per_s << " iter/s avg"
-          << ", " << lapse_total << " lapse_time_till_now(s)";
+          << ", " << total_per_s << " iter/s avg" ;
   #else
           << caffe::internode::mpi_get_current_proc_rank_as_string()
           << " Iteration " << iter_ << ", loss = " << smoothed_loss_;
@@ -340,17 +341,13 @@ void Solver<Dtype>::Step(int iters) {
 #else
       LOG_IF(INFO, Caffe::root_solver()) << "Iteration " << iter_
   #ifdef USE_DEEPMEM
-          << " (" << per_s << " iter/s, " << lapse << "s/"
+          << " (" << per_s << " iter/s, " << (total-time - last_total_time)/1000 << "s/"
           << param_.display() <<" iter), loss = " << smoothed_loss_;
   #else
           << ", loss = " << smoothed_loss_;
   #endif
 #endif
 
-#ifdef USE_DEEPMEM
-      iteration_timer_.Start();
-      iterations_last_ = iter_;
-#endif
       const vector<Blob<Dtype>*>& result = net_->output_blobs();
       int score_index = 0;
       for (int j = 0; j < result.size(); ++j) {
@@ -380,6 +377,7 @@ void Solver<Dtype>::Step(int iters) {
       PrintTimers(false);
       ResetTimers();
 #endif
+      last_total_time = total_time;
     }
 
     iter_timer.Start();
@@ -403,6 +401,7 @@ void Solver<Dtype>::Step(int iters) {
 
     // Increment the internal iter_ counter -- its value should always indicate
     // the number of times the weights have been updated.
+    total_time+= iter_time;
     ++iter_;
 
     SolverAction::Enum request = GetRequestedAction();
@@ -420,6 +419,7 @@ void Solver<Dtype>::Step(int iters) {
       break;
     }
   }
+  LOG(INFO) << "Final Average Iter/s " << (iters * 1000 )/total_time << ", for iterations: " << iters;
 
 #ifdef CAFFE_PER_LAYER_TIMINGS
   ResetTimers();
