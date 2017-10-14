@@ -1,19 +1,19 @@
-# 
+#
 # All modification made by Intel Corporation: © 2016 Intel Corporation
-# 
+#
 # All contributions by the University of California:
 # Copyright (c) 2014, 2015, The Regents of the University of California (Regents)
 # All rights reserved.
-# 
+#
 # All other contributions:
 # Copyright (c) 2014, 2015, the respective contributors
 # All rights reserved.
 # For the list of contributors go to https://github.com/BVLC/caffe/blob/master/CONTRIBUTORS.md
-# 
-# 
+#
+#
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
-# 
+#
 #     * Redistributions of source code must retain the above copyright notice,
 #       this list of conditions and the following disclaimer.
 #     * Redistributions in binary form must reproduce the above copyright
@@ -22,7 +22,7 @@
 #     * Neither the name of Intel Corporation nor the names of its contributors
 #       may be used to endorse or promote products derived from this software
 #       without specific prior written permission.
-# 
+#
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 # AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 # IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -60,7 +60,6 @@ else
 	OTHER_BUILD_DIR := $(DEBUG_BUILD_DIR)
 endif
 
-
 ifeq ($(USE_MPI), 1)
 	COMMON_FLAGS += -DUSE_MPI=1
 endif
@@ -70,7 +69,7 @@ endif
 ifeq ($(USE_MLSL), 1)
 	RETURN_STRING=$(shell ./external/mlsl/prepare_mlsl.sh)
 	MLSL_ROOT=$(firstword $(RETURN_STRING))
-	MLSL_LDFLAGS=$(lastword $(RETURN_STRING))	
+	MLSL_LDFLAGS=$(lastword $(RETURN_STRING))
 	COMMON_FLAGS += -DUSE_MLSL=1
 	LIBRARIES += mlsl
 	INCLUDE_DIRS += $(MLSL_ROOT)/intel64/include
@@ -89,7 +88,6 @@ ifneq ($(FW_OVERLAP_OPT), 0)
 endif
 endif
 #################### MLSL ####################
-
 
 # All of the directories containing code.
 SRC_DIRS := $(shell find * -type d -exec bash -c "find {} -maxdepth 1 \
@@ -271,7 +269,7 @@ ifeq ($(USE_REMOTE_INDEX_SFTP), 1)
 	LIBRARIES += ssh
 endif
 ifeq ($(USE_OPENCV), 1)
-	LIBRARIES += opencv_core opencv_highgui opencv_imgproc 
+	LIBRARIES += opencv_core opencv_highgui opencv_imgproc
 
 	ifeq ($(OPENCV_VERSION), 3)
 		LIBRARIES += opencv_imgcodecs opencv_videoio
@@ -315,7 +313,6 @@ DOXYGEN_SOURCES := $(shell find \
 	-name "*.cpp" -or -name "*.hpp" -or -name "*.cu" -or -name "*.cuh" -or \
         -name "*.py" -or -name "*.m")
 DOXYGEN_SOURCES += $(DOXYGEN_CONFIG_FILE)
-
 
 ##############################
 # Configure build
@@ -393,7 +390,7 @@ else ifneq (,$(findstring g++,$(CXX)))
 		CXX_HARDENING_FLAGS += -fPIE -fstack-protector-strong
 	else
 		CXX_HARDENING_FLAGS += -fPIE -fstack-protector
-	endif	
+	endif
 endif
 
 # Linker flags
@@ -632,7 +629,7 @@ endif
 .DEFAULT_GOAL := all
 
 # Following section detects if compiler supports OpenMP and updated compilation/linking flags accordingly
-# if no openmp is supported in compiler then openmp compiler flags are not to be updated 
+# if no openmp is supported in compiler then openmp compiler flags are not to be updated
 # TODO: FIX for ICC?
 USE_OPENMP ?= 1
 ifeq ($(USE_OPENMP), 1)
@@ -703,7 +700,6 @@ $(LINT_OUTPUTS): $(LINT_OUTPUT_DIR)/%.lint.txt : % $(LINT_SCRIPT) | $(LINT_OUTPU
 		| grep -v "^Total errors found: 0" \
 		> $@ \
 		|| true
-
 
 test: $(TEST_ALL_BIN) $(TEST_ALL_DYNLINK_BIN) $(TEST_BINS)
 

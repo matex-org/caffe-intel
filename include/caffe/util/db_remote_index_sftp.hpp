@@ -10,7 +10,6 @@ Copyright (c) 2014, 2015, the respective contributors
 All rights reserved.
 For the list of contributors go to https://github.com/BVLC/caffe/blob/master/CONTRIBUTORS.md
 
-
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
 
@@ -45,6 +44,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <utility>
 #include <vector>
+#include <boost/thread/mutex.hpp>
+#include <boost/thread/locks.hpp>
 
 #include "caffe/util/db.hpp"
 #include "caffe/util/benchmark.hpp"
@@ -53,8 +54,8 @@ namespace caffe { namespace db {
 
 class RemoteIndexSFTPEnv
 {
-  public: 
-  
+  public:
+
   RemoteIndexSFTPEnv():
     total_timer(),
     timer()
@@ -73,6 +74,7 @@ class RemoteIndexSFTPEnv
 
   void get_next(string& key, string& value)
   {
+    boost::lock_guard<boost::mutex> lck(mtx_);
 
     if(current_index >= image_index.size())
     {
@@ -103,6 +105,7 @@ class RemoteIndexSFTPEnv
       //LOG(INFO) << "Inst. "  << (((double)total)/timer.Seconds())/(1024*1024) << "MB/s Speed ";
     }
     value = string(buffer, image_index[current_index]);
+    // LOG(INFO) << "String Value: " << value;
     //LOG(INFO) << total << "/" << image_index[current_index] << " "  << value.size() << " " << key_index[current_index];
     key = key_index[current_index++];//std::to_string(current_index++);
   }
@@ -129,7 +132,7 @@ class RemoteIndexSFTPEnv
         }
         else
           key = tmp;
-        LOG(INFO) << "KEY VAL: " << key;
+        DLOG(INFO) << "KEY VAL: " << key;
         found = true;
         pos+=i+1;
         break;
@@ -255,14 +258,14 @@ class RemoteIndexSFTPEnv
         ssh_get_error(db_ssh_session));
         exit(-1);
     }
-  
+
     if (verify_knownhost(db_ssh_session) < 0)
     {
         ssh_disconnect(db_ssh_session);
         ssh_free(db_ssh_session);
         exit(-1);
     }
-    
+
     rc = authenticate_pubkey(db_ssh_session);
     if (rc != SSH_AUTH_SUCCESS)
     {
@@ -281,7 +284,7 @@ class RemoteIndexSFTPEnv
         ssh_free(db_ssh_session);
         exit(-1);
     }
-    
+
     sftp_create_session(db_ssh_session, db_sftp_session);
   }
 
@@ -325,7 +328,7 @@ class RemoteIndexSFTPEnv
 	  break2 = false;
 
         pos = 0;
-        
+
         offset=0;
         while(1)
         {
@@ -344,7 +347,7 @@ class RemoteIndexSFTPEnv
               offset = res;
               break;
             }
-            
+
             key_index.push_back(key);
             last_char = ':';
           }
@@ -353,7 +356,7 @@ class RemoteIndexSFTPEnv
           //   offset=0;
           //   break;
           // }
-	  if(last_char == ':') 
+	  if(last_char == ':')
 	  {
             // res = helper_getline(index_buffer,int_string,',', pos, read_offset-pos);
 	    res = helper_getline(index_buffer,int_string,',', pos
@@ -407,17 +410,20 @@ class RemoteIndexSFTPEnv
     {
       current_index = 0;
     }
-    
+
   }*/
-  
+
   bool valid(){ return valid_; };
 
   void reset() { valid_=true; sftp_seek(index_file_, 0); sftp_seek(block_file_, 0); current_index =0;  }
 
+  protected:
+  boost::mutex mtx_;
+
   private:
   ssh_session db_ssh_session;
   sftp_session db_sftp_session;
-  
+
   // Master List of image sizes
   vector<uint64_t> image_index;
   vector<string> key_index;

@@ -10,7 +10,6 @@ Copyright (c) 2014, 2015, the respective contributors
 All rights reserved.
 For the list of contributors go to https://github.com/BVLC/caffe/blob/master/CONTRIBUTORS.md
 
-
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
 
@@ -49,8 +48,8 @@ namespace caffe { namespace db {
 
 class RemoteIndexEnv
 {
-  public: 
-  
+  public:
+
   RemoteIndexEnv()
   {
       buffer_size = 1024;
@@ -78,6 +77,7 @@ class RemoteIndexEnv
 
     block_stream_.read( buffer, image_index[current_index]);
     value = string(buffer, image_index[current_index]);
+    // LOG(INFO) << "String Value: " << value;
     key = key_index[current_index++];//std::to_string(current_index++);
   }
 
@@ -114,7 +114,7 @@ class RemoteIndexEnv
         index_stream_.get();
       }
       //f
-      
+
     }
     return 0;
   }
@@ -134,9 +134,9 @@ class RemoteIndexEnv
     {
       current_index = 0;
     }
-    
+
   }*/
-  
+
   bool valid(){ return valid_; };
 
   void reset() { valid_=true; index_stream_.seekg(0,index_stream_.beg); block_stream_.seekg(0,block_stream_.beg); current_index =0;  }
