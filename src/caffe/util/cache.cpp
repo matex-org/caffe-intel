@@ -55,7 +55,7 @@ void Cache<Dtype>::rate_replace_policy(int next_cache)
     //Refill higher levels-> not really required because we handle this issue
     //inside also during poping
     // DLOG(INFO) << "My cache level!: " << this->cache_level_;
-    if(next->prefetch && next->empty() ) { //empty cache 
+    if(next->prefetch && next->empty() ) { //empty cache
       DLOG(INFO) << "My Next Cache(Above me) Empty!!!!! Starting ReFill" << std::flush;
       (next->*(next->refill_policy))(next_cache+1);
     }
@@ -268,19 +268,20 @@ void MemoryCache<Dtype>::fill(bool in_thread)
   //Same logic as shuffle but it is reading data from the data_layer
   //in_thread indicates it is in a thread other than main
   //this is passed to load_batch which avoids calling openmp if it is true
-  for (int j = Cache<Dtype>::last_i; j < Cache<Dtype>::size; ++j) {
-    Cache<Dtype>::last_i=j;
+  // for (int j = Cache<Dtype>::last_i; j < Cache<Dtype>::size; ++j) {
+  for (int j = 0; j < Cache<Dtype>::size; ++j) {
+    // Cache<Dtype>::last_i=j;
     if(Cache<Dtype>::dirty[j] == true)
     {
       Cache<Dtype>::data_layer->load_batch(&cache[j], in_thread);
       Cache<Dtype>::used.fetch_sub(1, boost::memory_order_relaxed);
       Cache<Dtype>::dirty[j] = false;
-      Cache<Dtype>::last_i++;
+      // Cache<Dtype>::last_i++;
       cache[j].count = this->reuse_count;
       //LOG(INFO)  << "Fill used "  << Cache<Dtype>::used;
     }
-    else
-      break;
+    // else
+    //   break;
   }
   if(this->last_i == Cache<Dtype>::size)
   {
@@ -293,9 +294,10 @@ void MemoryCache<Dtype>::refill(Cache<Dtype> * next_cache)
 {
   PopBatch<Dtype> batch;
   // PopBatch<Dtype>* pbatch;
-  for (int j = Cache<Dtype>::last_i; j < Cache<Dtype>::size; ++j) {
+  // for (int j = Cache<Dtype>::last_i; j < Cache<Dtype>::size; ++j) {
+  for (int j = 0; j < Cache<Dtype>::size; ++j) {
     //LOG(INFO) << position;
-    Cache<Dtype>::last_i=j;
+    // Cache<Dtype>::last_i=j;
     if(Cache<Dtype>::dirty[j] == true)
     // if(cache[j].dirty == true)
     {
@@ -309,11 +311,11 @@ void MemoryCache<Dtype>::refill(Cache<Dtype> * next_cache)
       //LOG(INFO)  << "Refill used "  << Cache<Dtype>::used;
       Cache<Dtype>::dirty[j] = false;
       cache[j].dirty = false;
-      Cache<Dtype>::last_i++;
+      // Cache<Dtype>::last_i++;
       cache[j].count = this->reuse_count;
     }
-    else
-      break;
+    // else
+    //   break;
   }
   if(Cache<Dtype>::last_i == Cache<Dtype>::size)
   {
@@ -458,7 +460,7 @@ PopBatch<Dtype> DiskCache<Dtype>::pop() {
         (this->*(Cache<Dtype>::refill_policy))(1);
       }
     }
-    DLOG(INFO) << "Here.......slot dirty: " << Cache<Dtype>::dirty[my_slot]; 
+    DLOG(INFO) << "Here.......slot dirty: " << Cache<Dtype>::dirty[my_slot];
   }
 
   Dtype * data = cache_read_buffer->data_.mutable_cpu_data();
@@ -466,14 +468,14 @@ PopBatch<Dtype> DiskCache<Dtype>::pop() {
   // if(Cache<Dtype>::data_layer->output_labels_)
 
   std::lock_guard<std::mutex> lck (this->mtx_);
-  
+
   int image_count;
   int datum_size;
   char * bytes;
   char byte;
   int file_buffer_size = 0;
   cache_read.seekg(0, ios::beg);
-  
+
   cache_read.read( reinterpret_cast<char*>(&image_count), sizeof(int));
   cache_read.read( reinterpret_cast<char*>(&datum_size), sizeof(int));
   file_buffer_size = 2*sizeof(int)+image_count*(datum_size+sizeof(Dtype));
@@ -485,10 +487,10 @@ PopBatch<Dtype> DiskCache<Dtype>::pop() {
   cache_read.read( reinterpret_cast<char*>(&image_count), sizeof(int));
   // cache_read.read( (char *)&datum_size, sizeof(int));
   cache_read.read( reinterpret_cast<char*>(&datum_size), sizeof(int));
-  DLOG(INFO) << "========================!"; 
-  DLOG(INFO) << "DISK BATCH IMAGE Count:" << image_count; 
-  DLOG(INFO) << "DISK BATCH DATUM SIZE:" << datum_size; 
-  DLOG(INFO) << "DISK BATCH filebuf SIZE:" << file_buffer_size; 
+  DLOG(INFO) << "========================!";
+  DLOG(INFO) << "DISK BATCH IMAGE Count:" << image_count;
+  DLOG(INFO) << "DISK BATCH DATUM SIZE:" << datum_size;
+  DLOG(INFO) << "DISK BATCH filebuf SIZE:" << file_buffer_size;
   for (int i = 0; i < image_count; ++i)
   {
     int offset = cache_read_buffer->data_.offset(i);
@@ -536,10 +538,11 @@ void DiskCache<Dtype>::fill(bool in_thread)
   // if(Cache<Dtype>::data_layer->output_labels_)
     label = cache_buffer->label_.mutable_cpu_data();
   char * bytes;
-  // LOG(INFO) << "========================!"; 
-  // LOG(INFO) << "DISK CACHE: Slot size:" << Cache<Dtype>::size; 
-  for (int j = Cache<Dtype>::last_i; j < Cache<Dtype>::size; ++j) {
-    Cache<Dtype>::last_i=j;
+  // LOG(INFO) << "========================!";
+  // LOG(INFO) << "DISK CACHE: Slot size:" << Cache<Dtype>::size;
+  // for (int j = Cache<Dtype>::last_i; j < Cache<Dtype>::size; ++j) {
+  for (int j = 0; j < Cache<Dtype>::size; ++j) {
+    // Cache<Dtype>::last_i=j;
     if(Cache<Dtype>::dirty[j] == true)
     {
       std::lock_guard<std::mutex> lck (this->mtx_);
@@ -550,9 +553,9 @@ void DiskCache<Dtype>::fill(bool in_thread)
       datum_size *= cache_buffer->data_.shape(2);
       datum_size *= cache_buffer->data_.shape(3);
       datum_size *= sizeof(Dtype);
-      DLOG(INFO) << "DISK CACHE FILL:Image count: " << image_count; 
-      DLOG(INFO) << "DISK CACHE FILL:Datum size: " << datum_size; 
-      DLOG(INFO) << "DISK CACHE FILL:filebuf size: " << 2*sizeof(int)+image_count*(datum_size+sizeof(Dtype)); 
+      DLOG(INFO) << "DISK CACHE FILL:Image count: " << image_count;
+      DLOG(INFO) << "DISK CACHE FILL:Datum size: " << datum_size;
+      DLOG(INFO) << "DISK CACHE FILL:filebuf size: " << 2*sizeof(int)+image_count*(datum_size+sizeof(Dtype));
 
       // if(Cache<Dtype>::data_layer->output_labels_)
         cache.seekg (j*(2*sizeof(int)+image_count*(datum_size+sizeof(Dtype))), ios::beg);
@@ -576,11 +579,11 @@ void DiskCache<Dtype>::fill(bool in_thread)
       cache.flush();
       Cache<Dtype>::used.fetch_sub(1, boost::memory_order_relaxed);
       Cache<Dtype>::dirty[j] = false;
-      Cache<Dtype>::last_i++;
+      // Cache<Dtype>::last_i++;
       cache_buffer->count = this->reuse_count;
     }
-    else
-      break;
+    // else
+    //   break;
   }
   if(Cache<Dtype>::last_i == Cache<Dtype>::size)
   {
@@ -626,8 +629,9 @@ void DiskCache<Dtype>::refill(Cache<Dtype> * next_cache)
   current_offset=0;
   //cache.seekg (0, ios::beg);
   char * bytes;
-  for (int j = Cache<Dtype>::last_i; j < Cache<Dtype>::size; ++j) {
-    Cache<Dtype>::last_i=j;
+  // for (int j = Cache<Dtype>::last_i; j < Cache<Dtype>::size; ++j) {
+  for (int j = 0; j < Cache<Dtype>::size; ++j) {
+    // Cache<Dtype>::last_i=j;
     if(Cache<Dtype>::dirty[j] == true)
     // if(cache[j].dirty == true)
     {
@@ -659,10 +663,10 @@ void DiskCache<Dtype>::refill(Cache<Dtype> * next_cache)
       Cache<Dtype>::dirty[j] = false;
 
       // cache[j].dirty = false;
-      Cache<Dtype>::last_i++;
+      // Cache<Dtype>::last_i++;
     }
-    else
-      break;
+    // else
+    //   break;
   }
   if(Cache<Dtype>::last_i == Cache<Dtype>::size)
   {

@@ -10,7 +10,6 @@ Copyright (c) 2014, 2015, the respective contributors
 All rights reserved.
 For the list of contributors go to https://github.com/BVLC/caffe/blob/master/CONTRIBUTORS.md
 
-
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
 
@@ -195,16 +194,19 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
     typedef MemoryCache<Dtype> MemCacheType;
     MemCacheType *memcache;
 
-  //   if((memcache = dynamic_cast<MemCacheType *>(caches_[0]))) {
-  //     LOG(INFO) << "MEMCACHE size: " << memcache->size;
-  //     for (int i = 0; i < memcache->size ; ++i) {
-  //       PopBatch<Dtype>* pbatch = memcache->pop(); //new PopBatch<Dtype>();
-  //       // memcache->cache[i].count = this->reuse_count;
-  //       // prefetch_free_.push(&memcache->cache[i]);
-  //       // pop_prefetch_free_.push
-  //       pop_prefetch_free_.push(pbatch);
-  //     }
-  //    }
+    /*if((memcache = dynamic_cast<MemCacheType *>(caches_[0]))) {
+      LOG(INFO) << "MEMCACHE size: " << memcache->size;
+      for (int i = 0; i < memcache->size ; ++i) {
+        PopBatch<Dtype> pbatch; //= memcache->pop(); //new PopBatch<Dtype>();
+        // memcache->cache[i].count = this->reuse_count;
+        // prefetch_free_.push(&memcache->cache[i]);
+        // pop_prefetch_free_.push
+        pbatch.batch = new Batch<Dtype>();
+        pbatch.dirty = new bool();
+        *pbatch.dirty = true;
+        pop_prefetch_free_.push(pbatch);
+      }
+    }*/
   } else {
 #endif
 
@@ -296,6 +298,10 @@ void BasePrefetchingDataLayer<Dtype>::InternalThreadEntry() {
 #endif
 
 #ifdef USE_DEEPMEM
+    typedef MemoryCache<Dtype> MemCacheType;
+    MemCacheType *memcache;
+    if(cache_size_)
+      memcache = dynamic_cast<MemCacheType *>(caches_[0]);
  while (!must_stop()) {
     if(cache_size_) {
       for(int i=cache_size_-1; i>= 0; i--)
@@ -304,13 +310,14 @@ void BasePrefetchingDataLayer<Dtype>::InternalThreadEntry() {
         //Cache class
         if(caches_[i]->prefetch) {
           DLOG_EVERY_N(INFO,10) << "Prefetch for caches";
-          DLOG_EVERY_N(INFO,10) << "Caches[i] prefetch:" << caches_[i]->prefetch; 
+          DLOG_EVERY_N(INFO,10) << "Caches[i] prefetch:" << caches_[i]->prefetch;
           (caches_[i]->*(caches_[i]->refill_policy))(1);
-	}
+	    }
       }
       DLOG(INFO) << "Prefetch_free_queue size before pop:" << prefetch_free_.size();
       DLOG_EVERY_N(INFO,10) << "Prefetch for blocking queues";
       PopBatch<Dtype> pbatch = pop_prefetch_free_.pop("DEEPMEMCACHE DataLayer(Pop CH) Free Queue Empty");
+      // pbatch = memcache->pop();
       // prefetch_full_.push(batch);
       pop_prefetch_full_.push(pbatch);
     }
