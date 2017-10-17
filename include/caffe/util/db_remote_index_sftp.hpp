@@ -449,7 +449,7 @@ class RemoteIndexSFTPCursor : public Cursor {
     SeekToFirst();
   }
   virtual ~RemoteIndexSFTPCursor() {
-    env_->close();
+    // env_->close();
   }
   virtual void SeekToFirst() { env_->reset(); env_->get_next(key_, value_); }
   virtual void Next() { env_->get_next(key_, value_); }
