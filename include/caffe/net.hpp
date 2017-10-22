@@ -49,6 +49,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "caffe/layer.hpp"
 #include "caffe/proto/caffe.pb.h"
 
+#ifdef CAFFE_FT
+#include "caffe/mpi.hpp"
+#endif
+
 namespace caffe {
 
 /**
@@ -314,6 +318,9 @@ class Net {
   static bool StateMeetsRule(const NetState& state, const NetStateRule& rule,
       const string& layer_name);
 
+ #ifdef CAFFE_FT
+  void ReSetUpLayer(const std::string &layer_name);
+ #endif 
  protected:
   // Helpers for Init.
   /// @brief Append a new top blob to the net.
@@ -399,6 +406,13 @@ class Net {
   /// The root net that actually holds the shared layers in data parallelism
   const Net* const root_net_;
   DISABLE_COPY_AND_ASSIGN(Net);
+
+  #ifdef CAFFE_FT
+  #ifdef USE_MPI
+  int rank; 
+  int size;
+  #endif /*USE_MPI*/
+  #endif 
 };
 
 

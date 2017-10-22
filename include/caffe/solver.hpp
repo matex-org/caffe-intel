@@ -46,6 +46,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "caffe/util/benchmark.hpp"
 
+#ifdef CAFFE_FT
+#include <tuple>
+#endif 
+
 namespace caffe {
 
 /**
@@ -120,7 +124,12 @@ class Solver {
   class Callback {
    protected:
     virtual void on_start() = 0;
+#ifdef CAFFE_FT
+    virtual std::tuple<int, bool> on_gradients_ready() = 0;
+#else
+//#endif 
     virtual void on_gradients_ready() = 0;
+#endif
 
 #ifdef USE_MLSL
     virtual void on_before_test() {}
@@ -225,6 +234,10 @@ class Solver {
   ForwardBackwardFunc forward_backward_;
 
   DISABLE_COPY_AND_ASSIGN(Solver);
+
+  // #ifdef CAFFE_FT
+  int ft_rank, ft_size;
+  // #endif
 };
 
 /**

@@ -318,7 +318,12 @@ void P2PSync<Dtype>::on_start() {
 }
 
 template<typename Dtype>
+#ifdef CAFFE_FT
+std::tuple<int, bool> P2PSync<Dtype>::on_gradients_ready() {
+#else
 void P2PSync<Dtype>::on_gradients_ready() {
+#endif
+
 #ifndef CPU_ONLY
 #ifdef DEBUG
   int device;
@@ -372,6 +377,10 @@ void P2PSync<Dtype>::on_gradients_ready() {
     // for split batch, the root solver divides by number of solvers.
     caffe_gpu_scal(size_, Dtype(1.0 / Caffe::solver_count()), diff_);
   }
+  #ifdef CAFFE_FT
+  std::tuple<int,bool> dummy(0,false);
+  return dummy;
+  #endif
 #endif
 }
 

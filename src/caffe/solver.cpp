@@ -98,6 +98,17 @@ Solver<Dtype>::Solver(const string& param_file, const Solver* root_solver)
 
 template <typename Dtype>
 void Solver<Dtype>::Init(const SolverParameter& param) {
+  #ifdef USE_MPI
+  #ifdef CAFFE_FT
+  MPI_Comm temp_comm = caffe::mpi::get_working_comm();
+  ft_rank = caffe::mpi::comm_rank(temp_comm);
+  ft_size = caffe::mpi::comm_size(temp_comm);
+  #else
+  ft_rank = caffe::mpi::comm_rank(MPI_COMM_WORLD);
+  ft_size = caffe::mpi::comm_size(MPI_COMM_WORLD);
+  #endif
+  #endif
+
   CHECK(Caffe::root_solver() || root_solver_)
       << "root_solver_ needs to be set for all non-root solvers";
   param_ = param;
@@ -286,6 +297,11 @@ void Solver<Dtype>::Step(int iters) {
   losses_.clear();
   smoothed_loss_ = 0;
 
+#ifdef CAFFE_FT
+  MPI_Comm test_comm = caffe::mpi::get_working_comm();
+  int original_rank = caffe::mpi::comm_rank(test_comm);
+#endif
+
   while (iter_ < stop_iter) {
     if (param_.test_interval() && iter_ % param_.test_interval() == 0
         && (iter_ > 0 || param_.test_initialization())
@@ -297,6 +313,22 @@ void Solver<Dtype>::Step(int iters) {
       }
     }
 
+	#ifdef CAFFE_FT
+    MPI_Comm temp_comm = caffe::mpi::get_working_comm();
+    ft_rank = caffe::mpi::comm_rank(temp_comm);
+    ft_size = caffe::mpi::comm_size(temp_comm);
+    // Fault Injection
+    int victim = ft_size - 1;
+    // int victim = 1;
+
+    if((ft_rank == victim) && (iter_ == 300)) {
+    // if ((original_rank != 0) && (ft_rank == victim) && ((iter_ == 300) || (iter_ == 600))) {
+    // if ((ft_rank == victim) && (iter_ > 0) && ((iter_ % 2) == 0)) {
+      std::cout << "Victim Rank: " << victim << std::endl;
+      raise(SIGKILL);
+    }
+
+    #endif
     for (int i = 0; i < callbacks_.size(); ++i) {
       callbacks_[i]->on_start();
     }
@@ -350,7 +382,28 @@ void Solver<Dtype>::Step(int iters) {
     iter_timer.Start();
 
     for (int i = 0; i < callbacks_.size(); ++i) {
+#ifdef CAFFE_FT
+      std::tuple<int, bool> ret_val = callbacks_[i]->on_gradients_ready();
+      temp_time = iter_timer.MilliSeconds();
+
+      if(std::get<1>(ret_val)) {
+        iter_timer.Start();
+        // fault has occured
+        // MPI AllReduce other ranks as well..
+        // Global Faulted Variable... (to trigger read from every rank
+        net_->ReSetUpLayer("data");
+        temp_data_readtime =  iter_timer.MilliSeconds();
+
+        MPI_Comm temp_comm = caffe::mpi::get_working_comm();
+        ft_rank = caffe::mpi::comm_rank(temp_comm);
+        ft_size = caffe::mpi::comm_size(temp_comm);
+        DLOG(INFO) << "ReSetUpLayer Done:--------------rank:" << ft_rank << " ,size:" << ft_size;
+
+      }
+#else
       callbacks_[i]->on_gradients_ready();
+      temp_time = iter_timer.MilliSeconds();
+#endif
     }
     if (!param().disabled_update()) {
       PERFORMANCE_MEASUREMENT_BEGIN();
@@ -390,6 +443,11 @@ void Solver<Dtype>::Step(int iters) {
   ResetTimers();
   PrintTimers(true);
 #endif
+
+#ifdef CAFFE_FT
+caffe::mpi::completed(true);
+#endif
+
 }
 
 #ifdef CAFFE_PER_LAYER_TIMINGS
