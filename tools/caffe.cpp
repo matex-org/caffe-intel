@@ -10,7 +10,6 @@ Copyright (c) 2014, 2015, the respective contributors
 All rights reserved.
 For the list of contributors go to https://github.com/BVLC/caffe/blob/master/CONTRIBUTORS.md
 
-
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
 
@@ -48,6 +47,7 @@ namespace bp = boost::python;
 #include <string>
 #include <utility>
 #include <vector>
+#include <unistd.h>
 
 #include "boost/algorithm/string.hpp"
 #include "boost/make_shared.hpp"
@@ -126,7 +126,7 @@ DEFINE_int32(fast_compare_max, 50,
     "Optional; Max errors for fast_compare");
 DEFINE_double(buffer_filler, std::nanf(""), "Buffer filler for compare tool");
 DEFINE_string(mpi_thread_mode, "MPI_THREAD_SINGLE",
-    "Optional; MPI thread mode, e.g., MPI_THREAD_SINGLE"); 
+    "Optional; MPI thread mode, e.g., MPI_THREAD_SINGLE");
 
 // A simple registry for caffe commands.
 typedef int (*BrewFunction)();
@@ -313,6 +313,7 @@ int train() {
   shared_ptr<caffe::Solver<float> >
       solver(caffe::SolverRegistry<float>::CreateSolver(solver_param));
 
+  // solver->ReInit(solver_param);
   solver->SetActionFunction(signal_handler.GetActionFunction());
 
   if (FLAGS_snapshot.size()) {
@@ -325,16 +326,78 @@ int train() {
 #ifdef USE_MLSL
   if (caffe::mn::is_multinode()) {
     LOG(INFO) << "Configuring multinode setup";
-    caffe::MultiSync<float> sync(solver);
+    // caffe::MultiSync<float> sync(solver);
+    shared_ptr<caffe::MPISyncCPU<float> > sync(new caffe::MPISyncCPU<float>(solver));
     LOG(INFO) << "Starting Multi-node Optimization in MLSL environment";
-    sync.run();
+    // sync.run();
+    sync->Run();
   } else
 #endif /* USE_MLSL */
 
   if (FLAGS_par != "") {
     if (FLAGS_par == "MPISyncCPU") {
-      caffe::MPISyncCPU<float> sync(solver);
-      sync.Run();
+      // caffe::MPISyncCPU<float> sync(solver);
+      shared_ptr<caffe::MPISyncCPU<float> > sync(new caffe::MPISyncCPU<float>(solver));
+      // sync.Run();
+      sync->Run();
+#ifdef CAFFE_FT
+#ifdef SNAPSHOT_RESTART
+      std::tuple<bool, string> tup = solver->RestartFromSnapshot();
+      string snapshot_filename = std::get<1>(tup);
+      int my_rank = -1;
+      MPI_Comm temp_comm = caffe::mpi::get_working_comm();
+      int size = 0;
+      MPI_Comm_size(temp_comm, &size);
+      MPI_Comm_rank(temp_comm, &my_rank);
+      DLOG(INFO) << "Communicator Size after restart! ------ " << size;
+      // Update this with check first then filename
+      if (std::get<0>(tup) && (my_rank >= 0)) {
+        solver->StartReInitTimer();
+        solver->ReInit(solver_param);
+        shared_ptr<caffe::MPISyncCPU<float> > sync2(new caffe::MPISyncCPU<float>(solver));
+        solver->StopReInitTimer();
+        LOG(INFO) << "My Snapshotting Rank: " << my_rank;
+        // sync.reset(new caffe::MPISyncCPU<float>(solver));
+        LOG(INFO) << "MPISyncRerun Rank: " << my_rank;
+        // sync->Run(snapshot_filename.c_str());
+        sync2->Run(snapshot_filename.c_str());
+        LOG(INFO) << "Reinit Time (Milliseconds)" << solver->GetReInitTime();
+      }
+      else if(!std::get<0>(tup) && ( my_rank >= 0) && FLAGS_snapshot.size()) {
+        solver->StartReInitTimer();
+        solver->ReInit(solver_param);
+        solver->Restore(FLAGS_snapshot.c_str());
+        shared_ptr<caffe::MPISyncCPU<float> > sync2(new caffe::MPISyncCPU<float>(solver));
+        solver->StopReInitTimer();
+        LOG(INFO) << "Resuming from " << FLAGS_snapshot;
+        LOG(INFO) << "My NonSnapshotting Rank: " << my_rank;
+
+        // sync.reset(new caffe::MPISyncCPU<float>(solver));
+        LOG(INFO) << "MPISyncRerun Rank: " << my_rank;
+        // sync->Run();
+        sync2->Run();
+        LOG(INFO) << "Reinit Time (Milliseconds)" << solver->GetReInitTime();
+      }
+      else {
+        solver->StartReInitTimer();
+        solver->ReInit(solver_param);
+        // solver->Restore(FLAGS_snapshot.c_str());
+        shared_ptr<caffe::MPISyncCPU<float> > sync2(new caffe::MPISyncCPU<float>(solver));
+        solver->StopReInitTimer();
+        // LOG(INFO) << "Resuming from " << FLAGS_snapshot;
+        // solver->Restore(FLAGS_snapshot.c_str());
+        LOG(INFO) << "My NonSnapshotting From Beginning Rank: " << my_rank;
+
+        // sync.reset(new caffe::MPISyncCPU<float>(solver));
+        LOG(INFO) << "MPISyncRerun Rank: " << my_rank;
+        // sync->Run();
+        sync2->Run();
+        LOG(INFO) << "Reinit Time (Milliseconds)" << solver->GetReInitTime();
+      }
+      // TODO: impl for faulted but no checkpoint available. Restart the computation.
+      // TODO: multiple faults?
+#endif /*SNAPSHOT_RESTART*/
+#endif /*CAFFE_FT*/
     }
     else {
       LOG(ERROR) << "unrecognized -par value: " << FLAGS_par;
@@ -522,7 +585,6 @@ int test() {
   return 0;
 }
 RegisterBrewFunction(test);
-
 
 // Time: benchmark the execution time of a model.
 int time() {
@@ -741,14 +803,14 @@ int main(int argc, char** argv) {
       int ret = GetBrewFunction(caffe::string(argv[1]))();
 #ifdef USE_MPI
       caffe::mpi::finalize();
-#endif 
+#endif
       return ret;
 #ifdef WITH_PYTHON_LAYER
     } catch (bp::error_already_set) {
       PyErr_Print();
 #ifdef USE_MPI
       caffe::mpi::finalize();
-#endif 
+#endif
       return 1;
     }
 #endif

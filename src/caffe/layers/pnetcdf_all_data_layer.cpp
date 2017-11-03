@@ -164,8 +164,8 @@ void PnetCDFAllDataLayer<Dtype>::load_pnetcdf_file_data(const string& filename) 
           NC_NOWRITE, MPI_INFO_NULL, &ncid);
   #endif
   errcheck(retval);
-  int rank = this->comm_rank_;
-  int size = this->comm_size_;
+  rank = this->comm_rank_;
+  size = this->comm_size_;
 
   DLOG(INFO) << "PnetCDF After Opening File:-------w rank: "
              << this->comm_rank_ << ", size:" << this->comm_size_;
@@ -276,7 +276,7 @@ void PnetCDFAllDataLayer<Dtype>::load_pnetcdf_file_data(const string& filename) 
         // retval = ncmpi_get_vara_schar_all(ncid, varid, &offset[0],
         //     &count[0], this->data_.get());
         retval = ncmpi_get_vara_schar_all(ncid, varid, &offset[0],
-			&count[0], &(this->data_[0]));		
+			&count[0], &(this->data_[0]));
             // &count[0], this->data_.get());
 #endif
         data_char_count_ += prodcount;
@@ -311,7 +311,7 @@ void PnetCDFAllDataLayer<Dtype>::load_pnetcdf_file_data(const string& filename) 
           //retval = ncmpi_get_vars_schar_all(ncid, varid, &newoffset[0],
           //    &newcount[0], &stride[0], chunk.get());
           retval = ncmpi_get_vars_schar_all(ncid, varid, &newoffset[0],
-		  	  &newcount[0], &stride[0], &chunk[0]; 	
+		  	  &newcount[0], &stride[0], &chunk[0];
               // &newcount[0], &stride[0], chunk.get());
 #else
           // retval = ncmpi_get_vara_schar_all(ncid, varid, &newoffset[0],
@@ -356,7 +356,7 @@ void PnetCDFAllDataLayer<Dtype>::load_pnetcdf_file_data(const string& filename) 
             // &count[0], this->label_.get());
 			&count[0], &(this->label_[0]));
 #endif
-        label_int_count_ += count[0]; // 
+        label_int_count_ += count[0]; //
         errcheck(retval);
       }
       else {
@@ -934,7 +934,7 @@ size_t PnetCDFAllDataLayer<Dtype>::get_datum_size() {
 
 template <typename Dtype>
 vector<int> PnetCDFAllDataLayer<Dtype>::get_datum_shape() {
-  CHECK(this->data_);
+  // CHECK(this->data_);
   CHECK(this->datum_shape_.size());
   return this->datum_shape_;
 }
@@ -977,7 +977,7 @@ void PnetCDFAllDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bott
   //if(this->comm_rank_ == 0)
     LOG(INFO) << "Original_data_load_time: " << original_data_load_time << " ms. for_rank: " << this->comm_rank_;
 #endif
-	
+
   vector<int> top_shape = infer_blob_shape();
   this->transformed_data_.Reshape(top_shape);
   // Reshape top[0] and prefetch_data according to the batch_size.
@@ -1198,7 +1198,7 @@ void PnetCDFAllDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
 #ifdef CAFFE_FT
   // if(this->comm_rank_ == 0)
     LOG(INFO) << "Prefetch_batch_time: " << batch_timer.MilliSeconds() << " ms. for_rank: " << this->comm_rank_;
-#endif 
+#endif
 
   DLOG(INFO) << "Prefetch batch: " << batch_timer.MilliSeconds() << " ms.";
   DLOG(INFO) << "     Read time: " << read_time / 1000 << " ms.";
@@ -1219,4 +1219,3 @@ INSTANTIATE_CLASS(PnetCDFAllDataLayer);
 REGISTER_LAYER_CLASS(PnetCDFAllData);
 
 }  // namespace caffe
-

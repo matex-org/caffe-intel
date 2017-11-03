@@ -10,7 +10,6 @@ Copyright (c) 2014, 2015, the respective contributors
 All rights reserved.
 For the list of contributors go to https://github.com/BVLC/caffe/blob/master/CONTRIBUTORS.md
 
-
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
 
@@ -125,6 +124,12 @@ class SolverRegistry {
     return solver_types;
   }
 
+  /*static void PurgeRegistry() {
+    // CreatorRegistry& registry = Registry();
+    static CreatorRegistry* g_registry_ = new CreatorRegistry();
+    delete g_registry_;
+  }*/
+
  private:
   // Solver registry should never be instantiated - everything is done with its
   // static variables.
@@ -144,7 +149,6 @@ class SolverRegistry {
   }
 };
 
-
 template <typename Dtype>
 class SolverRegisterer {
  public:
@@ -154,7 +158,6 @@ class SolverRegisterer {
     SolverRegistry<Dtype>::AddCreator(type, creator);
   }
 };
-
 
 #define REGISTER_SOLVER_CREATOR(type, creator)                                 \
   static SolverRegisterer<float> g_creator_f_##type(#type, creator<float>);    \

@@ -10,7 +10,6 @@ Copyright (c) 2014, 2015, the respective contributors
 All rights reserved.
 For the list of contributors go to https://github.com/BVLC/caffe/blob/master/CONTRIBUTORS.md
 
-
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
 
@@ -44,6 +43,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include <numeric>
+
+#include <unistd.h>
 
 #include "boost/bind.hpp"
 #include "caffe/solver.hpp"
@@ -79,8 +80,18 @@ Solver<Dtype>::Solver(const SolverParameter& param, const Solver* root_solver)
     : net_(), callbacks_(), root_solver_(root_solver),
       requested_early_exit_(false),
       scale_on_apply_(1.0),
+#ifdef SNAPSHOT_RESTART
+      reinit_time_(0),
+      snapshot_time_(0),
+#endif
       forward_backward_(boost::bind(&Solver<Dtype>::ForwardBackward, this)) {
   Init(param);
+#ifdef CAFFE_FT
+  snapshot_count_ = 0;
+  restart_from_snapshot_ = false;
+  snapshot_model_filename_ = "";
+  snapshot_solver_filename_ = "";
+#endif /*CAFFE_FT*/
   Caffe::set_iter_size(param_.iter_size());
 }
 
@@ -89,10 +100,19 @@ Solver<Dtype>::Solver(const string& param_file, const Solver* root_solver)
     : net_(), callbacks_(), root_solver_(root_solver),
       requested_early_exit_(false),
       scale_on_apply_(1.0),
+#ifdef SNAPSHOT_RESTART
+      reinit_time_(0),
+      snapshot_time_(0),
+#endif
       forward_backward_(boost::bind(&Solver<Dtype>::ForwardBackward, this)) {
   SolverParameter param;
   ReadSolverParamsFromTextFileOrDie(param_file, &param);
   Init(param);
+#ifdef CAFFE_FT
+  snapshot_count_ = 0;
+  restart_from_snapshot_ = false;
+  snapshot_model_filename_ = "";
+#endif /*CAFFE_FT*/
   Caffe::set_iter_size(param_.iter_size());
 }
 
@@ -318,13 +338,14 @@ void Solver<Dtype>::Step(int iters) {
     ft_rank = caffe::mpi::comm_rank(temp_comm);
     ft_size = caffe::mpi::comm_size(temp_comm);
     // Fault Injection
-    int victim = ft_size - 1;
-    // int victim = 1;
+    // int victim = ft_size - 1;
+    int victim = 3;
 
-    if((ft_rank == victim) && (iter_ == 300)) {
+    // if((ft_rank == victim) && ((iter_ == 30)||(iter_ == 60) )) {
+    if((ft_rank == victim) && (iter_ == 30)) {
     // if ((original_rank != 0) && (ft_rank == victim) && ((iter_ == 300) || (iter_ == 600))) {
     // if ((ft_rank == victim) && (iter_ > 0) && ((iter_ % 2) == 0)) {
-      std::cout << "Victim Rank: " << victim << std::endl;
+      LOG(INFO) << "Victim Rank: " << victim << std::endl;
       raise(SIGKILL);
     }
 
@@ -336,6 +357,7 @@ void Solver<Dtype>::Step(int iters) {
     net_->set_debug_info(display && param_.debug_info());
 
     Timer iter_timer;
+    Timer snapshot_timer;
     double iter_time = 0;
     iter_timer.Start();
 
@@ -380,19 +402,21 @@ void Solver<Dtype>::Step(int iters) {
     }
 
     iter_timer.Start();
+    std::tuple<int, bool> ret_val;
 
     for (int i = 0; i < callbacks_.size(); ++i) {
 #ifdef CAFFE_FT
-      std::tuple<int, bool> ret_val = callbacks_[i]->on_gradients_ready();
-      temp_time = iter_timer.MilliSeconds();
+      ret_val = callbacks_[i]->on_gradients_ready();
+      // temp_time = iter_timer.MilliSeconds();
 
+#ifndef SNAPSHOT_RESTART
       if(std::get<1>(ret_val)) {
         iter_timer.Start();
         // fault has occured
         // MPI AllReduce other ranks as well..
         // Global Faulted Variable... (to trigger read from every rank
         net_->ReSetUpLayer("data");
-        temp_data_readtime =  iter_timer.MilliSeconds();
+        // temp_data_readtime =  iter_timer.MilliSeconds();
 
         MPI_Comm temp_comm = caffe::mpi::get_working_comm();
         ft_rank = caffe::mpi::comm_rank(temp_comm);
@@ -400,11 +424,24 @@ void Solver<Dtype>::Step(int iters) {
         DLOG(INFO) << "ReSetUpLayer Done:--------------rank:" << ft_rank << " ,size:" << ft_size;
 
       }
+#endif /* SNAPSHOT_RESTART */
 #else
       callbacks_[i]->on_gradients_ready();
-      temp_time = iter_timer.MilliSeconds();
+      // temp_time = iter_timer.MilliSeconds();
 #endif
     }
+
+#ifdef CAFFE_FT
+#ifdef SNAPSHOT_RESTART
+    if(std::get<1>(ret_val)) {
+      LOG(INFO) << "Fault Detected, Restart Initiate!";
+      restart_from_snapshot_ = true;
+      requested_early_exit_ = true; // Due to fault
+      break;
+    }
+#endif /* SNAPSHOT_RESTART */
+#endif /*CAFE_FT*/
+
     if (!param().disabled_update()) {
       PERFORMANCE_MEASUREMENT_BEGIN();
       ApplyUpdate();
@@ -430,7 +467,18 @@ void Solver<Dtype>::Step(int iters) {
          && iter_ % param_.snapshot() == 0
          && Caffe::root_solver()) ||
          (request == SolverAction::SNAPSHOT)) {
+#ifdef SNAPSHOT_RESTART
+      snapshot_timer.Start();
+#endif
       Snapshot();
+#ifdef CAFFE_FT
+      // Count for restarting form snapshotted file;
+#ifdef SNAPSHOT_RESTART
+      this->snapshot_time_ += snapshot_timer.MilliSeconds();
+      snapshot_timer.Stop();
+      ++(this->snapshot_count_);
+#endif
+#endif /*CAFFE_FT*/
     }
     if (SolverAction::STOP == request) {
       requested_early_exit_ = true;
@@ -443,9 +491,15 @@ void Solver<Dtype>::Step(int iters) {
   ResetTimers();
   PrintTimers(true);
 #endif
-
+MPI_Barrier(caffe::mpi::get_working_comm());
 #ifdef CAFFE_FT
-caffe::mpi::completed(true);
+if(!requested_early_exit_)
+  caffe::mpi::completed(true);
+
+#ifdef SNAPSHOT_RESTART
+LOG(INFO) << "Snapshot Time(MilliSeconds): " << snapshot_time_
+          << " , Snapshot Count:  " << snapshot_count_;
+#endif
 #endif
 
 }
@@ -921,8 +975,18 @@ void Solver<Dtype>::Snapshot() {
     LOG(FATAL) << "Unsupported snapshot format.";
   }
 
-  SnapshotSolverState(model_filename);
+#ifdef CAFFE_FT
+#ifdef SNAPSHOT_RESTART
+  snapshot_model_filename_ = model_filename;
+#endif /*SNAPSHOT_RESTART*/
+#endif /*CAFFE_FT*/
 
+  // if(ft_rank == 0) {
+  SnapshotSolverState(model_filename);
+  // }
+  MPI_Barrier(caffe::mpi::get_working_comm());
+
+  // MPI_Barrier(caffe::mpi::get_working_comm());
 #ifdef USE_MLSL
   for (int i = 0; i < callbacks_.size(); ++i) {
     callbacks_[i]->on_after_snapshot();
@@ -963,7 +1027,12 @@ string Solver<Dtype>::SnapshotToBinaryProto() {
   if (mn::is_root()) {
 #endif
   LOG(INFO) << "Snapshotting to binary proto file " << model_filename;
+
+  if(ft_rank == 0) {
   WriteProtoToBinaryFile(net_param, model_filename);
+  LOG(INFO) << "Snapshotting done to binary proto file done by rank 0. " << model_filename;
+  }
+
 #ifdef USE_MLSL
   }
 #endif

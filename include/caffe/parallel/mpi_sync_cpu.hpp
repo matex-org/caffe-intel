@@ -28,6 +28,11 @@ class MPISyncCPU : public CPUParams<Dtype>, public Solver<Dtype>::Callback {
   }
 
   void Run();
+#ifdef CAFFE_FT
+#ifdef SNAPSHOT_RESTART
+  void Run(const string snapshot_file);
+#endif
+#endif
   void Step(int iters);
 
  protected:
@@ -36,7 +41,7 @@ class MPISyncCPU : public CPUParams<Dtype>, public Solver<Dtype>::Callback {
   std::tuple<int,bool> on_gradients_ready();
 #else
   void on_gradients_ready();
-#endif 
+#endif
 
 #ifdef USE_MPI
   MPI_Comm comm_;

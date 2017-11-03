@@ -10,7 +10,6 @@ Copyright (c) 2014, 2015, the respective contributors
 All rights reserved.
 For the list of contributors go to https://github.com/BVLC/caffe/blob/master/CONTRIBUTORS.md
 
-
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
 
@@ -43,8 +42,62 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "caffe/util/io.hpp"
 #include "caffe/util/upgrade_proto.hpp"
 
-
+#ifdef CAFFE_FT
+#ifdef SNAPSHOT_RESTART
 namespace caffe {
+// Reinitialize the Network for Restart after fault.
+template <typename Dtype>
+void SGDSolver<Dtype>::ReInit(const SolverParameter& param) {
+  this->param_ = param;// caffe::SolverParameter();
+  this->current_step_ = 0;
+  this->net_.reset();
+  this->test_nets_.clear();
+  this->callbacks_.clear();
+  this->losses_.clear();
+  this->smoothed_loss_ = 0;
+  this-> action_request_function_ = NULL;
+  this->requested_early_exit_ = false;
+  this->scale_on_apply_ = 1.0;
+  this->ft_rank = -1;
+  this->ft_size = 0;
+  this->snapshot_model_filename_ = "";
+  this->snapshot_solver_filename_ = "";
+  this->snapshot_count_ = 0;
+  this->restart_from_snapshot_ = false;
+  // this->forward_backward_ = boost::bind(&Solver<Dtype>::ForwardBackward, this);
+  this->Init(param);
+  Caffe::set_iter_size(this->param_.iter_size());
+
+}
+
+template <typename Dtype>
+void SGDSolver<Dtype>::ReInit(const string& param_file) {
+  this->current_step_ = 0;
+  this->net_.reset();
+  this->test_nets_.clear();
+  this->callbacks_.clear();
+  this->losses_.clear();
+  this->smoothed_loss_ = 0;
+  this-> action_request_function_ = NULL;
+  this->requested_early_exit_ = false;
+  this->scale_on_apply_ = 1.0;
+  this->ft_rank = -1;
+  this->ft_size = 0;
+  this->snapshot_model_filename_ = "";
+  this->snapshot_solver_filename_ = "";
+  this->snapshot_count_ = 0;
+  this->restart_from_snapshot_ = false;
+  // this->forward_backward_ = boost::bind(&Solver<Dtype>::ForwardBackward, this);
+  SolverParameter param;
+  ReadSolverParamsFromTextFileOrDie(param_file, &param);
+  this->param_ = param;// caffe::SolverParameter();
+  this->Init(param);
+  Caffe::set_iter_size(this->param_.iter_size());
+}
+
+#endif /*SNAPSHOT_RESTART*/
+#endif /*CAFFE_FT*/
+
 template <typename Dtype>
 Dtype SGDSolver<Dtype>::GetWarmUpLR(int cur_iter, int warmup_iter, Dtype warmup_start_lr) {
   if (cur_iter < 0) {
@@ -72,7 +125,6 @@ template <typename Dtype>
 Dtype SGDSolver<Dtype>::GetLearningRate() {
   Dtype rate;
   const string& lr_policy = this->param_.lr_policy();
-
 
   if (this->param_.warmup_iter() > 0 &&
       this->iter_ < this->param_.warmup_iter()) {
@@ -210,7 +262,7 @@ void SGDSolver<Dtype>::ApplyUpdate(int param_id) {
   }
 
 #ifdef ENABLE_SGD_FUSION
-  if (Caffe::mode() == Caffe::CPU) 
+  if (Caffe::mode() == Caffe::CPU)
   {
     //VLOG(1) << "Use Normalize_Regularize_ComputeUpdateValue_Update_Fusion for SGD";
     //LOG(INFO) << "Use Normalize_Regularize_ComputeUpdateValue_Update_Fusion for SGD";
@@ -221,7 +273,7 @@ void SGDSolver<Dtype>::ApplyUpdate(int param_id) {
 
   //LOG(INFO) << "No Fusion: Param_id: " << param_id;
   Normalize(param_id);
-  
+
   LOG_PARAM_BLOB(this->net_->learnable_params()[param_id], diff, param_id, "ApplyUpdate: delwt after Normalize:");
 
   Regularize(param_id);
@@ -256,7 +308,7 @@ void axpy_axpby_copy<float>(size_t count, const float decay, const float* net_pa
 //#pragma omp parallel for simd schedule(static)  //Not work for GCC 4.8
 #pragma omp parallel for schedule(static)
 #pragma simd
-#endif  
+#endif
   for (size_t i = 0; i < count; ++i) {
     temp_result = rate * (decay * net_params_data[i] + net_params_diff[i]) + momentum * history_data[i];
     history_data[i] = temp_result;
@@ -273,7 +325,7 @@ void axpy_axpby_copy<double>(size_t count, const double decay, const double* net
 //#pragma omp parallel for simd schedule(static)  //Not work for GCC 4.8
 #pragma omp parallel for schedule(static)
 #pragma simd
-#endif  
+#endif
   for (size_t i = 0; i < count; ++i) {
     temp_result = rate * (decay * net_params_data[i] + net_params_diff[i]) + momentum * history_data[i];
     history_data[i] = temp_result;
@@ -297,7 +349,7 @@ void axpy_axpby_copy_axpy<float>(size_t count, const float decay, float* net_par
 //#pragma omp parallel for simd schedule(static)  //Not work for GCC 4.8
 #pragma omp parallel for schedule(static)
 #pragma simd
-#endif  
+#endif
   for (size_t i = 0; i < count; ++i) {
     temp_result = rate * (decay * net_params_data[i] + net_params_diff[i]) + momentum * history_data[i];
     history_data[i] =  temp_result;
@@ -315,7 +367,7 @@ void axpy_axpby_copy_axpy<double>(size_t count, const double decay, double* net_
 //#pragma omp parallel for simd schedule(static)  //Not work for GCC 4.8
 #pragma omp parallel for schedule(static)
 #pragma simd
-#endif  
+#endif
   for (size_t i = 0; i < count; ++i) {
     temp_result = rate * (decay * net_params_data[i] + net_params_diff[i]) + momentum * history_data[i];
     net_params_diff[i] = temp_result;
@@ -323,7 +375,6 @@ void axpy_axpby_copy_axpy<double>(size_t count, const double decay, double* net_
   }
 }
 //End: For L2 Regularize_ComputeUpdateValue_Update_Fusion
-
 
 template <typename Dtype>
 void SGDSolver<Dtype>::SGDFusion(int param_id, Dtype rate) {
@@ -359,11 +410,11 @@ void SGDSolver<Dtype>::SGDFusion(int param_id, Dtype rate) {
   }
 //#pragma endregion
 
-//#pragma region 3. Normalize stage    
+//#pragma region 3. Normalize stage
   if (skip_Normalize_stage_flag == false)
   {
     const Dtype accum_normalization = Dtype(1.) / this->param_.iter_size();
-      
+
     if (prv_diff_condition_flag) {
       caffe_scal(net_params[param_id]->prv_diff_count(), accum_normalization,
         net_params[param_id]->mutable_prv_diff());
@@ -420,16 +471,16 @@ void SGDSolver<Dtype>::SGDFusion(int param_id, Dtype rate) {
       axpy_axpby_copy(net_params[param_id]->count(), local_decay,
                                 temp_[param_id]->cpu_data(), net_params[param_id]->mutable_cpu_diff(),
                                 local_rate, momentum, history_[param_id]->mutable_cpu_data());
-      
+
       is_separate_ComputeUpdateValue_Update = false;
-      
+
       //Update stage (separate)
       net_params[param_id]->Update();
     } else {
       LOG(FATAL) << "Unknown regularization type: " << regularization_type;
     }
   }
-  
+
   //ComputeUpdateValue_Update stage (separate)
   if (is_separate_ComputeUpdateValue_Update == true)
   {
@@ -464,7 +515,7 @@ void SGDSolver<Dtype>::SGDFusion(int param_id, Dtype rate) {
 template <typename Dtype>
 void SGDSolver<Dtype>::Normalize(int param_id) {
 
-  if (this->param_.iter_size() == 1) { 
+  if (this->param_.iter_size() == 1) {
     //LOG(INFO) << "Normalize stage: Normalize stage is skipped.";
     return;
   }
@@ -472,7 +523,7 @@ void SGDSolver<Dtype>::Normalize(int param_id) {
   //LOG(INFO) << "Normalize stage: Normalize stage is not skipped.";
   // Scale gradient to counterbalance accumulation.
   const vector<Blob<Dtype>*>& net_params = this->net_->learnable_params();
-  
+
   const Dtype accum_normalization = Dtype(1.) / this->param_.iter_size();
 
   switch (Caffe::mode()) {
@@ -624,7 +675,7 @@ void SGDSolver<Dtype>::ComputeUpdateValue(int param_id, Dtype rate) {
                  history_[param_id]->cpu_data(),
                  net_params[param_id]->mutable_cpu_diff());
 
-      if (net_params[param_id]->prv_diff() 
+      if (net_params[param_id]->prv_diff()
           && (net_params[param_id]->prv_diff_count()
               != net_params[param_id]->count())) {
           net_params[param_id]->mutable_prv_diff();
@@ -681,9 +732,17 @@ void SGDSolver<Dtype>::SnapshotSolverStateToBinaryProto(
 #ifdef USE_MLSL
   if (mn::is_root()) {
 #endif
+  if(this->ft_rank == 0) {
   LOG(INFO)
     << "Snapshotting solver state to binary proto file " << snapshot_filename;
   WriteProtoToBinaryFile(state, snapshot_filename.c_str());
+  }
+  // MPI_Barrier(caffe::mpi::get_working_comm());
+#ifdef CAFFE_FT
+#ifdef SNAPSHOT_RESTART
+  this->snapshot_solver_filename_ = snapshot_filename;
+#endif
+#endif
 #ifdef USE_MLSL
   }
 #endif

@@ -10,7 +10,6 @@ Copyright (c) 2014, 2015, the respective contributors
 All rights reserved.
 For the list of contributors go to https://github.com/BVLC/caffe/blob/master/CONTRIBUTORS.md
 
-
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
 
@@ -44,11 +43,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "caffe/net.hpp"
 #include "caffe/solver_factory.hpp"
 
+#ifdef CAFFE_FT
+#include "caffe/mpi.hpp"
+#include <tuple>
+#endif
+
 #include "caffe/util/benchmark.hpp"
 
 #ifdef CAFFE_FT
 #include <tuple>
-#endif 
+#endif
 
 namespace caffe {
 
@@ -91,6 +95,24 @@ class Solver {
   void InitTrainNet();
   void InitTestNets();
 
+#ifdef CAFFE_FT
+#ifdef SNAPSHOT_RESTART
+  virtual void ReInit(const SolverParameter& param) = 0;
+  virtual void ReInit(const string& param_file) = 0;
+
+  void StartReInitTimer() {
+    reinit_timer_.Start();
+  }
+  void StopReInitTimer() {
+    reinit_time_ += reinit_timer_.MilliSeconds();
+    reinit_timer_.Stop();
+  }
+
+  double GetReInitTime() {
+    return reinit_time_;
+  }
+#endif
+#endif
   // Client of the Solver optionally may call this in order to set the function
   // that the solver uses to see what action it should take (e.g. snapshot or
   // exit training early).
@@ -127,7 +149,7 @@ class Solver {
 #ifdef CAFFE_FT
     virtual std::tuple<int, bool> on_gradients_ready() = 0;
 #else
-//#endif 
+//#endif
     virtual void on_gradients_ready() = 0;
 #endif
 
@@ -169,7 +191,6 @@ class Solver {
 
   void TestAll();
 
-
 #ifdef CAFFE_PER_LAYER_TIMINGS
   /* Timers for performance measurements */
   Timer timer;
@@ -193,6 +214,15 @@ class Solver {
   void ResetTimers();
   void PrintTimers(bool printTotal);
 #endif /* CAFFE_PER_LAYER_TIMINGS */
+
+#ifdef CAFFE_FT
+  virtual std::tuple<bool,string> RestartFromSnapshot() {
+    if(this->restart_from_snapshot_ && (this->snapshot_count_ > 0))
+      return std::make_tuple( true, this->snapshot_solver_filename_);
+    else
+      return std::make_tuple(false, "");
+  }
+#endif /*CAFFE_FT*/
 
  protected:
   string SnapshotFilename(const string extension);
@@ -235,9 +265,20 @@ class Solver {
 
   DISABLE_COPY_AND_ASSIGN(Solver);
 
+ protected:
   // #ifdef CAFFE_FT
   int ft_rank, ft_size;
   // #endif
+#ifdef CAFFE_FT
+  string snapshot_model_filename_;
+  string snapshot_solver_filename_;
+  int snapshot_count_;
+  bool restart_from_snapshot_;
+#ifdef SNAPSHOT_RESTART
+  Timer reinit_timer_; //, snapshot_timer_;
+  double reinit_time_, snapshot_time_;
+#endif /*SNAPSHOT_RESTART*/
+#endif /*CAFFE_FT*/
 };
 
 /**

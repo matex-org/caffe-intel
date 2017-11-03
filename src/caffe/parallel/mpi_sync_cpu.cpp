@@ -35,6 +35,7 @@ MPISyncCPU<Dtype>::MPISyncCPU(shared_ptr<Solver<Dtype> > root_solver)
   this->configure(solver_.get());
   solver_->add_callback(this);
   caffe::mpi::bcast(data_, size_, 0, comm_);
+  LOG(INFO) << "My rank after bcast: " << caffe::mpi::comm_rank(caffe::mpi::get_working_comm());
   solver_->set_scale_on_apply(Dtype(1.0 / comm_size_));
 #else
   NO_MPI;
@@ -89,6 +90,17 @@ void MPISyncCPU<Dtype>::Run() {
   solver_->Solve();
 }
 
+#ifdef CAFFE_FT
+#ifdef SNAPSHOT_RESTART
+template<typename Dtype>
+void MPISyncCPU<Dtype>::Run(const string snapshot_file) {
+  LOG(INFO) << "Restarting Optimization from Snapshot File";
+  // Re run the solver on current thread
+  solver_->Solve(snapshot_file.c_str());
+}
+#endif
+#endif
+
 template<typename Dtype>
 void MPISyncCPU<Dtype>::Step(int iters) {
   //LOG(INFO)<< "Stepping Optimization";
@@ -100,4 +112,3 @@ void MPISyncCPU<Dtype>::Step(int iters) {
 INSTANTIATE_CLASS(MPISyncCPU);
 
 }  // namespace caffe
-

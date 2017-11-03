@@ -10,7 +10,6 @@ Copyright (c) 2014, 2015, the respective contributors
 All rights reserved.
 For the list of contributors go to https://github.com/BVLC/caffe/blob/master/CONTRIBUTORS.md
 
-
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
 
@@ -61,6 +60,13 @@ class SGDSolver : public Solver<Dtype> {
   const vector<shared_ptr<Blob<Dtype> > >& history() { return history_; }
 
   using Solver<Dtype>::scale_on_apply;
+
+#ifdef CAFFE_FT
+#ifdef SNAPSHOT_RESTART
+  virtual void ReInit(const SolverParameter& param);
+  virtual void ReInit(const string& param_file);
+#endif
+#endif
 
  protected:
   void PreSolve();
@@ -128,7 +134,6 @@ class AdaGradSolver : public SGDSolver<Dtype> {
 
   DISABLE_COPY_AND_ASSIGN(AdaGradSolver);
 };
-
 
 template <typename Dtype>
 class RMSPropSolver : public SGDSolver<Dtype> {

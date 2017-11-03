@@ -21,7 +21,8 @@ namespace mpi {
 MPI_Comm default_comm_ = MPI_COMM_WORLD;
 
 #ifdef CAFFE_FT
-MPI_Comm wcomm , first_comm = MPI_COMM_WORLD; // rcomm
+// MPI_Comm wcomm , first_comm = MPI_COMM_WORLD; // rcomm
+MPI_Comm wcomm = MPI_COMM_NULL;
 MPI_Errhandler errh;
 // MPI_Comm_create_errhandler(caffe::mpi::verbose_errhandler, &errh);
 char err_str[MPI_MAX_ERROR_STRING] = "";
@@ -83,7 +84,7 @@ int rank = 0, size = 0, namelen = 0;
 
   DLOG(INFO) << "Process rank " << rank << " from number of " << size
             << " processes running on " << name;
-			
+
 #else
 
   char name[MPI_MAX_PROCESSOR_NAME];
@@ -240,10 +241,12 @@ MPI_Comm comm_create(const std::vector<int> &incl, MPI_Comm comm) {
     return MPI_COMM_NULL;
   }
 
+#ifndef CAFFE_FT
   if (MPI_SUCCESS != MPI_Group_incl(group_old, size, &incl[0], &group_new)) {
     throw std::runtime_error("MPI_Group_incl failed");
     return MPI_COMM_NULL;
   }
+#endif /*CAFFE_FT*/
 
   if (MPI_SUCCESS != MPI_Comm_create(comm, group_new, &newcomm)) {
     throw std::runtime_error("MPI_Comm_create failed");
@@ -561,7 +564,8 @@ std::tuple<int, bool> allreduce(double* buffer, int count, MPI_Op op, MPI_Comm c
 
 void bcast(int* buffer, int count, int root, MPI_Comm comm) {
   if (MPI_COMM_NULL == comm) {
-    comm = get_comm_default();
+    // comm = get_comm_default();
+    comm = get_working_comm();
   }
 
   if (MPI_SUCCESS != MPI_Bcast(buffer, count, MPI_INT, root, comm)) {
@@ -571,7 +575,8 @@ void bcast(int* buffer, int count, int root, MPI_Comm comm) {
 
 void bcast(float* buffer, int count, int root, MPI_Comm comm) {
   if (MPI_COMM_NULL == comm) {
-    comm = get_comm_default();
+    // comm = get_comm_default();
+    comm = get_working_comm();
   }
 
   if (MPI_SUCCESS != MPI_Bcast(buffer, count, MPI_FLOAT, root, comm)) {
@@ -581,7 +586,8 @@ void bcast(float* buffer, int count, int root, MPI_Comm comm) {
 
 void bcast(double* buffer, int count, int root, MPI_Comm comm) {
   if (MPI_COMM_NULL == comm) {
-    comm = get_comm_default();
+    // comm = get_comm_default();
+    comm = get_working_comm();
   }
 
   if (MPI_SUCCESS != MPI_Bcast(buffer, count, MPI_DOUBLE, root, comm)) {
@@ -962,7 +968,7 @@ void bcast(double* buffer, int count, int root, MPI_Comm comm) {
     throw std::runtime_error("MPI_Bcast failed");
   }
 }
-#endif /*CAFFE_FT update this*/ 
+
 void send(const float* buffer, int count, int dest, int tag, MPI_Comm comm) {
   if (MPI_COMM_NULL == comm) {
     comm = get_comm_default();
@@ -1143,6 +1149,7 @@ void irecv(MPI_Request &request, double *buffer, int count, int source, int tag,
   }
 }
 
+#endif /*CAFFE_FT update this*/
 
 #else
 
@@ -1152,4 +1159,3 @@ int dummy();
 
 } // namespace mpi
 } // namespace caffe
-
