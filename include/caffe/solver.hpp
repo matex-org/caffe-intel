@@ -52,6 +52,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #ifdef CAFFE_FT
 #include <tuple>
+#include <cstdio>
 #endif
 
 namespace caffe {
@@ -270,12 +271,14 @@ class Solver {
   int ft_rank, ft_size;
   // #endif
 #ifdef CAFFE_FT
+  int victim_rank_;
   string snapshot_model_filename_;
   string snapshot_solver_filename_;
   int snapshot_count_;
   bool restart_from_snapshot_;
+  Timer readback_timer_;
 #ifdef SNAPSHOT_RESTART
-  Timer reinit_timer_; //, snapshot_timer_;
+  Timer reinit_timer_ , snapshot_timer_;
   double reinit_time_, snapshot_time_;
 #endif /*SNAPSHOT_RESTART*/
 #endif /*CAFFE_FT*/
