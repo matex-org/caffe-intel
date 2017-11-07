@@ -356,7 +356,7 @@ void Solver<Dtype>::Step(int iters) {
     // Fault Injection
     // int victim = ft_size - 1;
 
-    if((ft_rank == victim_rank_) && (iter_ == 30)) {
+    if((ft_rank == victim_rank_) && (iter_ == 300)) {
       LOG(INFO) << "Victim Rank: " << victim_rank_ << std::endl;
       raise(SIGKILL);
     }
@@ -443,7 +443,7 @@ void Solver<Dtype>::Step(int iters) {
         ft_rank = caffe::mpi::comm_rank(temp_comm);
         ft_size = caffe::mpi::comm_size(temp_comm);
         temp_time = iter_timer.MilliSeconds();
-        data_re_readtime + = temp_time;
+        data_re_readtime += temp_time;
         DLOG(INFO) << "ReSetUpLayer Done:--------------rank:" << ft_rank
           << " ,size:" << ft_size << " DataReadback Time: "
           << data_re_readtime;
@@ -527,7 +527,7 @@ void Solver<Dtype>::Step(int iters) {
       // Count for restarting form snapshotted file;
 #ifdef SNAPSHOT_RESTART
       this->snapshot_time_ = snapshot_timer_.MilliSeconds();
-      LOG(INFO) << "Snapshotting Time(User Initiated): " << this->snapshot_time_; << " ms"
+      LOG(INFO) << "Snapshotting Time(User Initiated): " << this->snapshot_time_ << " ms";
       ++(this->snapshot_count_);
 #endif /*SNAPSHOT_RESTART*/
 #endif /*CAFFE_FT*/

@@ -42,9 +42,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "caffe/util/io.hpp"
 #include "caffe/util/upgrade_proto.hpp"
 
+namespace caffe {
 #ifdef CAFFE_FT
 #ifdef SNAPSHOT_RESTART
-namespace caffe {
 // Reinitialize the Network for Restart after fault.
 template <typename Dtype>
 void SGDSolver<Dtype>::ReInit(const SolverParameter& param) {
