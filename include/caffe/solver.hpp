@@ -42,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "caffe/net.hpp"
+#include "caffe/layers/base_data_layer.hpp"
 #include "caffe/solver_factory.hpp"
 
 #include "caffe/util/benchmark.hpp"
@@ -119,6 +120,7 @@ class Solver {
   // Invoked at specific points during an iteration
   class Callback {
    public:
+    virtual void do_allreduce() {}
     virtual void on_start() = 0;
     virtual void on_forward(int param_id) {}
     virtual void on_gradients_ready(int param_id) {}
@@ -200,6 +202,11 @@ class Solver {
   virtual void RestoreSolverStateFromBinaryProto(const string& state_file) = 0;
   void DisplayOutputBlobs(const int net_id);
   void UpdateSmoothedLoss(Dtype loss, int start_iter, int average_loss);
+ public:
+  void DataShuffleBegin();
+  bool DataShuffleTest();
+  void DataShuffleEnd();
+ protected:
 
   SolverParameter param_;
   int iter_;
@@ -209,6 +216,7 @@ class Solver {
   vector<Callback*> callbacks_;
   vector<Dtype> losses_;
   Dtype smoothed_loss_;
+  BaseDataLayer<Dtype> *data_layer_;
 
   // The root solver that holds root nets (actually containing shared layers)
   // in data parallelism

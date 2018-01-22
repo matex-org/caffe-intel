@@ -54,6 +54,11 @@ namespace bp = boost::python;
 #include "caffe/caffe.hpp"
 #include "caffe/parallel/mpi_sync_cpu.hpp"
 #include "caffe/parallel/mpi_gossip_params_cpu7.hpp"
+#include "caffe/parallel/mpi_gossip_params_cpu8.hpp"
+#include "caffe/parallel/mpi_gossip_params_cpu9.hpp"
+#include "caffe/parallel/mpi_gossip_params_cpu10.hpp"
+#include "caffe/parallel/mpi_gossip_params_cpu11.hpp"
+#include "caffe/parallel/mpi_gossip_params_cpu12.hpp"
 #include "caffe/training_utils.hpp"
 #include "caffe/util/performance.hpp"
 #include "caffe/util/signal_handler.h"
@@ -341,6 +346,36 @@ int train() {
     }
     else if (FLAGS_par == "MPIGossipParamsCPU7") {
       caffe::MPIGossipParamsCPU7<float> sync(solver, solver->param(),
+              FLAGS_cube,
+              FLAGS_rotate);
+      sync.Run();
+    }
+    else if (FLAGS_par == "MPIGossipParamsCPU8") {
+      caffe::MPIGossipParamsCPU8<float> sync(solver, solver->param(),
+              FLAGS_cube,
+              FLAGS_rotate);
+      sync.Run();
+    }
+    else if (FLAGS_par == "MPIGossipParamsCPU9") {
+      caffe::MPIGossipParamsCPU9<float> sync(solver, solver->param(),
+              FLAGS_cube,
+              FLAGS_rotate);
+      sync.Run();
+    }
+    else if (FLAGS_par == "MPIGossipParamsCPU10") {
+      caffe::MPIGossipParamsCPU10<float> sync(solver, solver->param(),
+              FLAGS_cube,
+              FLAGS_rotate);
+      sync.Run();
+    }
+    else if (FLAGS_par == "MPIGossipParamsCPU11") {
+      caffe::MPIGossipParamsCPU11<float> sync(solver, solver->param(),
+              FLAGS_cube,
+              FLAGS_rotate);
+      sync.Run();
+    }
+    else if (FLAGS_par == "MPIGossipParamsCPU12") {
+      caffe::MPIGossipParamsCPU12<float> sync(solver, solver->param(),
               FLAGS_cube,
               FLAGS_rotate);
       sync.Run();

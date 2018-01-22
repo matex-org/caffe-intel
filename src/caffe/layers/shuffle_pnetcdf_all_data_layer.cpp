@@ -11,31 +11,54 @@
 
 #include <boost/thread.hpp>
 #include "caffe/data_transformer.hpp"
-#include "caffe/layers/pnetcdf_all_data_layer.hpp"
+#include "caffe/layers/shuffle_pnetcdf_all_data_layer.hpp"
 #include "caffe/mpi.hpp"
 #include "caffe/util/benchmark.hpp"
 
 namespace caffe {
 
 template <typename Dtype>
-PnetCDFAllDataLayer<Dtype>::PnetCDFAllDataLayer(const LayerParameter& param)
+ShufflePnetCDFAllDataLayer<Dtype>::ShufflePnetCDFAllDataLayer(const LayerParameter& param)
   : BasePrefetchingDataLayer<Dtype>(param),
     current_row_(0),
+    shuffle_row_(0),
     max_row_(0),
     datum_shape_(),
     data_(),
     label_(),
+    shuffle_data_send_(NULL),
+    shuffle_data_recv_(NULL),
+    shuffle_label_send_(NULL),
+    shuffle_label_recv_(NULL),
+    requests_(4, MPI_REQUEST_NULL),
+    time_comm_(0.0),
+    time_memcpy_(0.0),
+    stats_comm_(),
+    stats_memcpy_(),
+    dest_(-1),
+    source_(-1),
     row_mutex_(),
     comm_(),
     comm_rank_(),
-    comm_size_() {
+    comm_size_()
+{
   comm_ = caffe::mpi::comm_dup();
   comm_rank_ = caffe::mpi::comm_rank(comm_);
   comm_size_ = caffe::mpi::comm_size(comm_);
+  dest_ = comm_rank_ - 1;
+  source_ = comm_rank_ + 1;
+  if (dest_ < 0) {
+    dest_ = comm_size_ - 1;
+  }
+  if (source_ >= comm_size_) {
+    source_ = 0;
+  }
+  stats_clear(&stats_comm_);
+  stats_clear(&stats_memcpy_);
 }
 
 template <typename Dtype>
-PnetCDFAllDataLayer<Dtype>::~PnetCDFAllDataLayer() {
+ShufflePnetCDFAllDataLayer<Dtype>::~ShufflePnetCDFAllDataLayer() {
   this->StopInternalThread();
 }
 
@@ -59,7 +82,7 @@ inline static Dtype prod(vector<Dtype> vec) {
 }
 
 template <typename Dtype>
-void PnetCDFAllDataLayer<Dtype>::load_pnetcdf_file_data(const string& filename) {
+void ShufflePnetCDFAllDataLayer<Dtype>::load_pnetcdf_file_data(const string& filename) {
 #if USE_PNETCDF
 #if STRIDED
   LOG(INFO) << "Loading PnetCDF file, strided: " << filename;
@@ -179,7 +202,6 @@ void PnetCDFAllDataLayer<Dtype>::load_pnetcdf_file_data(const string& filename) 
     prodcount = prod(count);
 
     if (NC_BYTE == vartype) {
-      this->data_ = shared_ptr<signed char>(new signed char[prodcount]);
       datum_shape_.resize(4);
       datum_shape_[0] = 1;
       datum_shape_[1] = count[1];
@@ -189,6 +211,7 @@ void PnetCDFAllDataLayer<Dtype>::load_pnetcdf_file_data(const string& filename) 
       DLOG(INFO) << "datum_shape_[1] " << datum_shape_[1];
       DLOG(INFO) << "datum_shape_[2] " << datum_shape_[2];
       DLOG(INFO) << "datum_shape_[3] " << datum_shape_[3];
+      this->data_ = shared_ptr<signed char>(new signed char[prodcount]);
       if (prodcount < chunksize) {
         LOG(INFO) << "reading PnetCDF data whole " << count[0];
         LOG(INFO) << "offset={"<<offset[0]<<","<<offset[1]<<","<<offset[2]<<","<<offset[3]<<"}";
@@ -243,8 +266,8 @@ void PnetCDFAllDataLayer<Dtype>::load_pnetcdf_file_data(const string& filename) 
     }
     else if (NC_INT == vartype && this->output_labels_) {
       max_row_ = count[0];
-      this->label_ = shared_ptr<int>(new int[max_row_]);
       LOG(INFO) << "PnetCDF max_row_ = " << max_row_;
+      this->label_ = shared_ptr<int>(new int[max_row_]);
       if (prodcount < chunksize) {
         LOG(INFO) << "reading PnetCDF label whole " << count[0];
 #if STRIDED
@@ -318,7 +341,7 @@ void PnetCDFAllDataLayer<Dtype>::load_pnetcdf_file_data(const string& filename) 
 }
 
 template <typename Dtype>
-size_t PnetCDFAllDataLayer<Dtype>::get_datum_size() {
+size_t ShufflePnetCDFAllDataLayer<Dtype>::get_datum_size() {
   vector<int> top_shape = this->get_datum_shape();
   const size_t datum_channels = top_shape[1];
   const size_t datum_height = top_shape[2];
@@ -327,14 +350,13 @@ size_t PnetCDFAllDataLayer<Dtype>::get_datum_size() {
 }
 
 template <typename Dtype>
-vector<int> PnetCDFAllDataLayer<Dtype>::get_datum_shape() {
-  CHECK(this->data_);
+vector<int> ShufflePnetCDFAllDataLayer<Dtype>::get_datum_shape() {
   CHECK(this->datum_shape_.size());
   return this->datum_shape_;
 }
 
 template <typename Dtype>
-vector<int> PnetCDFAllDataLayer<Dtype>::infer_blob_shape() {
+vector<int> ShufflePnetCDFAllDataLayer<Dtype>::infer_blob_shape() {
   vector<int> top_shape = this->get_datum_shape();
   const int crop_size = this->transform_param_.crop_size();
   const int datum_height = top_shape[2];
@@ -349,12 +371,19 @@ vector<int> PnetCDFAllDataLayer<Dtype>::infer_blob_shape() {
 }
 
 template <typename Dtype>
-void PnetCDFAllDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bottom,
+void ShufflePnetCDFAllDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bottom,
       const vector<Blob<Dtype>*>& top) {
   const int batch_size = this->layer_param_.data_param().batch_size();
 
   // Load the pnetcdf file into data_ and optionally label_
   load_pnetcdf_file_data(this->layer_param_.data_param().source());
+
+  size_t datum_size = get_datum_size();
+
+  shuffle_data_send_ = new signed char[datum_size*batch_size];
+  shuffle_data_recv_ = new signed char[datum_size*batch_size];
+  shuffle_label_send_ = new int[batch_size];
+  shuffle_label_recv_ = new int[batch_size];
 
   row_mutex_.reset(new boost::mutex());
 
@@ -381,7 +410,7 @@ void PnetCDFAllDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bott
 
 // This function is called on prefetch thread
 template<typename Dtype>
-void PnetCDFAllDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
+void ShufflePnetCDFAllDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
   CPUTimer batch_timer;
   batch_timer.Start();
   double read_time = 0;
@@ -434,7 +463,7 @@ void PnetCDFAllDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
     {
       Datum datum = masterDatum;
       datum.set_data(this->data_.get() + pnetcdf_offset, datum_size);
-
+      
       int offset = batch->data_.offset(item_id);
 #ifdef _OPENMP
       Blob<Dtype> tmp_data;
@@ -453,7 +482,7 @@ void PnetCDFAllDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
     trans_time += timer.MicroSeconds();
   }
 
-  current_row_+=batch_size;
+  current_row_ = (current_row_+batch_size) % max_row_;
 
   timer.Stop();
   batch_timer.Stop();
@@ -463,7 +492,7 @@ void PnetCDFAllDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
 }
 
 template<typename Dtype>
-size_t PnetCDFAllDataLayer<Dtype>::next_row() {
+size_t ShufflePnetCDFAllDataLayer<Dtype>::next_row() {
   size_t row;
   row_mutex_->lock();
   row = current_row_++;
@@ -472,8 +501,110 @@ size_t PnetCDFAllDataLayer<Dtype>::next_row() {
   return row;
 }
 
-INSTANTIATE_CLASS(PnetCDFAllDataLayer);
-REGISTER_LAYER_CLASS(PnetCDFAllData);
+template<typename Dtype>
+void ShufflePnetCDFAllDataLayer<Dtype>::DataShuffleBegin() {
+  DLOG(INFO) << "PNETCDF DATA SHUFFLE BEGIN";
+  CPUTimer timer;
+  size_t datum_size = get_datum_size();
+  const int batch_size = this->layer_param_.data_param().batch_size();
+  timer.Start();
+  for (int item_id = 0; item_id < batch_size; ++item_id) {
+    // get a datum
+    size_t row = (shuffle_row_+item_id) % this->max_row_;
+    size_t pnetcdf_offset = row * datum_size;
+    size_t local_offset = item_id * datum_size;
+    memcpy(shuffle_data_send_ + local_offset,
+        this->data_.get() + pnetcdf_offset, datum_size);
+    if (this->output_labels_) {
+      memcpy(shuffle_label_send_ + item_id,
+          this->label_.get() + row, sizeof(int));
+    }
+  }
+  timer.Stop();
+  time_memcpy_ = timer.MilliSeconds();
+
+#define TAG_DATA  6543
+#define TAG_LABEL 6544
+  if (this->output_labels_) {
+    requests_.assign(4, MPI_REQUEST_NULL);
+  }
+  else {
+    requests_.assign(2, MPI_REQUEST_NULL);
+  }
+  timer.Start();
+  caffe::mpi::irecv(requests_[0], shuffle_data_recv_,
+      datum_size*batch_size, source_, TAG_DATA);
+  caffe::mpi::isend(requests_[1], shuffle_data_send_,
+      datum_size*batch_size, dest_, TAG_DATA);
+  if (this->output_labels_) {
+    caffe::mpi::irecv(requests_[2], shuffle_label_recv_,
+        batch_size, source_, TAG_LABEL);
+    caffe::mpi::isend(requests_[3], shuffle_label_send_,
+        batch_size, dest_, TAG_LABEL);
+  }
+  timer.Stop();
+  time_comm_ = timer.MilliSeconds();
+}
+
+template<typename Dtype>
+bool ShufflePnetCDFAllDataLayer<Dtype>::DataShuffleTest() {
+  DLOG(INFO) << "PNETCDF DATA SHUFFLE TEST";
+  CPUTimer timer;
+  bool retval;
+  timer.Start();
+  retval = caffe::mpi::testall(requests_);
+  timer.Stop();
+  time_comm_ += timer.MilliSeconds();
+  return retval;
+}
+
+template<typename Dtype>
+void ShufflePnetCDFAllDataLayer<Dtype>::DataShuffleEnd() {
+  DLOG(INFO) << "PNETCDF DATA SHUFFLE END";
+
+  CPUTimer timer;
+  size_t datum_size = get_datum_size();
+  const int batch_size = this->layer_param_.data_param().batch_size();
+
+  timer.Start();
+  caffe::mpi::waitall(requests_);
+  timer.Stop();
+  time_comm_ += timer.MilliSeconds();
+
+  timer.Start();
+  for (int item_id = 0; item_id < batch_size; ++item_id) {
+    // get a datum
+    size_t row = (shuffle_row_+item_id) % this->max_row_;
+    size_t pnetcdf_offset = row * datum_size;
+    size_t local_offset = item_id * datum_size;
+    memcpy(this->data_.get() + pnetcdf_offset,
+        shuffle_data_recv_ + local_offset, datum_size);
+    if (this->output_labels_) {
+      memcpy(this->label_.get() + row,
+          shuffle_label_recv_ + item_id, sizeof(int));
+    }
+  }
+  timer.Stop();
+  time_memcpy_ += timer.MilliSeconds();
+
+  shuffle_row_ = (shuffle_row_+batch_size) % this->max_row_;
+
+  stats_sample_value(&stats_comm_, time_comm_);
+  stats_sample_value(&stats_memcpy_, time_memcpy_);
+  LOG_EVERY_N(INFO, 20) << "time comm shuffle " << stats_comm_._mean
+    << " +- " << stats_stddev(&stats_comm_)
+    << " min " << stats_comm_._min
+    << " max " << stats_comm_._max;
+  LOG_EVERY_N(INFO, 20) << "time memcpy shuffle " << stats_memcpy_._mean
+    << " +- " << stats_stddev(&stats_memcpy_)
+    << " min " << stats_memcpy_._min
+    << " max " << stats_memcpy_._max;
+  time_comm_ = 0.0;
+  time_memcpy_ = 0.0;
+}
+
+INSTANTIATE_CLASS(ShufflePnetCDFAllDataLayer);
+REGISTER_LAYER_CLASS(ShufflePnetCDFAllData);
 
 }  // namespace caffe
 

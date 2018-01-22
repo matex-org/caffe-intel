@@ -14,7 +14,7 @@
 #include "caffe/mpi.hpp"
 #include "caffe/parallel.hpp"
 #include "caffe/parallel/cpu_params.hpp"
-#include "caffe/parallel/mpi_gossip_params_cpu7.hpp"
+#include "caffe/parallel/mpi_gossip_params_cpu8.hpp"
 #include "caffe/parallel/stats.h"
 #include "caffe/util/benchmark.hpp"
 
@@ -54,7 +54,7 @@ static void apply_buffers(const vector<shared_ptr<Blob<Dtype> > >& blobs,
 }
 
 template<typename Dtype>
-void MPIGossipParamsCPU7<Dtype>::next() {
+void MPIGossipParamsCPU8<Dtype>::next() {
   if (cube_) {
     if (rotate_) {
       next_cube_rotate();
@@ -75,7 +75,7 @@ void MPIGossipParamsCPU7<Dtype>::next() {
 }
 
 template<typename Dtype>
-void MPIGossipParamsCPU7<Dtype>::next_cube() {
+void MPIGossipParamsCPU8<Dtype>::next_cube() {
   if (hci_ > logp_) {
     hci_ = 0;
   }
@@ -85,7 +85,7 @@ void MPIGossipParamsCPU7<Dtype>::next_cube() {
 }
 
 template<typename Dtype>
-void MPIGossipParamsCPU7<Dtype>::next_cube_rotate() {
+void MPIGossipParamsCPU8<Dtype>::next_cube_rotate() {
   if (hci_ > logp_) {
     hci_ = 0;
     mci_ = (mci_+1)%comm_size_;
@@ -98,7 +98,7 @@ void MPIGossipParamsCPU7<Dtype>::next_cube_rotate() {
 }
 
 template<typename Dtype>
-void MPIGossipParamsCPU7<Dtype>::next_diffuse() {
+void MPIGossipParamsCPU8<Dtype>::next_diffuse() {
   if (hci_ > logp_) {
     hci_ = 0;
   }
@@ -114,7 +114,7 @@ void MPIGossipParamsCPU7<Dtype>::next_diffuse() {
 }
 
 template<typename Dtype>
-void MPIGossipParamsCPU7<Dtype>::next_diffuse_rotate() {
+void MPIGossipParamsCPU8<Dtype>::next_diffuse_rotate() {
   if (hci_ > logp_) {
     hci_ = 0;
     mci_ = (mci_+1)%comm_size_;
@@ -132,7 +132,7 @@ void MPIGossipParamsCPU7<Dtype>::next_diffuse_rotate() {
 }
 
 template<typename Dtype>
-MPIGossipParamsCPU7<Dtype>::MPIGossipParamsCPU7(
+MPIGossipParamsCPU8<Dtype>::MPIGossipParamsCPU8(
     shared_ptr<Solver<Dtype> > root_solver,
     const SolverParameter& param,
     bool cube,
@@ -237,14 +237,14 @@ MPIGossipParamsCPU7<Dtype>::MPIGossipParamsCPU7(
 }
 
 template<typename Dtype>
-MPIGossipParamsCPU7<Dtype>::~MPIGossipParamsCPU7() {
+MPIGossipParamsCPU8<Dtype>::~MPIGossipParamsCPU8() {
   delete [] data_all_;
   delete [] history_;
   delete [] history_all_;
 }
 
 template<typename Dtype>
-void MPIGossipParamsCPU7<Dtype>::on_start() {
+void MPIGossipParamsCPU8<Dtype>::on_start() {
   DLOG(INFO) << "on_start()";
   CPUTimer timer;
 
@@ -284,6 +284,12 @@ void MPIGossipParamsCPU7<Dtype>::on_start() {
 
   // begin exchange of samples, data, and history
   {
+    /* before sending the data and history, make sure the latest values are
+     * resident in the CPU memory and not just PRV */
+    for (size_t i=0; i<params_.size(); ++i) {
+        params_[i]->mutable_cpu_data();
+        sgdsolver_->history()[i]->mutable_cpu_data();
+    }
     solver_->DataShuffleBegin();
     timer.Start();
     MPI_Comm comm = comms_[mci_];
@@ -300,7 +306,7 @@ void MPIGossipParamsCPU7<Dtype>::on_start() {
 }
 
 template<typename Dtype>
-void MPIGossipParamsCPU7<Dtype>::make_progress() {
+void MPIGossipParamsCPU8<Dtype>::make_progress() {
   CPUTimer timer;
 
   solver_->DataShuffleTest();
@@ -312,38 +318,38 @@ void MPIGossipParamsCPU7<Dtype>::make_progress() {
 }
 
 template<typename Dtype>
-void MPIGossipParamsCPU7<Dtype>::on_forward(int param_id) {
+void MPIGossipParamsCPU8<Dtype>::on_forward(int param_id) {
   DLOG(INFO) << "on_forward(param_id)";
   make_progress();
 }
 
 template<typename Dtype>
-void MPIGossipParamsCPU7<Dtype>::on_gradients_ready(int param_id) {
+void MPIGossipParamsCPU8<Dtype>::on_gradients_ready(int param_id) {
   DLOG(INFO) << "on_gradients_ready(param_id)";
   make_progress();
 }
 
 template<typename Dtype>
-void MPIGossipParamsCPU7<Dtype>::on_gradients_ready() {
+void MPIGossipParamsCPU8<Dtype>::on_gradients_ready() {
   DLOG(INFO) << "on_gradients_ready()";
   make_progress();
 }
 
 template<typename Dtype>
-int MPIGossipParamsCPU7<Dtype>::on_apply(int param_id) {
+int MPIGossipParamsCPU8<Dtype>::on_apply(int param_id) {
   DLOG(INFO) << "on_apply(param_id)";
   make_progress();
   return param_id;
 }
 
 template<typename Dtype>
-void MPIGossipParamsCPU7<Dtype>::on_update() {
+void MPIGossipParamsCPU8<Dtype>::on_update() {
   DLOG(INFO) << "on_update()";
   make_progress();
 }
 
 template<typename Dtype>
-void MPIGossipParamsCPU7<Dtype>::Run() {
+void MPIGossipParamsCPU8<Dtype>::Run() {
   LOG(INFO)<< "Starting Optimization";
 
   // Run root solver on current thread
@@ -351,14 +357,14 @@ void MPIGossipParamsCPU7<Dtype>::Run() {
 }
 
 template<typename Dtype>
-void MPIGossipParamsCPU7<Dtype>::Step(int iters) {
+void MPIGossipParamsCPU8<Dtype>::Step(int iters) {
   //LOG(INFO)<< "Stepping Optimization";
 
   // Run root solver on current thread
   solver_->Step(iters);
 }
 
-INSTANTIATE_CLASS(MPIGossipParamsCPU7);
+INSTANTIATE_CLASS(MPIGossipParamsCPU8);
 
 }  // namespace caffe
 

@@ -410,6 +410,16 @@ void iallreduce(MPI_Request &request, double* buffer, int count, MPI_Op op, MPI_
   }
 }
 
+void bcast(unsigned long &buffer, int root, MPI_Comm comm) {
+  if (MPI_COMM_NULL == comm) {
+    comm = get_comm_default();
+  }
+
+  if (MPI_SUCCESS != MPI_Bcast(&buffer, 1, MPI_UNSIGNED_LONG, root, comm)) {
+    throw std::runtime_error("MPI_Bcast 1 unsigned long failed");
+  }
+}
+
 void bcast(std::vector<int> &buffer, int root, MPI_Comm comm) {
   if (MPI_COMM_NULL == comm) {
     comm = get_comm_default();
@@ -417,6 +427,26 @@ void bcast(std::vector<int> &buffer, int root, MPI_Comm comm) {
 
   if (MPI_SUCCESS != MPI_Bcast(&buffer[0], buffer.size(), MPI_INT, root, comm)) {
     throw std::runtime_error("MPI_Bcast vector<int> failed");
+  }
+}
+
+void bcast(signed char* buffer, int count, int root, MPI_Comm comm) {
+  if (MPI_COMM_NULL == comm) {
+    comm = get_comm_default();
+  }
+
+  if (MPI_SUCCESS != MPI_Bcast(buffer, count, MPI_CHAR, root, comm)) {
+    throw std::runtime_error("MPI_Bcast signed char failed");
+  }
+}
+
+void bcast(int* buffer, int count, int root, MPI_Comm comm) {
+  if (MPI_COMM_NULL == comm) {
+    comm = get_comm_default();
+  }
+
+  if (MPI_SUCCESS != MPI_Bcast(buffer, count, MPI_INT, root, comm)) {
+    throw std::runtime_error("MPI_Bcast int failed");
   }
 }
 

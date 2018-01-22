@@ -129,6 +129,9 @@ protected:
   virtual void MultinodeSetUp(const vector<Blob<Dtype>*>& bottom,
                               const vector<Blob<Dtype>*>& top);
 
+#else
+public:
+  virtual bool ParamNeedReduce(int param_id) { return true; }
 #endif /* USE_MLSL */
 
  public:

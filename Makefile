@@ -439,7 +439,8 @@ ifeq ($(DEBUG), 1)
 else ifneq (,$(findstring icpc,$(CXX)))
 	COMMON_FLAGS += -DNDEBUG -O3 -xCORE-AVX2 -no-prec-div -fp-model fast=2
 else
-	COMMON_FLAGS += -DNDEBUG -O3
+	COMMON_FLAGS += -DNDEBUG -O3 -no-prec-div -fp-model fast=2
+	#COMMON_FLAGS += -DNDEBUG -O3
 endif
 
 # cuDNN acceleration configuration.

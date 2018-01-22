@@ -65,6 +65,43 @@ namespace caffe {
 static stats_t stats_pers_;
 
 template<typename Dtype>
+void Solver<Dtype>::DataShuffleBegin() {
+  DLOG(INFO) << "SOLVER SHUFFLE BEGIN";
+  if (NULL == data_layer_) {
+    DLOG(INFO) << "data_layer_ was NULL";
+    data_layer_ = dynamic_cast<BaseDataLayer<Dtype>*>(
+            net_->layers()[0].get());
+    if (NULL == data_layer_) {
+      LOG(FATAL) << "FAILED TO DYNAMIC CAST";
+    }
+  }
+  else {
+    DLOG(INFO) << "data_layer_ was SET";
+  }
+  if (NULL != data_layer_) {
+    data_layer_->DataShuffleBegin();
+  }
+}
+
+template<typename Dtype>
+bool Solver<Dtype>::DataShuffleTest() {
+  DLOG(INFO) << "SOLVER SHUFFLE TEST";
+  bool retval = true;
+  if (NULL != data_layer_) {
+    retval = data_layer_->DataShuffleTest();
+  }
+  return retval;
+}
+
+template<typename Dtype>
+void Solver<Dtype>::DataShuffleEnd() {
+  DLOG(INFO) << "SOLVER SHUFFLE END";
+  if (NULL != data_layer_) {
+    data_layer_->DataShuffleEnd();
+  }
+}
+
+template<typename Dtype>
 void Solver<Dtype>::SetActionFunction(ActionCallback func) {
   action_request_function_ = func;
 }
@@ -80,7 +117,7 @@ SolverAction::Enum Solver<Dtype>::GetRequestedAction() {
 
 template <typename Dtype>
 Solver<Dtype>::Solver(const SolverParameter& param, const Solver* root_solver)
-    : net_(), callbacks_(), root_solver_(root_solver),
+    : net_(), callbacks_(), data_layer_(NULL), root_solver_(root_solver),
       requested_early_exit_(false),
       scale_on_apply_(1.0),
       iteration_timer_(), iterations_last_(),
@@ -91,7 +128,7 @@ Solver<Dtype>::Solver(const SolverParameter& param, const Solver* root_solver)
 
 template <typename Dtype>
 Solver<Dtype>::Solver(const string& param_file, const Solver* root_solver)
-    : net_(), callbacks_(), root_solver_(root_solver),
+    : net_(), callbacks_(), data_layer_(NULL), root_solver_(root_solver),
       requested_early_exit_(false),
       scale_on_apply_(1.0),
       iteration_timer_(), iterations_last_(),
@@ -298,6 +335,12 @@ void Solver<Dtype>::Step(int iters) {
   net_->SetSolver(this);
 
   while (iter_ < stop_iter) {
+    if (param_.allreduce_iter() && iter_ % param_.allreduce_iter() == 0) {
+      for (int i = 0; i < callbacks_.size(); ++i) {
+        callbacks_[i]->do_allreduce();
+      }
+    }
+
     if (param_.test_interval() && iter_ % param_.test_interval() == 0
         && (iter_ > 0 || param_.test_initialization())
         && Caffe::root_solver()) {
@@ -713,24 +756,27 @@ void Solver<Dtype>::TestClassification(const int test_net_id) {
     return;
   }
   if (param_.test_compute_loss()) {
+#undef USE_MLSL
+#undef USE_MPI
+#if defined(USE_MLSL) || defined(USE_MPI)
 #ifdef USE_MLSL
     mn::allreduce(&loss, 1);
     loss /= (param_.test_iter(test_net_id) * mn::get_nodes_count());
     if (mn::get_node_id() == 0) {
       LOG(INFO) << "Test loss: " << loss;
     }
-#else /* !USE_MLSL */
+#endif /* !USE_MLSL */
 #ifdef USE_MPI
     caffe::mpi::allreduce(loss);
     loss /= (param_.test_iter(test_net_id) * caffe::mpi::comm_size());
     if (caffe::mpi::comm_rank() == 0) {
       LOG(INFO) << "Test loss: " << loss;
     }
-#else /* !USE_MPI */
+#endif /* !USE_MPI */
+#else
     loss /= param_.test_iter(test_net_id);
     LOG(INFO) << "Test loss: " << loss;
-#endif /* USE_MPI */
-#endif /* USE_MLSL */
+#endif /* USE_MLSL || USE_MPI */
   }
 #ifdef USE_MLSL
   mn::allreduce(test_score.data(), test_score.size());
@@ -746,17 +792,18 @@ void Solver<Dtype>::TestClassification(const int test_net_id) {
     const string& output_name = test_net->blob_names()[output_blob_index];
     const Dtype loss_weight = test_net->blob_loss_weights()[output_blob_index];
     ostringstream loss_msg_stream;
+#if defined(USE_MLSL) || defined(USE_MPI)
 #ifdef USE_MLSL
     const Dtype mean_score =
       test_score[i] / (param_.test_iter(test_net_id) * mn::get_nodes_count());
-#else /* !USE_MLSL */
+#endif /* !USE_MLSL */
 #ifdef USE_MPI
     const Dtype mean_score =
       test_score[i] / (param_.test_iter(test_net_id) * caffe::mpi::comm_size());
-#else /* !USE_MPI */
+#endif /* !USE_MPI */
+#else
     const Dtype mean_score = test_score[i] / param_.test_iter(test_net_id);
-#endif /* USE_MPI */
-#endif /* USE_MLSL */
+#endif /* USE_MLSL || USE_MPI */
     if (loss_weight) {
       loss_msg_stream << " (* " << loss_weight
                       << " = " << loss_weight * mean_score << " loss)";

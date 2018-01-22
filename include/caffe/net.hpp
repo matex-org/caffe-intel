@@ -235,6 +235,9 @@ class Net {
   const map<string, int>& param_names_index() const {
     return param_names_index_;
   }
+  const vector<pair<int, int> >& param_layer_indices() const {
+    return param_layer_indices_;
+  }
   inline const vector<int>& param_owners() const { return param_owners_; }
   inline const vector<string>& param_display_names() const {
     return param_display_names_;

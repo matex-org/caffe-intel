@@ -76,9 +76,9 @@ public:
           PERFORMANCE_EVENT_ID_RESET(perf_id_bw_);
     }
     ~MKLDNNBatchNormLayer() {}
-#ifdef USE_MLSL
+//#ifdef USE_MLSL
     virtual bool ParamNeedReduce(int param_id) { return param_id >= 3; }
-#endif
+//#endif
 
 protected:
     virtual void LayerSetUp(const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top);

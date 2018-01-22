@@ -501,9 +501,9 @@ class MKLBatchNormLayer : public Layer<Dtype> {
   virtual inline const char* type() const { return "BatchNorm"; }
   virtual inline int ExactNumBottomBlobs() const { return 1; }
   virtual inline int ExactNumTopBlobs() const { return 1; }
-#ifdef USE_MLSL
+//#ifdef USE_MLSL
   virtual bool ParamNeedReduce(int param_id) { return param_id >= 3; }
-#endif
+//#endif
 
  protected:
   virtual void Forward_cpu(const vector<Blob<Dtype>*>& bottom,
