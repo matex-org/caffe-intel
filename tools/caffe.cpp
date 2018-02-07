@@ -53,6 +53,7 @@ namespace bp = boost::python;
 #include "boost/make_shared.hpp"
 #include "caffe/caffe.hpp"
 #include "caffe/parallel/ga_sync_cpu.hpp"
+#include "caffe/parallel/ga_sync_cpu2.hpp"
 #include "caffe/parallel/mpi_sync_cpu.hpp"
 #include "caffe/parallel/mpi_gossip_params_cpu7.hpp"
 #include "caffe/parallel/mpi_gossip_params_cpu8.hpp"
@@ -295,6 +296,13 @@ int train() {
       }
   }
 
+#ifdef USE_GA
+  if (FLAGS_par == "GASyncCPU" || FLAGS_par == "GASyncCPU2") {
+    GA_Initialize();
+    caffe::mpi::set_comm_default(GA_MPI_Comm());
+  }
+#endif
+
   vector<int> gpus;
   get_gpus(&gpus);
   if (gpus.size() == 0) {
@@ -349,6 +357,10 @@ int train() {
       caffe::GASyncCPU<float> sync(solver);
       sync.Run();
     }
+    else if (FLAGS_par == "GASyncCPU2") {
+      caffe::GASyncCPU2<float> sync(solver);
+      sync.Run();
+    }
     else if (FLAGS_par == "MPISyncCPU") {
       caffe::MPISyncCPU<float> sync(solver);
       sync.Run();
@@ -400,6 +412,11 @@ int train() {
     LOG(INFO) << "Starting Optimization";
     solver->Solve();
   }
+#ifdef USE_GA
+  if (FLAGS_par == "GASyncCPU") {
+    GA_Terminate();
+  }
+#endif
   LOG(INFO) << "Optimization Done.";
   return 0;
 }
@@ -791,10 +808,6 @@ int main(int argc, char** argv) {
     LOG(INFO) << "MPI is initialized, disabling logging from other ranks";
   }
 #endif
-#ifdef USE_GA
-  GA_Initialize();
-  caffe::mpi::set_comm_default(GA_MPI_Comm());
-#endif
 
   if (argc == 2) {
 #ifdef WITH_PYTHON_LAYER
@@ -804,9 +817,6 @@ int main(int argc, char** argv) {
 #ifdef USE_MPI
       caffe::mpi::finalize();
 #endif 
-#ifdef USE_GA
-      GA_Terminate();
-#endif
       return ret;
 #ifdef WITH_PYTHON_LAYER
     } catch (bp::error_already_set) {
