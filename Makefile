@@ -65,6 +65,10 @@ ifeq ($(USE_MPI), 1)
 	COMMON_FLAGS += -DUSE_MPI=1
 endif
 
+ifeq ($(USE_GA), 1)
+	COMMON_FLAGS += -DUSE_GA=1
+endif
+
 #################### MLSL ####################
 
 ifeq ($(USE_MLSL), 1)
@@ -276,6 +280,9 @@ endif
 PYTHON_LIBRARIES ?= boost_python python2.7
 WARNINGS := -Wall -Wno-sign-compare
 
+ifeq ($(USE_GA), 1)
+	LIBRARIES += ga armci
+endif
 ##############################
 # Set build directories
 ##############################
@@ -437,10 +444,10 @@ ifeq ($(DEBUG), 1)
 	COMMON_FLAGS += -DDEBUG -g -O0
 	NVCCFLAGS += -G
 else ifneq (,$(findstring icpc,$(CXX)))
-	COMMON_FLAGS += -DNDEBUG -O3 -xCORE-AVX2 -no-prec-div -fp-model fast=2
+	#COMMON_FLAGS += -DNDEBUG -O3 -xCORE-AVX2 -no-prec-div -fp-model fast=2
 else
-	COMMON_FLAGS += -DNDEBUG -O3 -no-prec-div -fp-model fast=2
-	#COMMON_FLAGS += -DNDEBUG -O3
+	#COMMON_FLAGS += -DNDEBUG -O3 -no-prec-div -fp-model fast=2
+	COMMON_FLAGS += -DNDEBUG -O3
 endif
 
 # cuDNN acceleration configuration.
