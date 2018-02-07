@@ -34,8 +34,11 @@ GASyncCPU<Dtype>::GASyncCPU(shared_ptr<Solver<Dtype> > root_solver)
       stats_comp_(),
       data_recv_(),
       hist_recv_(),
+      data_hdl_(),
+      hist_hdl_(),
       layers_(root_solver->net()->layers()),
-      net_(root_solver->net())
+      net_(root_solver->net()),
+      first_time_(true)
 {
   stats_clear(&stats_comm_);
   stats_clear(&stats_comp_);
@@ -89,6 +92,9 @@ GASyncCPU<Dtype>::GASyncCPU(shared_ptr<Solver<Dtype> > root_solver)
     hist_recv_[i] = reinterpret_cast<Dtype*>(ARMCI_Malloc_local(sizeof(Dtype)*params_[i]->count()));
   }
 
+  data_hdl_.resize(params_.size());
+  hist_hdl_.resize(params_.size());
+
   /* broadcast model from rank 0 so they all match */
   for (size_t i=0; i<params_.size(); ++i) {
     if (CAN_USE_PRV_DATA(params_[i])) {
@@ -122,27 +128,36 @@ template<typename Dtype>
 void GASyncCPU<Dtype>::on_forward(int param_id) {
   int victim = rand() % comm_size_;
   DLOG(INFO) << "on_forward(" << param_id << ") victim=" << victim;
-  /* get data and history of random victim */
-  ARMCI_Get(data_pointers_[param_id][victim],
+
+  if (!first_time_) {
+    ARMCI_Wait(&data_hdl_[param_id]);
+    ARMCI_Wait(&hist_hdl_[param_id]);
+    /* blend with local, this also copies it to cpu from prv */
+    caffe_cpu_axpby(params_[param_id]->count(),
+        Dtype(0.5), data_recv_[param_id],
+        Dtype(0.5), params_[param_id]->mutable_cpu_data());
+    caffe_cpu_axpby(params_[param_id]->count(),
+        Dtype(0.5), hist_recv_[param_id],
+        Dtype(0.5), sgdsolver_->history()[param_id]->mutable_cpu_data());
+  }
+
+  /* prefetch data and history of random victim */
+  ARMCI_NbGet(data_pointers_[param_id][victim],
       data_recv_[param_id],
       sizeof(Dtype)*params_[param_id]->count(),
-      victim);
-  ARMCI_Get(hist_pointers_[param_id][victim],
+      victim,
+      &data_hdl_[param_id]);
+  ARMCI_NbGet(hist_pointers_[param_id][victim],
       hist_recv_[param_id],
       sizeof(Dtype)*params_[param_id]->count(),
-      victim);
-  /* blend with local, this also copies it to cpu from prv */
-  caffe_cpu_axpby(params_[param_id]->count(),
-      Dtype(0.5), data_recv_[param_id],
-      Dtype(0.5), params_[param_id]->mutable_cpu_data());
-  caffe_cpu_axpby(params_[param_id]->count(),
-      Dtype(0.5), hist_recv_[param_id],
-      Dtype(0.5), sgdsolver_->history()[param_id]->mutable_cpu_data());
+      victim,
+      &hist_hdl_[param_id]);
 }
 
 template<typename Dtype>
 void GASyncCPU<Dtype>::on_gradients_ready() {
   DLOG(INFO) << "on_gradients_ready()";
+  first_time_ = false;
 }
 
 template<typename Dtype>

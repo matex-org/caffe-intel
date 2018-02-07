@@ -12,7 +12,8 @@
 #include "caffe/solver.hpp"
 #include "caffe/sgd_solvers.hpp"
 
-#define NO_GA LOG(FATAL) << "Cannot use GA unless USE_GA is enabled during make."
+#include "armci.h"
+
 namespace caffe {
 
 // Synchronous data parallelism using Allreduce between remote CPUs.
@@ -50,8 +51,11 @@ class GASyncCPU : public Solver<Dtype>::Callback {
   vector<vector<Dtype*> > hist_pointers_;
   vector<Dtype*> data_recv_;
   vector<Dtype*> hist_recv_;
+  vector<armci_hdl_t> data_hdl_;
+  vector<armci_hdl_t> hist_hdl_;
   vector<shared_ptr<Layer<Dtype>>> layers_;
   shared_ptr<Net<Dtype>> net_;
+  bool first_time_;
 };
 
 }  // namespace caffe
