@@ -335,7 +335,9 @@ void Solver<Dtype>::Step(int iters) {
   net_->SetSolver(this);
 
   while (iter_ < stop_iter) {
-    if (param_.allreduce_iter() && iter_ % param_.allreduce_iter() == 0) {
+    if (param_.allreduce_iter() && iter_ % param_.allreduce_iter() == 0
+        && (iter_ > 0
+        && Caffe::root_solver()) {
       for (int i = 0; i < callbacks_.size(); ++i) {
         callbacks_[i]->do_allreduce();
       }
