@@ -54,6 +54,8 @@ namespace bp = boost::python;
 #include "caffe/caffe.hpp"
 #include "caffe/parallel/ga_sync_cpu.hpp"
 #include "caffe/parallel/ga_sync_cpu2.hpp"
+#include "caffe/parallel/ga_sync_cpu3.hpp"
+#include "caffe/parallel/ga_sync_cpu4.hpp"
 #include "caffe/parallel/mpi_sync_cpu.hpp"
 #include "caffe/parallel/mpi_gossip_params_cpu7.hpp"
 #include "caffe/parallel/mpi_gossip_params_cpu8.hpp"
@@ -297,7 +299,11 @@ int train() {
   }
 
 #ifdef USE_GA
-  if (FLAGS_par == "GASyncCPU" || FLAGS_par == "GASyncCPU2") {
+  if (FLAGS_par == "GASyncCPU"
+          || FLAGS_par == "GASyncCPU2"
+          || FLAGS_par == "GASyncCPU3"
+          || FLAGS_par == "GASyncCPU4"
+  ) {
     GA_Initialize();
     caffe::mpi::set_comm_default(GA_MPI_Comm());
   }
@@ -361,6 +367,14 @@ int train() {
       caffe::GASyncCPU2<float> sync(solver);
       sync.Run();
     }
+    else if (FLAGS_par == "GASyncCPU3") {
+      caffe::GASyncCPU3<float> sync(solver);
+      sync.Run();
+    }
+    else if (FLAGS_par == "GASyncCPU4") {
+      caffe::GASyncCPU4<float> sync(solver);
+      sync.Run();
+    }
     else if (FLAGS_par == "MPISyncCPU") {
       caffe::MPISyncCPU<float> sync(solver);
       sync.Run();
@@ -413,7 +427,10 @@ int train() {
     solver->Solve();
   }
 #ifdef USE_GA
-  if (FLAGS_par == "GASyncCPU") {
+  if (FLAGS_par == "GASyncCPU"
+          || FLAGS_par == "GASyncCPU2"
+          || FLAGS_par == "GASyncCPU3"
+  ) {
     GA_Terminate();
   }
 #endif
